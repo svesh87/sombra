@@ -1,0 +1,56 @@
+# Drafts, plans, audits. Remove this rule only together with tmp/ itself.
+tmp/*
+
+# Agent instructions and operator notes are machine-local.
+# .claude/skills/ is committed: the metrics-analysis skills are part of the
+# project.
+*.local.md
+.agents/
+.codex/
+.claude/*
+!.claude/skills/
+
+# Build
+/build*/
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+install_manifest.txt
+compile_commands.json
+Testing/
+*.o
+*.a
+*.so
+*.so.*
+*.gcda
+*.gcno
+*.gcov
+coverage/
+coverage.xml
+
+# Qt
+moc_*.cpp
+mocs_compilation.cpp
+ui_*.h
+qrc_*.cpp
+*.autosave
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+.coverage
+
+# Local telemetry and runtime data — never in the repository
+*.tsdb
+*.rrd
+/var/
+
+# Editors and OS
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
