@@ -123,7 +123,7 @@ cooldown() {
     printf "  (cooled to %s C in %ss)\n" "$(read_temp)" "$waited"
 }
 
-OUT="${OUT:-./tmp/combos_$(date +%Y-%m-%d_%H-%M-%S).csv}"
+OUT="${OUT:-./combos_$(date +%Y-%m-%d_%H-%M-%S).csv}"
 mkdir -p "$(dirname "$OUT")"
 echo "combo,t_s,pkg_c,fan_rpm,pl1_read_w" > "$OUT"
 

@@ -1,0 +1,148 @@
+#!/bin/sh
+# Builds the deb and checks what came out of it.
+#
+# Everything here works without root and without installing anything: the
+# package is inspected with `dpkg-deb`, never unpacked onto the system. That is
+# what lets this run as an ordinary test rather than as a manual step, and a
+# packaging mistake is exactly the kind that is only ever found by looking.
+#
+# The source tree is copied into the build directory first, because
+# dpkg-buildpackage writes its artefacts to the parent of the directory it
+# builds in. Running it in place would drop them beside the repository.
+set -eu
+
+# dpkg translates its own prose, and this script reads that output.
+LC_ALL=C
+export LC_ALL
+
+root=$(dirname "$0")/..
+cd "$root"
+root=$(pwd)
+
+builddir=${1:-$root/build-package}
+stage=$builddir/source
+log=$builddir/build.log
+
+status=0
+report() {
+    echo "package: $1" >&2
+    status=1
+}
+
+rm -rf "$builddir"
+mkdir -p "$stage"
+tar -C "$root" --exclude=./.git --exclude=./tmp --exclude='./build*' -cf - . \
+    | tar -C "$stage" -xf -
+
+if ! (cd "$stage" && dpkg-buildpackage -b -us -uc) >"$log" 2>&1; then
+    echo "package: dpkg-buildpackage failed" >&2
+    tail -n 40 "$log" >&2
+    exit 1
+fi
+
+deb=$(ls "$builddir"/cpu-throttler_*.deb 2>/dev/null | head -n 1)
+if [ -z "$deb" ]; then
+    echo "package: the build produced no .deb" >&2
+    exit 1
+fi
+
+contents=$(dpkg-deb -c "$deb")
+control=$(dpkg-deb -I "$deb")
+
+# The package version and the project version are the same number kept in two
+# places, and the whole point of a version is that it identifies a build.
+project_version=$(sed -n 's/^project(.*VERSION \([0-9.]*\).*/\1/p' "$root/CMakeLists.txt")
+package_version=$(printf '%s\n' "$control" | sed -n 's/^ Version: //p')
+if [ "$project_version" != "$package_version" ]; then
+    report "version is $package_version, CMakeLists.txt says $project_version"
+fi
+
+# Mode: the field dpkg-deb prints first, e.g. -rwxr-xr-x.
+expect_file() {
+    path=$1
+    mode=$2
+    line=$(printf '%s\n' "$contents" | awk -v p=".$path" '$NF == p { print; exit }')
+    if [ -z "$line" ]; then
+        report "$path is missing from the package"
+        return
+    fi
+    actual=$(printf '%s\n' "$line" | awk '{ print $1 }')
+    if [ "$actual" != "$mode" ]; then
+        report "$path is $actual, expected $mode"
+    fi
+}
+
+expect_file /usr/bin/cpu-throttlerd -rwxr-xr-x
+expect_file /usr/bin/cpu-throttlerctl -rwxr-xr-x
+expect_file /usr/bin/cpu-throttler-export -rwxr-xr-x
+expect_file /usr/bin/cpu-throttler-tray -rwxr-xr-x
+expect_file /etc/cpu_throttler/modes.conf -rw-r--r--
+expect_file /usr/lib/systemd/system/cpu-throttlerd.service -rw-r--r--
+expect_file /usr/share/applications/cpu-throttler-tray.desktop -rw-r--r--
+expect_file /usr/share/doc/cpu-throttler/README.md -rw-r--r--
+expect_file /usr/share/doc/cpu-throttler/HARDWARE.md -rw-r--r--
+expect_file /usr/share/doc/cpu-throttler/copyright -rw-r--r--
+
+# Nothing may land outside these two trees. A stray path is how a package
+# quietly starts owning files it has no business owning.
+strays=$(printf '%s\n' "$contents" | awk '{ print $NF }' \
+    | grep -v '/$' \
+    | grep -v '^\./usr/' \
+    | grep -v '^\./etc/' || true)
+if [ -n "$strays" ]; then
+    report "unexpected paths: $(printf '%s' "$strays" | tr '\n' ' ')"
+fi
+
+# The mode definitions are edited in place and tuned from telemetry. Without
+# this the next upgrade silently reverts the tuning.
+conffiles=$(dpkg-deb -I "$deb" conffiles 2>/dev/null || true)
+if ! printf '%s\n' "$conffiles" | grep -qx '/etc/cpu_throttler/modes.conf'; then
+    report "modes.conf is not registered as a conffile"
+fi
+
+for script in postinst prerm postrm; do
+    if ! dpkg-deb -I "$deb" "$script" >/dev/null 2>&1; then
+        report "$script is missing from the package"
+    fi
+done
+
+# Installing must not start the daemon and must not enable it. Handing over the
+# thermal controls is a deliberate act with a rollback procedure, and this is
+# what keeps a dropped --no-enable or --no-start in debian/rules from turning
+# it into a side effect of `dpkg -i`. Both are checked on the generated
+# snippet rather than on debian/rules, because the snippet is what runs:
+#   --no-start  leaves out deb-systemd-invoke, which is what starts a unit;
+#   --no-enable wraps the enable call in a `debian-installed` guard, so a
+#               fresh install enables nothing, while debhelper's default
+#               template enables unconditionally.
+postinst=$(dpkg-deb -I "$deb" postinst)
+case "$postinst" in
+*deb-systemd-invoke*) report "postinst starts the unit" ;;
+esac
+case "$postinst" in
+*"deb-systemd-helper enable"*)
+    case "$postinst" in
+    *"deb-systemd-helper debian-installed"*) ;;
+    *) report "postinst enables the unit on a fresh install" ;;
+    esac
+    ;;
+esac
+
+# Derived from the binaries by dpkg-shlibdeps, not listed by hand: a hand-kept
+# list goes stale the first time the distribution renames a Qt package.
+depends=$(printf '%s\n' "$control" | sed -n 's/^ Depends: //p')
+case "$depends" in
+*libqt6core*) ;;
+*) report "Depends does not mention Qt: '$depends'" ;;
+esac
+
+# Optional: not installed on the build machine, and the package targets one
+# machine rather than an archive, so its absence is not a failure.
+if command -v lintian >/dev/null 2>&1; then
+    lintian --no-tag-display-limit "$deb" || report "lintian is unhappy"
+fi
+
+if [ "$status" -eq 0 ]; then
+    echo "package: clean ($(basename "$deb"))"
+fi
+exit "$status"

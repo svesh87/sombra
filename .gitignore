@@ -12,6 +12,16 @@ tmp/*
 
 # Build
 /build*/
+obj-*-linux-gnu/
+
+# What dpkg-buildpackage leaves behind if it is run in the tree rather than in
+# the copy scripts/check_package.sh makes.
+/debian/cpu-throttler/
+/debian/.debhelper/
+/debian/files
+/debian/*.substvars
+/debian/*.debhelper
+/debian/debhelper-build-stamp
 CMakeFiles/
 CMakeCache.txt
 cmake_install.cmake

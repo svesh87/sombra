@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=CPU Throttler
+GenericName=Thermal envelope console
+Comment=Select a thermal mode and tune setpoints live against the current readings
+Exec=/usr/bin/cpu-throttler-tray
+Icon=applications-system
+Terminal=false
+Categories=System;Monitor;
+Keywords=cpu;thermal;fan;power;throttle;
+StartupNotify=false
+X-GNOME-Autostart-enabled=true

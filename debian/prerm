@@ -1,0 +1,11 @@
+#!/bin/sh
+# Stopping the daemon before its binary goes away is dh_installsystemd's job,
+# and the #DEBHELPER# token below is where it happens. The daemon restores
+# automatic fan control on every exit path it controls, and the unit's
+# ExecStopPost covers the one it does not, so a removal cannot leave the fan
+# behind.
+set -e
+
+#DEBHELPER#
+
+exit 0

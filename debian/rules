@@ -1,0 +1,27 @@
+#!/usr/bin/make -f
+
+export DEB_BUILD_MAINT_OPTIONS = hardening=+all
+
+%:
+	dh $@ --buildsystem=cmake
+
+# The test suite is a quality gate, run by `make gates` against a build tree
+# configured for it. Building it here would only slow the package down, and
+# the package test drives dpkg-buildpackage itself — running the suite from
+# inside it would nest the two.
+override_dh_auto_configure:
+	dh_auto_configure -- -DBUILD_TESTING=OFF
+
+override_dh_auto_test:
+
+# There can be exactly one owner of the thermal controls, so handing them to
+# this daemon means masking the vendor one. That is a deliberate act with a
+# rollback procedure, and the package must not perform it.
+override_dh_installsystemd:
+	dh_installsystemd --no-enable --no-start
+
+# The shipped documentation is Markdown meant to be read where it lands.
+# Compressing an 8 KB file to save 5 KB and cost a `zless` is not a trade this
+# package needs to make.
+override_dh_compress:
+	dh_compress -X.md

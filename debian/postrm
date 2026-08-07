@@ -1,0 +1,20 @@
+#!/bin/sh
+# Recorded telemetry is data. A plain removal leaves it alone; only an explicit
+# purge deletes it, because a week of samples is the material the modes are
+# tuned from and discarding it on `apt remove` would be a loss nobody asked
+# for.
+set -e
+
+case "$1" in
+purge)
+    rm -rf /var/lib/cpu_throttler
+    # The group is ours and grants nothing but access to the daemon's socket.
+    if getent group cpu_throttler >/dev/null 2>&1; then
+        delgroup --system cpu_throttler >/dev/null 2>&1 || true
+    fi
+    ;;
+esac
+
+#DEBHELPER#
+
+exit 0

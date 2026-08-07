@@ -159,6 +159,48 @@ writable, so charge limiting is a single-file operation.
 
 `hwmon*` indices are not stable across boots. Resolve every sensor by `name`.
 
+## Ambient light sensor and backlight
+
+Both exist and are independent of everything above. They are documented here
+because the daemon writes the backlight, not because either has anything to do
+with heat: selecting a thermal mode never moves the backlight.
+
+| Node | Value |
+|---|---|
+| `/sys/bus/iio/devices/iio:device0/name` | `als` — for identification only, see below |
+| `.../in_illuminance_raw` | rises with light; readable without root |
+| `.../in_illuminance_scale` | `0.001` |
+| `.../in_illuminance_sampling_frequency` | `10.0` |
+| `/sys/class/backlight/intel_backlight/max_brightness` | 400 |
+| `/sys/class/backlight/intel_backlight/brightness` | `root:root 0644` |
+
+Two properties decide how the daemon uses them.
+
+**The illuminance is not calibrated lux.** `in_illuminance_raw` multiplied by
+the scale lands roughly two orders of magnitude below what a light meter reports
+for the same room — the sensor sits behind dark bezel glass and nothing corrects
+for it. The reading is therefore used, recorded and configured in the sensor's
+own units, and the response curve is calibrated against them from recorded
+telemetry. Calling the number lux would be a claim of accuracy that is not
+there.
+
+**The backlight is writable only by root.** So the daemon owns it and the tray
+cannot touch it: everything the tray does to the backlight goes through the
+daemon. Anything else running as root can write it too, which is why the daemon
+remembers the last level it knows about — a reading that differs from that
+memory is somebody else's write, and in practice that somebody is the person on
+the brightness keys.
+
+`iio-sensor-proxy` is installed but not running, so nothing else currently
+drives the backlight from the sensor. If it were started, it and this daemon
+would be two owners of one control, which is the arrangement this project
+exists to avoid.
+
+The iio device index is no more stable than a `hwmon` one. The daemon locates
+the sensor by the presence of an illuminance channel rather than by index or by
+`name`, because drivers disagree about what to put in `name` and a device
+exposing an illuminance channel is a light sensor whatever it calls itself.
+
 ## Measured thermal behaviour
 
 Measured on one machine. Absolute values depend on the condition of an
@@ -177,17 +219,56 @@ transfers.
 
 ## Ownership conflicts
 
-- `system76-power` owns the D-Bus name `com.system76.PowerDaemon`. Its policy
-  file already permits any root process to own that name, along with
-  `net.hadess.PowerProfiles` and `org.freedesktop.UPower.PowerProfiles`; the
-  latter two are currently unowned because `power-profiles-daemon` is absent.
-  The name is not bus-activatable, so masking the unit transfers ownership
-  cleanly.
+- `system76-power` owns all three D-Bus names at once: `com.system76.PowerDaemon`,
+  `net.hadess.PowerProfiles` and `org.freedesktop.UPower.PowerProfiles`.
+  `power-profiles-daemon` is not installed, so nothing else competes for the
+  latter two. The stock policy file already permits any root process to own
+  them, and none of the three is bus-activatable — there is no activation file
+  under `/usr/share/dbus-1/system-services/` — so masking the unit transfers
+  ownership cleanly and nothing restarts the vendor daemon on demand.
+- **The vendor unit's real name is `com.system76.PowerDaemon.service`**;
+  `system76-power.service` is an `Alias=` declared by that unit, and the alias
+  exists on disk only as a symlink to it. Masking the alias replaces that
+  symlink and leaves the real unit enabled in `multi-user.target.wants`, so the
+  vendor daemon returns at the next boot. Everything that masks, unmasks or
+  conflicts with it must name the real unit.
 - `system76-power` also sets the display backlight on profile switch.
 - `thermald` runs by default and writes to RAPL and `intel_pstate` on its own.
 - `system76-scheduler` adjusts process priorities and is unrelated to thermals.
 
 All sysfs writes are lost on reboot.
+
+### The vendor D-Bus interface
+
+Taking the name over means answering the whole of it. As introspected on this
+machine, `com.system76.PowerDaemon` is sixteen methods and two signals:
+
+| Member | Signature | Note |
+|---|---|---|
+| `Battery` / `Balanced` / `Performance` | `() → ()` | select a profile |
+| `GetProfile` | `() → s` | |
+| `GetChargeThresholds` | `() → (y, y)` | start and end per cent |
+| `SetChargeThresholds` | `((yy)) → ()` | |
+| `GetChargeProfiles` | `() → a(sssyy)` | id, title, description, start, end |
+| `GetGraphics` / `SetGraphics` | `() → s` / `(s) → ()` | |
+| `GetGraphicsPower` / `SetGraphicsPower` | `() → b` / `(b) → ()` | |
+| `AutoGraphicsPower` | `() → ()` | |
+| `GetDefaultGraphics` | `() → s` | |
+| `GetSwitchable` | `() → b` | |
+| `GetDesktop` | `() → b` | |
+| `GetExternalDisplaysRequireDgpu` | `() → b` | |
+| `HotPlugDetect` | signal `(t)` | |
+| `PowerProfileSwitch` | signal `(s)` | |
+
+Eleven of those concern graphics switching, which this machine cannot do: there
+is no discrete GPU. They are constants, not functionality.
+
+The standard interface, `net.hadess.PowerProfiles` and its
+`org.freedesktop.UPower.PowerProfiles` alias, is the smaller one: the
+`ActiveProfile`, `Profiles`, `Actions`, `ActiveProfileHolds`,
+`PerformanceInhibited` and `PerformanceDegraded` properties, the `HoldProfile`
+and `ReleaseProfile` methods, and the `ProfileReleased` signal. It accepts
+exactly three profile names — `power-saver`, `balanced` and `performance`.
 
 ## Diagnostics
 

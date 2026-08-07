@@ -1,0 +1,49 @@
+#!/bin/sh
+# Installing the package must not take over the machine's thermal controls.
+#
+# Handing ownership to this daemon means masking the vendor daemon, and that is
+# a deliberate act with a rollback procedure, not a side effect of `dpkg -i`.
+# So this script prepares the one thing that cannot be prepared later — the
+# group the tray needs — prints the commands that actually hand over
+# ownership, and stops there. dh_installsystemd is called with --no-enable
+# --no-start for the same reason.
+set -e
+
+case "$1" in
+configure)
+    # The daemon runs as root and the tray as an ordinary user; they meet on a
+    # unix socket owned by this group. It has to exist before the first start,
+    # because the unit's ExecStartPost hands the socket to it.
+    if ! getent group cpu_throttler >/dev/null 2>&1; then
+        addgroup --system cpu_throttler >/dev/null
+    fi
+    ;;
+abort-upgrade | abort-remove | abort-deconfigure) ;;
+esac
+
+#DEBHELPER#
+
+if [ "$1" = configure ]; then
+    cat <<'INSTRUCTIONS'
+cpu-throttler is installed but not running. There can be exactly one owner of
+the thermal controls, so handing them over is a deliberate step:
+
+  sudo systemctl disable --now com.system76.PowerDaemon.service
+  sudo systemctl mask com.system76.PowerDaemon.service
+  sudo systemctl enable --now cpu-throttlerd
+
+(That is the vendor unit's real name; system76-power.service is only an alias
+of it, and masking the alias leaves the real unit enabled.)
+
+To use the tray, join the group and log back in:
+
+  sudo usermod -aG cpu_throttler "$USER"
+
+To hand the controls back:
+
+  sudo systemctl disable --now cpu-throttlerd
+  sudo systemctl unmask com.system76.PowerDaemon.service
+INSTRUCTIONS
+fi
+
+exit 0

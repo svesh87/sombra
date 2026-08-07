@@ -1,0 +1,251 @@
+// Copyright (c) 2026 Sergei Sveshnikov. MIT licensed, see LICENSE.
+#include "metrics_ring.h"
+
+#include <QDir>
+#include <QFileInfo>
+
+#include <algorithm>
+#include <atomic>
+#include <cerrno>
+#include <cstring>
+
+#include <fcntl.h>
+#include <sys/mman.h>
+#include <sys/stat.h>
+#include <unistd.h>
+
+namespace {
+
+QString describeErrno(const QString &what)
+{
+    return what + QStringLiteral(": ") + QString::fromLocal8Bit(std::strerror(errno));
+}
+
+} // namespace
+
+MetricsRing::MetricsRing() = default;
+
+MetricsRing::~MetricsRing()
+{
+    close();
+}
+
+RingHeader *MetricsRing::header() const
+{
+    return static_cast<RingHeader *>(m_map);
+}
+
+Sample *MetricsRing::records() const
+{
+    return reinterpret_cast<Sample *>(static_cast<char *>(m_map) + sizeof(RingHeader));
+}
+
+bool MetricsRing::open(const QString &path, uint64_t capacity, QString *error)
+{
+    close();
+
+    const auto fail = [error](const QString &message) {
+        if (error)
+            *error = message;
+        return false;
+    };
+
+    if (capacity == 0)
+        return fail(QStringLiteral("ring capacity must be non-zero"));
+    // The geometry is operator input. Without this the size computation below
+    // wraps and the mapping ends up smaller than the header claims, which
+    // turns every later append into an out-of-bounds write.
+    if (capacity > (SIZE_MAX - sizeof(RingHeader)) / sizeof(Sample))
+        return fail(QStringLiteral("ring capacity %1 does not fit in memory").arg(capacity));
+
+    QDir().mkpath(QFileInfo(path).absolutePath());
+
+    const int fd = ::open(path.toLocal8Bit().constData(), O_RDWR | O_CREAT | O_CLOEXEC, 0644);
+    if (fd < 0)
+        return fail(describeErrno(QStringLiteral("open %1").arg(path)));
+
+    const size_t wanted = sizeof(RingHeader) + static_cast<size_t>(capacity) * sizeof(Sample);
+
+    struct stat st {};
+    if (::fstat(fd, &st) != 0) {
+        const QString message = describeErrno(QStringLiteral("fstat %1").arg(path));
+        ::close(fd);
+        return fail(message);
+    }
+
+    // A short file is extended rather than rejected. The tail may have been
+    // lost to a truncated write; the records it held read back as
+    // never-written, which readers already have to handle for a fresh ring.
+    if (static_cast<size_t>(st.st_size) != wanted) {
+        if (::ftruncate(fd, static_cast<off_t>(wanted)) != 0) {
+            const QString message = describeErrno(QStringLiteral("ftruncate %1").arg(path));
+            ::close(fd);
+            return fail(message);
+        }
+    }
+    // Blocks are reserved here rather than left to be allocated page by page
+    // as the ring fills. A sparse mapping would turn a full filesystem into a
+    // SIGBUS days later, in the middle of a write, where the daemon cannot
+    // restore the hardware; reserving up front turns the same condition into
+    // an error message at startup.
+    if (const int code = ::posix_fallocate(fd, 0, static_cast<off_t>(wanted))) {
+        errno = code;
+        const QString message = describeErrno(QStringLiteral("allocate %1").arg(path));
+        ::close(fd);
+        return fail(message);
+    }
+
+    void *map = ::mmap(nullptr, wanted, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+    ::close(fd);
+    if (map == MAP_FAILED)
+        return fail(describeErrno(QStringLiteral("mmap %1").arg(path)));
+
+    m_map = map;
+    m_mapSize = wanted;
+    m_slots = capacity;
+    m_path = path;
+    m_readOnly = false;
+
+    RingHeader *head = header();
+    const bool geometryMatches = head->magic == kRingMagic && head->version == kRingVersion
+            && head->recordSize == sizeof(Sample) && head->capacity == capacity;
+    if (!geometryMatches) {
+        // A file that already existed carries someone else's records; a file
+        // just created by this call is already zero, and touching every page
+        // of it would dirty the whole ring for nothing.
+        if (st.st_size > 0)
+            std::memset(m_map, 0, m_mapSize);
+        head->magic = kRingMagic;
+        head->version = kRingVersion;
+        head->recordSize = sizeof(Sample);
+        head->capacity = capacity;
+        head->seq = 0;
+    }
+
+    return true;
+}
+
+bool MetricsRing::openExisting(const QString &path, QString *error)
+{
+    close();
+
+    const auto fail = [error](const QString &message) {
+        if (error)
+            *error = message;
+        return false;
+    };
+
+    const int fd = ::open(path.toLocal8Bit().constData(), O_RDONLY | O_CLOEXEC);
+    if (fd < 0)
+        return fail(describeErrno(QStringLiteral("open %1").arg(path)));
+
+    struct stat st {};
+    if (::fstat(fd, &st) != 0 || static_cast<size_t>(st.st_size) < sizeof(RingHeader)) {
+        ::close(fd);
+        return fail(QStringLiteral("%1 is not a metrics ring: too short").arg(path));
+    }
+
+    void *map = ::mmap(nullptr, static_cast<size_t>(st.st_size), PROT_READ, MAP_SHARED, fd, 0);
+    ::close(fd);
+    if (map == MAP_FAILED)
+        return fail(describeErrno(QStringLiteral("mmap %1").arg(path)));
+
+    const RingHeader *head = static_cast<const RingHeader *>(map);
+    const bool usable = head->magic == kRingMagic && head->version == kRingVersion
+            && head->recordSize == sizeof(Sample) && head->capacity > 0;
+    if (!usable) {
+        ::munmap(map, static_cast<size_t>(st.st_size));
+        return fail(QStringLiteral("%1 is not a metrics ring of version %2")
+                            .arg(path)
+                            .arg(kRingVersion));
+    }
+
+    m_map = map;
+    m_mapSize = static_cast<size_t>(st.st_size);
+    // A file shorter than its header claims has lost its tail. A reader does
+    // not repair it — the daemon does that when it next opens the ring — so
+    // the records that are gone simply read as never-written.
+    m_slots = std::min<uint64_t>(head->capacity,
+                                 (m_mapSize - sizeof(RingHeader)) / sizeof(Sample));
+    m_path = path;
+    m_readOnly = true;
+    return true;
+}
+
+void MetricsRing::close()
+{
+    if (m_map) {
+        if (!m_readOnly)
+            ::msync(m_map, m_mapSize, MS_SYNC);
+        ::munmap(m_map, m_mapSize);
+    }
+    m_map = nullptr;
+    m_mapSize = 0;
+    m_slots = 0;
+    m_readOnly = false;
+    m_path.clear();
+}
+
+void MetricsRing::append(const Sample &sample)
+{
+    if (!isOpen() || m_readOnly)
+        return;
+    RingHeader *head = header();
+    const uint64_t slot = head->seq % head->capacity;
+    records()[slot] = sample;
+    // Publish the record before the sequence number that makes it visible.
+    std::atomic_thread_fence(std::memory_order_release);
+    head->seq = head->seq + 1;
+}
+
+bool MetricsRing::markNewest(Mark mark)
+{
+    if (!isOpen() || m_readOnly)
+        return false;
+    RingHeader *head = header();
+    if (head->seq == 0)
+        return false;
+    const uint64_t slot = (head->seq - 1) % head->capacity;
+    records()[slot].mark = static_cast<uint8_t>(mark);
+    return true;
+}
+
+void MetricsRing::flush()
+{
+    if (!isOpen() || m_readOnly)
+        return;
+    // Asynchronous on purpose: the point of the mapping is that the daemon
+    // never waits on the disk.
+    ::msync(m_map, m_mapSize, MS_ASYNC);
+}
+
+uint64_t MetricsRing::capacity() const
+{
+    return isOpen() ? header()->capacity : 0;
+}
+
+uint64_t MetricsRing::sequence() const
+{
+    return isOpen() ? header()->seq : 0;
+}
+
+uint64_t MetricsRing::count() const
+{
+    if (!isOpen())
+        return 0;
+    const RingHeader *head = header();
+    return head->seq < head->capacity ? head->seq : head->capacity;
+}
+
+Sample MetricsRing::at(uint64_t index) const
+{
+    Sample empty {};
+    if (!isOpen() || index >= count())
+        return empty;
+    const RingHeader *head = header();
+    const uint64_t oldest = head->seq < head->capacity ? 0 : head->seq - head->capacity;
+    const uint64_t slot = (oldest + index) % head->capacity;
+    if (slot >= m_slots)
+        return empty;
+    return records()[slot];
+}

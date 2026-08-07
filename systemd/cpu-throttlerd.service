@@ -1,0 +1,36 @@
+[Unit]
+Description=CPU thermal and power daemon
+Documentation=https://github.com/svesh-dev/cpu_throttler
+# This daemon is the sole owner of the thermal control surface. Running it
+# alongside the vendor daemon produces race-dependent behaviour rather than
+# redundancy, so the vendor daemon is masked rather than ordered against.
+#
+# The name here is the vendor unit's real one. `system76-power.service` is only
+# an Alias= of it, and naming an alias is a trap: masking the alias replaces
+# the symlink that makes it resolve, after which a Conflicts= on that name
+# silently matches nothing.
+Conflicts=com.system76.PowerDaemon.service
+After=multi-user.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/cpu-throttlerd
+Restart=always
+RestartSec=2
+
+# The daemon restores automatic fan control on every exit path it controls.
+# This covers the one it does not: a crash. Without it a dead daemon can leave
+# the fan at full speed, and nothing else will pick up after it.
+ExecStopPost=/bin/sh -c 'for f in /sys/devices/platform/asus-nb-wmi/hwmon/hwmon*/pwm1_enable; do [ -w "$f" ] && echo 2 > "$f"; done; exit 0'
+
+# 0755 on the directory so a member of the cpu_throttler group can reach the
+# socket inside it. The socket's own ownership and mode are set by the daemon
+# right after it binds, not from here: an ExecStartPost races the bind, and a
+# chgrp that loses that race fails silently and leaves the tray locked out.
+RuntimeDirectory=cpu_throttler
+RuntimeDirectoryMode=0755
+StateDirectory=cpu_throttler
+StateDirectoryMode=0755
+
+[Install]
+WantedBy=multi-user.target

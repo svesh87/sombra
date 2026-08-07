@@ -69,17 +69,46 @@ Change only on an explicit request from the maintainer.
 
 - **Exactly one owner of the thermal controls: this daemon.** Two processes
   writing the same sysfs nodes produce race-dependent behaviour, not
-  redundancy. `system76-power` is masked with `systemctl mask`. Layering on top
-  of it, and forking its source, are both rejected.
+  redundancy. The vendor daemon is masked with
+  `systemctl mask com.system76.PowerDaemon.service` — its real unit name, not
+  the `system76-power.service` alias, because masking an alias leaves the real
+  unit enabled and it returns at the next boot. Layering on top of it, and
+  forking its source, are both rejected.
+- **Installing the package does not take ownership.** It creates the group the
+  tray needs, prints the two commands that hand the controls over, and stops
+  there — it enables nothing, starts nothing and masks nothing. Transferring
+  ownership of the thermal controls is a deliberate act with a rollback
+  procedure, not a side effect of `dpkg -i`, and the packaging test asserts it.
 - The daemon answers on `net.hadess.PowerProfiles` and
   `org.freedesktop.UPower.PowerProfiles` (the standard public interface, and the
   primary one) and on `com.system76.PowerDaemon` (vendor-specific, for the
   COSMIC panel applet). The stock D-Bus policy already permits a root process to
   own all three; it does not need editing.
-- **The daemon never changes display brightness, under any circumstances.**
-  Altering the backlight on a profile switch is `system76-power` behaviour that
-  this project treats as a defect. Restoring parity with the original on this
-  point is not an improvement.
+- **Display brightness is never coupled to the thermal mode.** Altering the
+  backlight on a profile switch is `system76-power` behaviour that this project
+  treats as a defect, and restoring parity with the original on that point is
+  not an improvement. Selecting a mode must leave the backlight exactly where
+  it was.
+- **Brightness that follows the ambient light sensor is a separate function
+  with its own profile and its own selector.** It reacts to the room, not to
+  the power profile, which is why it does not contradict the rule above.
+  Nothing about the thermal mode may reach it, in either direction.
+- **The level the person set is the baseline, and the automation works in a
+  window around it.** A hand correction is an instruction, not an
+  interruption: moving the brightness states what level is wanted in this
+  light, and the window moves with it. The brightness profile says how far the
+  automation may wander from that baseline, and a floor and a ceiling bound it
+  absolutely. Those bounds constrain the automation, never the person.
+- **A backlight that visibly hunts is a defect, not a tuning problem.** The
+  automation is watched by the person it serves, all day, and one wrong step
+  costs more attention than the whole feature saves. It moves in coarse steps
+  with hysteresis at their boundaries, waits before acting on a change, and
+  fades rather than jumps. Steady light must produce no writes at all.
+- **The automation is off by default, switches off in one action, and stays
+  off across a reboot.** Something the person turned off must not come back on
+  its own. Switching it on or off does not move the backlight — a jump in
+  brightness in answer to a toggle is the same defect as one in answer to a
+  profile switch.
 - The panel's three slots are redefined as this project's modes. **The middle
   mode is the working one — the machine spends the overwhelming majority of its
   time there.** It is applied at boot and it is the mode that telemetry tuning
@@ -113,7 +142,8 @@ itself.
   simplification.
 - **Reproducing the vendor's stock behaviour is not a mode.** That behaviour is
   the problem this project exists to fix. The escape hatch, if the modes here
-  turn out worse, is `systemctl unmask system76-power` — no code required.
+  turn out worse, is `systemctl unmask com.system76.PowerDaemon.service` — no
+  code required.
 
 ### Mode configuration
 

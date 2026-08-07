@@ -1,0 +1,5 @@
+cpu-throttler (0.1.0) unstable; urgency=medium
+
+  * Initial package.
+
+ -- Sergei Sveshnikov <sergei@svesh.dev>  Fri, 07 Aug 2026 20:35:50 +0200

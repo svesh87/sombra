@@ -15,7 +15,7 @@
 # iGPU is contributing. Without root everything else is still recorded.
 set -euo pipefail
 
-OUT="./tmp/session_$(date +%Y-%m-%d_%H-%M-%S).csv"
+OUT="./session_$(date +%Y-%m-%d_%H-%M-%S).csv"
 INTERVAL=1
 
 while [ $# -gt 0 ]; do
