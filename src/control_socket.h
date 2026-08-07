@@ -18,7 +18,7 @@
 // is exactly what the tray needs and nothing more. Shared with the tray so
 // that the daemon and the message the tray shows when it cannot connect can
 // never name different groups.
-inline constexpr const char *kControlSocketGroup = "cpu_throttler";
+inline constexpr const char *kControlSocketGroup = "ombra";
 class ControlSocket : public QObject {
     Q_OBJECT
 

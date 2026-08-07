@@ -63,7 +63,7 @@ public:
     static QString binary()
     {
         return QDir::cleanPath(QCoreApplication::applicationDirPath()
-                               + QStringLiteral("/../cpu-throttlerd"));
+                               + QStringLiteral("/../ombrad"));
     }
 
 private:

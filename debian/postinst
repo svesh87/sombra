@@ -14,8 +14,8 @@ configure)
     # The daemon runs as root and the tray as an ordinary user; they meet on a
     # unix socket owned by this group. It has to exist before the first start,
     # because the unit's ExecStartPost hands the socket to it.
-    if ! getent group cpu_throttler >/dev/null 2>&1; then
-        addgroup --system cpu_throttler >/dev/null
+    if ! getent group ombra >/dev/null 2>&1; then
+        addgroup --system ombra >/dev/null
     fi
     ;;
 abort-upgrade | abort-remove | abort-deconfigure) ;;
@@ -25,23 +25,23 @@ esac
 
 if [ "$1" = configure ]; then
     cat <<'INSTRUCTIONS'
-cpu-throttler is installed but not running. There can be exactly one owner of
+ombra is installed but not running. There can be exactly one owner of
 the thermal controls, so handing them over is a deliberate step:
 
   sudo systemctl disable --now com.system76.PowerDaemon.service
   sudo systemctl mask com.system76.PowerDaemon.service
-  sudo systemctl enable --now cpu-throttlerd
+  sudo systemctl enable --now ombrad
 
 (That is the vendor unit's real name; system76-power.service is only an alias
 of it, and masking the alias leaves the real unit enabled.)
 
 To use the tray, join the group and log back in:
 
-  sudo usermod -aG cpu_throttler "$USER"
+  sudo usermod -aG ombra "$USER"
 
 To hand the controls back:
 
-  sudo systemctl disable --now cpu-throttlerd
+  sudo systemctl disable --now ombrad
   sudo systemctl unmask com.system76.PowerDaemon.service
 INSTRUCTIONS
 fi

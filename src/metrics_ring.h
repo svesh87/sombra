@@ -12,12 +12,11 @@
 // in place, so there is no growth and no background cleanup task to fail.
 inline constexpr uint64_t kRingCapacity = 604800;
 
-inline constexpr uint32_t kRingMagic = 0x52485443;  // "CTHR" little-endian
+inline constexpr uint32_t kRingMagic = 0x52424d4f;  // "OMBR" little-endian
 // Raised whenever the meaning of the record changes. There is no migration
 // path: an existing ring with a different version is reinitialised, because a
-// telemetry ring has no history worth converting. Version 2 added the ambient
-// light and backlight fields.
-inline constexpr uint16_t kRingVersion = 2;
+// telemetry ring has no history worth converting.
+inline constexpr uint16_t kRingVersion = 1;
 
 #pragma pack(push, 1)
 struct RingHeader {

@@ -1,10 +1,14 @@
 *English · [Русский](README.ru.md)*
 
-# cpu_throttler
+# ombra
 
-Thermal and power management for the ASUS Zenbook 14 UX3405MA (Intel Core Ultra
-9 185H) on Linux: a background daemon that keeps the machine inside a chosen
-thermal envelope, and a tray UI to switch between envelopes.
+*Ombra* is Italian for shade — and in the shade a machine is both cooler and
+dimmer, which is what this daemon is for.
+
+Thermal, noise and backlight management for the ASUS Zenbook 14 UX3405MA (Intel
+Core Ultra 9 185H) on Linux: a background daemon that keeps the machine inside a
+chosen thermal envelope and follows the ambient light sensor, and a tray console
+to switch envelopes and tune them by ear.
 
 ## Why this exists
 
@@ -101,24 +105,27 @@ command and through the emergency guard.
 
 ## What is in here
 
+Three binaries, and the one you type is `ombra`.
+
 | Binary | Purpose |
 |---|---|
-| `cpu-throttlerd` | the daemon: applies the mode, follows the light sensor, records telemetry, answers on the D-Bus names |
-| `cpu-throttlerctl` | scriptable control: select a mode, tune live, stamp a verdict |
-| `cpu-throttler-export` | reads the telemetry ring as CSV or JSON |
-| `cpu-throttler-tray` | the experimentation console |
+| `ombrad` | the daemon: applies the mode, follows the light sensor, records telemetry, answers on the D-Bus names |
+| `ombra` | scriptable control: select a mode, tune live, stamp a verdict, read the telemetry ring |
+| `ombra-tray` | the experimentation console |
+
+`ombra export` is a subcommand rather than a program of its own, and it is the
+only one that does not go through the daemon: the ring is a file, the daemon
+keeps no history, and a week of samples has no business travelling through a
+line protocol.
 
 | Script | Purpose |
 |---|---|
 | `scripts/install.sh` | builds, installs and hands the thermal controls over |
 | `scripts/rollback.sh` | gives them back to the vendor daemon |
-| `scripts/cool-mode.sh` | manual stopgap predating the daemon: applies a fixed low-power state |
-| `scripts/measure-combos.sh` | calibration sweep: measures how each control affects temperature and fan speed |
-| `scripts/log-session.sh` | read-only logger: records what the machine does under a real workload |
 
 The mode numbers that ship in `config/modes.conf` come from measurement on one
 machine and are a starting point, not a result. They are meant to be tuned from
-recorded telemetry, which is what the export tool and the subjective marks are
+recorded telemetry, which is what `ombra export` and the subjective marks are
 for.
 
 ## Building and installing
@@ -152,11 +159,11 @@ owner of these controls, so handing them over is a separate decision, and
 hand:
 
 ```bash
-sudo dpkg -i build-package/cpu-throttler_*.deb
+sudo dpkg -i build-package/ombra_*.deb
 sudo systemctl disable --now com.system76.PowerDaemon.service
 sudo systemctl mask com.system76.PowerDaemon.service
-sudo systemctl enable --now cpu-throttlerd
-sudo usermod -aG cpu_throttler "$USER"    # log out and back in, for the tray
+sudo systemctl enable --now ombrad
+sudo usermod -aG ombra "$USER"    # log out and back in, for the tray
 ```
 
 A group you were added to while logged in only takes effect after a fresh
@@ -179,15 +186,15 @@ The desktop panel's three slots select this project's modes. Everything else
 goes through the socket:
 
 ```bash
-cpu-throttlerctl status                   # readings and setpoints as JSON
-cpu-throttlerctl mode quiet
-cpu-throttlerctl set pl1=15 max_perf_pct=40   # live, immediate, never persisted
-cpu-throttlerctl mark too-loud            # a verdict, stamped onto the sample
-cpu-throttlerctl fan max                  # explicit demand only
-cpu-throttler-export --format csv > session.csv
+ombra status                   # readings and setpoints as JSON
+ombra mode quiet
+ombra set pl1=15 max_perf_pct=40   # live, immediate, never persisted
+ombra mark too-loud            # a verdict, stamped onto the sample
+ombra fan max                  # explicit demand only
+ombra export --format csv > session.csv
 ```
 
-Durable mode definitions live in `/etc/cpu_throttler/modes.conf`, which the
+Durable mode definitions live in `/etc/ombra/modes.conf`, which the
 daemon reads and never writes. Changes take effect without a restart.
 
 ## Brightness that follows the room
@@ -197,9 +204,9 @@ switch. Selecting a mode never moves the backlight, and nothing about the
 backlight reaches the thermal side.
 
 ```bash
-cpu-throttlerctl brightness on
-cpu-throttlerctl brightness off           # remembered across a reboot
-cpu-throttlerctl brightness profile indoors
+ombra brightness on
+ombra brightness off           # remembered across a reboot
+ombra brightness profile indoors
 ```
 
 The model is short:
@@ -223,7 +230,7 @@ The model is short:
 - **Off is off.** Switched off, the daemon does not write the backlight at all,
   and neither switching it on nor off moves the backlight by itself.
 
-The curve is defined in `/etc/cpu_throttler/modes.conf` in the sensor's own
+The curve is defined in `/etc/ombra/modes.conf` in the sensor's own
 units, which are not lux — see `HARDWARE.md`. The `light` column of an exported
 session is what to calibrate it against.
 
@@ -258,7 +265,7 @@ telemetry alone: the telemetry is the material the modes are tuned from, and a
 bad afternoon is not a reason to throw it away. By hand, that is:
 
 ```bash
-sudo systemctl disable --now cpu-throttlerd
+sudo systemctl disable --now ombrad
 sudo systemctl unmask com.system76.PowerDaemon.service
 sudo systemctl enable --now com.system76.PowerDaemon.service
 ```

@@ -207,6 +207,15 @@ Measured on one machine. Absolute values depend on the condition of an
 individual unit's cooling; the relationships between settings are the part that
 transfers.
 
+How, because a number without its method is not a measurement: eight busy-loop
+threads, each combination given **90 s to settle** before **90 s of recording**,
+and the machine cooled back to **65 °C between combinations** so that none of
+them inherits the previous one's heat. The settle time is not arbitrary — the
+heatsink's time constant is tens of seconds, and sampling earlier measures the
+transient rather than the state. A run aborted the current combination if the
+package reached 95 °C. The idle figures come from the same procedure with zero
+load threads.
+
 - Package temperature settles at **60–63 °C at idle** with the fan at its floor
   and load average below 1.
 - Switching from the vendor `balanced` profile to `battery` — frequency ceiling

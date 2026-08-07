@@ -26,10 +26,10 @@ struct DaemonOptions {
     // ring and the socket are ordinary paths, given in full so that a test run
     // and a service run differ only in their arguments.
     QString sysfsRoot = QStringLiteral("/");
-    QString configPath = QStringLiteral("/etc/cpu_throttler/modes.conf");
-    QString statePath = QStringLiteral("/var/lib/cpu_throttler/state");
-    QString ringPath = QStringLiteral("/var/lib/cpu_throttler/metrics.ring");
-    QString socketPath = QStringLiteral("/run/cpu_throttler/control.sock");
+    QString configPath = QStringLiteral("/etc/ombra/modes.conf");
+    QString statePath = QStringLiteral("/var/lib/ombra/state");
+    QString ringPath = QStringLiteral("/var/lib/ombra/metrics.ring");
+    QString socketPath = QStringLiteral("/run/ombra/control.sock");
     quint64 ringCapacity = kRingCapacity;
     int intervalMs = 1000;
     // The backlight fade runs far faster than the sampling loop, because a

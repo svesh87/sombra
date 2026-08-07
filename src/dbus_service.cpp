@@ -505,7 +505,7 @@ bool DBusService::start(QString *error)
     if (d->options.busAddress.isEmpty()) {
         d->connection = QDBusConnection::systemBus();
     } else {
-        d->privateConnectionName = QStringLiteral("cpu-throttler-")
+        d->privateConnectionName = QStringLiteral("ombra-")
                 + QString::number(reinterpret_cast<quintptr>(this), 16);
         d->connection =
                 QDBusConnection::connectToBus(d->options.busAddress, d->privateConnectionName);

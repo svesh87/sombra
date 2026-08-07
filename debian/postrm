@@ -7,10 +7,10 @@ set -e
 
 case "$1" in
 purge)
-    rm -rf /var/lib/cpu_throttler
+    rm -rf /var/lib/ombra
     # The group is ours and grants nothing but access to the daemon's socket.
-    if getent group cpu_throttler >/dev/null 2>&1; then
-        delgroup --system cpu_throttler >/dev/null 2>&1 || true
+    if getent group ombra >/dev/null 2>&1; then
+        delgroup --system ombra >/dev/null 2>&1 || true
     fi
     ;;
 esac

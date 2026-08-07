@@ -1,9 +1,9 @@
 [Desktop Entry]
 Type=Application
-Name=CPU Throttler
+Name=Ombra
 GenericName=Thermal envelope console
 Comment=Select a thermal mode and tune setpoints live against the current readings
-Exec=/usr/bin/cpu-throttler-tray
+Exec=/usr/bin/ombra-tray
 Icon=applications-system
 Terminal=false
 Categories=System;Monitor;

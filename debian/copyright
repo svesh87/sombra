@@ -1,7 +1,7 @@
 Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
-Upstream-Name: cpu_throttler
+Upstream-Name: ombra
 Upstream-Contact: Sergei Sveshnikov <sergei@svesh.dev>
-Source: https://github.com/svesh-dev/cpu_throttler
+Source: https://github.com/svesh87/ombra
 
 Files: *
 Copyright: 2026 Sergei Sveshnikov

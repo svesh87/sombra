@@ -11,7 +11,7 @@
 #include <QTest>
 
 // End-to-end: the real binaries, against a fake control surface. This is also
-// the only place the option parsing in the three main functions is exercised.
+// the only place the option parsing in the main functions is exercised.
 class CliTest : public QObject {
     Q_OBJECT
 
@@ -27,7 +27,6 @@ private slots:
 private:
     static QString daemonBinary() { return QStringLiteral(DAEMON_BINARY); }
     static QString ctlBinary() { return QStringLiteral(CTL_BINARY); }
-    static QString exportBinary() { return QStringLiteral(EXPORT_BINARY); }
 
     struct Run {
         int code = -1;
@@ -215,38 +214,49 @@ void CliTest::exportRendersTheRingInBothFormats()
                      .code,
              0);
 
-    const Run csv = run(exportBinary(), { QStringLiteral("--ring"), ring });
+    // Reading the ring is the one command that does not go to the daemon, so
+    // it works with nothing listening.
+    const Run csv = run(ctlBinary(), { QStringLiteral("export"), QStringLiteral("--ring"), ring });
     QCOMPARE(csv.code, 0);
     const QStringList lines = csv.out.split(QLatin1Char('\n'), Qt::SkipEmptyParts);
     QCOMPARE(lines.size(), 4);
     QVERIFY(lines.first().startsWith(QStringLiteral("ts,pkg_c")));
 
-    const Run json =
-            run(exportBinary(), { QStringLiteral("--ring"), ring, QStringLiteral("--format"),
-                                  QStringLiteral("json") });
+    const Run json = run(ctlBinary(), { QStringLiteral("export"), QStringLiteral("--ring"), ring,
+                                        QStringLiteral("--format"), QStringLiteral("json") });
     QCOMPARE(json.code, 0);
     QCOMPARE(QJsonDocument::fromJson(json.out.toUtf8()).array().size(), 3);
 
     const Run windowed =
-            run(exportBinary(), { QStringLiteral("--ring"), ring, QStringLiteral("--from"),
-                                  QStringLiteral("4000000000") });
+            run(ctlBinary(), { QStringLiteral("export"), QStringLiteral("--ring"), ring,
+                               QStringLiteral("--from"), QStringLiteral("4000000000") });
     QCOMPARE(windowed.code, 0);
     QCOMPARE(windowed.out.split(QLatin1Char('\n'), Qt::SkipEmptyParts).size(), 1);
+
+    // The subcommand has its own options and its own help, which is why it is
+    // dispatched before the control parser sees the arguments.
+    const Run help = run(ctlBinary(), { QStringLiteral("export"), QStringLiteral("--help") });
+    QCOMPARE(help.code, 0);
+    QVERIFY(help.out.contains(QStringLiteral("--ring")));
+    QVERIFY(!help.out.contains(QStringLiteral("--socket")));
 }
 
 void CliTest::exportRejectsBadInput()
 {
     QTemporaryDir work;
-    QCOMPARE(run(exportBinary(), { QStringLiteral("--ring"),
-                                   work.path() + QStringLiteral("/absent.ring") })
+    QCOMPARE(run(ctlBinary(), { QStringLiteral("export"), QStringLiteral("--ring"),
+                                work.path() + QStringLiteral("/absent.ring") })
                      .code,
              1);
-    QCOMPARE(run(exportBinary(), { QStringLiteral("--format"), QStringLiteral("yaml") }).code, 2);
+    QCOMPARE(run(ctlBinary(), { QStringLiteral("export"), QStringLiteral("--format"),
+                                QStringLiteral("yaml") })
+                     .code,
+             2);
 }
 
 void CliTest::helpAndVersionWork()
 {
-    for (const QString &binary : { daemonBinary(), ctlBinary(), exportBinary() }) {
+    for (const QString &binary : { daemonBinary(), ctlBinary() }) {
         const Run help = run(binary, { QStringLiteral("--help") });
         QCOMPARE(help.code, 0);
         QVERIFY2(!help.out.isEmpty(), qPrintable(binary));

@@ -109,7 +109,7 @@ TrayWindow::TrayWindow(TrayClient &client, QWidget *parent)
     , m_ui(new Ui)
     , m_client(client)
 {
-    setWindowTitle(QStringLiteral("CPU Throttler"));
+    setWindowTitle(QStringLiteral("Ombra"));
     build();
 
     connect(&m_client, &TrayClient::statusChanged, this, &TrayWindow::applyStatus);
@@ -549,7 +549,7 @@ void TrayWindow::onConnectionChanged(bool connected)
         // guessing at which of them it is.
         m_ui->connection->setText(
                 QStringLiteral("The daemon is not answering on %1.\n"
-                               "Is cpu-throttlerd running, and are you in the %2 group? "
+                               "Is ombrad running, and are you in the %2 group? "
                                "A group added while you were logged in only takes effect "
                                "after a fresh login.")
                         .arg(m_client.socketPath(),

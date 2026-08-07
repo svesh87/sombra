@@ -1,4 +1,4 @@
-Source: cpu-throttler
+Source: ombra
 Section: utils
 Priority: optional
 Maintainer: Sergei Sveshnikov <sergei@svesh.dev>
@@ -7,13 +7,13 @@ Build-Depends: debhelper-compat (= 13),
                qt6-base-dev,
                qt6-base-dev-tools
 Standards-Version: 4.6.2
-Homepage: https://github.com/svesh-dev/cpu_throttler
+Homepage: https://github.com/svesh87/ombra
 Rules-Requires-Root: no
 
-Package: cpu-throttler
+Package: ombra
 Architecture: amd64
 Depends: ${shlibs:Depends}, ${misc:Depends}
-Description: thermal and power daemon for the ASUS Zenbook 14 UX3405MA
+Description: thermal, noise and backlight daemon for the ASUS Zenbook 14 UX3405MA
  A daemon that keeps an ASUS Zenbook 14 UX3405MA (Intel Core Ultra 9 185H)
  inside a chosen thermal envelope, and a tray console to switch between
  envelopes and to tune them by ear.

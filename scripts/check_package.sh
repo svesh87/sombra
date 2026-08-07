@@ -40,7 +40,7 @@ if ! (cd "$stage" && dpkg-buildpackage -b -us -uc) >"$log" 2>&1; then
     exit 1
 fi
 
-deb=$(ls "$builddir"/cpu-throttler_*.deb 2>/dev/null | head -n 1)
+deb=$(ls "$builddir"/ombra_*.deb 2>/dev/null | head -n 1)
 if [ -z "$deb" ]; then
     echo "package: the build produced no .deb" >&2
     exit 1
@@ -72,16 +72,15 @@ expect_file() {
     fi
 }
 
-expect_file /usr/bin/cpu-throttlerd -rwxr-xr-x
-expect_file /usr/bin/cpu-throttlerctl -rwxr-xr-x
-expect_file /usr/bin/cpu-throttler-export -rwxr-xr-x
-expect_file /usr/bin/cpu-throttler-tray -rwxr-xr-x
-expect_file /etc/cpu_throttler/modes.conf -rw-r--r--
-expect_file /usr/lib/systemd/system/cpu-throttlerd.service -rw-r--r--
-expect_file /usr/share/applications/cpu-throttler-tray.desktop -rw-r--r--
-expect_file /usr/share/doc/cpu-throttler/README.md -rw-r--r--
-expect_file /usr/share/doc/cpu-throttler/HARDWARE.md -rw-r--r--
-expect_file /usr/share/doc/cpu-throttler/copyright -rw-r--r--
+expect_file /usr/bin/ombrad -rwxr-xr-x
+expect_file /usr/bin/ombra -rwxr-xr-x
+expect_file /usr/bin/ombra-tray -rwxr-xr-x
+expect_file /etc/ombra/modes.conf -rw-r--r--
+expect_file /usr/lib/systemd/system/ombrad.service -rw-r--r--
+expect_file /usr/share/applications/ombra-tray.desktop -rw-r--r--
+expect_file /usr/share/doc/ombra/README.md -rw-r--r--
+expect_file /usr/share/doc/ombra/HARDWARE.md -rw-r--r--
+expect_file /usr/share/doc/ombra/copyright -rw-r--r--
 
 # Nothing may land outside these two trees. A stray path is how a package
 # quietly starts owning files it has no business owning.
@@ -96,7 +95,7 @@ fi
 # The mode definitions are edited in place and tuned from telemetry. Without
 # this the next upgrade silently reverts the tuning.
 conffiles=$(dpkg-deb -I "$deb" conffiles 2>/dev/null || true)
-if ! printf '%s\n' "$conffiles" | grep -qx '/etc/cpu_throttler/modes.conf'; then
+if ! printf '%s\n' "$conffiles" | grep -qx '/etc/ombra/modes.conf'; then
     report "modes.conf is not registered as a conffile"
 fi
 

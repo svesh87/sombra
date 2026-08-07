@@ -72,7 +72,7 @@ public:
     static QString binary()
     {
         return QDir::cleanPath(QCoreApplication::applicationDirPath()
-                               + QStringLiteral("/../cpu-throttlerd"));
+                               + QStringLiteral("/../ombrad"));
     }
 
 private:
@@ -551,7 +551,7 @@ void TrayWindowTest::saysSoWhenTheDaemonIsUnreachable()
 void TrayWindowTest::theTrayBinaryRunsAgainstADaemon()
 {
     const QString binary = QDir::cleanPath(QCoreApplication::applicationDirPath()
-                                           + QStringLiteral("/../cpu-throttler-tray"));
+                                           + QStringLiteral("/../ombra-tray"));
     QVERIFY2(QFile::exists(binary), qPrintable(binary));
 
     auto daemon = std::make_unique<TestDaemon>(m_tree->root(), m_work.path());

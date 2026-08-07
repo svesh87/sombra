@@ -326,7 +326,7 @@ void DBusServiceTest::claimsTheThreeNames()
 void DBusServiceTest::reportsAnUnreachableBus()
 {
     DBusService::Options options;
-    options.busAddress = QStringLiteral("unix:path=/nonexistent/cpu-throttler-test-bus");
+    options.busAddress = QStringLiteral("unix:path=/nonexistent/ombra-test-bus");
     options.nameSuffix = m_suffix + QStringLiteral(".unreachable");
     DBusService orphan(*m_daemon, options);
 

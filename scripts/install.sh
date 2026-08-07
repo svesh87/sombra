@@ -18,7 +18,7 @@
 set -eu
 
 VENDOR_UNIT=com.system76.PowerDaemon.service
-OUR_UNIT=cpu-throttlerd.service
+OUR_UNIT=ombrad.service
 # The hardware this project was built and measured on. Every sysfs path it
 # writes was verified here and nowhere else.
 SUPPORTED_MODEL=UX3405
@@ -63,7 +63,7 @@ if [ "$(id -u)" -ne 0 ]; then
     exec sudo "$self" "$@"
 fi
 
-deb=$(ls "$root"/build-package/cpu-throttler_*.deb 2>/dev/null | head -n 1)
+deb=$(ls "$root"/build-package/ombra_*.deb 2>/dev/null | head -n 1)
 if [ -z "$deb" ]; then
     echo "no package in build-package/ — run scripts/check_package.sh first" >&2
     exit 1
@@ -95,9 +95,9 @@ systemctl restart "$OUR_UNIT"
 # owned by this group.
 user=${SUDO_USER:-}
 if [ -n "$user" ] && [ "$user" != root ]; then
-    if ! id -nG "$user" | tr ' ' '\n' | grep -qx cpu_throttler; then
-        usermod -aG cpu_throttler "$user"
-        echo "==> added $user to the cpu_throttler group — log out and back in for the tray"
+    if ! id -nG "$user" | tr ' ' '\n' | grep -qx ombra; then
+        usermod -aG ombra "$user"
+        echo "==> added $user to the ombra group — log out and back in for the tray"
     fi
 fi
 
@@ -105,16 +105,16 @@ echo
 systemctl --no-pager --lines=0 status "$OUR_UNIT" || true
 echo
 echo "==> what the daemon says"
-cpu-throttlerctl status || true
+ombra status || true
 echo
 
 # The tray is a separate process running as a person; a rebuild does not reach
 # it, and nothing here is going to kill somebody's window without asking.
-if pgrep -x cpu-throttler-tray >/dev/null 2>&1; then
-    echo "A cpu-throttler-tray is running the previous build — restart it to pick this one up."
+if pgrep -x ombra-tray >/dev/null 2>&1; then
+    echo "The tray is still running the previous build — restart it to pick this one up."
 fi
 
 echo "Watch for a while, then:"
-echo "  cpu-throttlerctl status                 readings and setpoints"
-echo "  cpu-throttler-export --format csv       the recorded session"
-echo "  scripts/rollback.sh                     give the controls back"
+echo "  ombra status                readings and setpoints"
+echo "  ombra export --format csv   the recorded session"
+echo "  scripts/rollback.sh         give the controls back"

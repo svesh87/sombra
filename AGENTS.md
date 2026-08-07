@@ -341,7 +341,7 @@ conversation. A session that ends with its findings only in chat has lost them.
   or that "align" things without a real discrepancy, become documentation-only
   items, reasoned rejections, or questions — not code.
 - On request, the full architecture description in
-  `tmp/THROTTLER_ARCHITECTURE.md` is updated; copy the previous version to
+  `tmp/ARCHITECTURE.md` is updated; copy the previous version to
   `tmp/old/` first.
 
 ## Repository rules

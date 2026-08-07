@@ -13,7 +13,7 @@
 int main(int argc, char **argv)
 {
     QCoreApplication app(argc, argv);
-    QCoreApplication::setApplicationName(QStringLiteral("cpu-throttlerd"));
+    QCoreApplication::setApplicationName(QStringLiteral("ombrad"));
     QCoreApplication::setApplicationVersion(QStringLiteral("0.1.0"));
 
     QCommandLineParser parser;

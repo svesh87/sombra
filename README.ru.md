@@ -1,10 +1,14 @@
 *[English](README.md) · Русский*
 
-# cpu_throttler
+# ombra
 
-Управление тепловым режимом и питанием ноутбука ASUS Zenbook 14 UX3405MA
+*Ombra* по-итальянски «тень» — а в тени машина и прохладнее, и темнее, чем
+этот демон и занимается.
+
+Управление теплом, шумом и подсветкой ноутбука ASUS Zenbook 14 UX3405MA
 (Intel Core Ultra 9 185H) под Linux: фоновый демон, удерживающий машину в
-выбранных тепловых рамках, и трей-UI для переключения между ними.
+выбранных тепловых рамках и следящий за датчиком освещённости, и трей-пульт,
+чтобы переключать рамки и подгонять их на слух.
 
 ## Зачем это нужно
 
@@ -104,24 +108,26 @@ DBus-именами. Перенос означает, что сначала на
 
 ## Что здесь есть
 
+Три бинарника, и набирать вы будете `ombra`.
+
 | Бинарник | Назначение |
 |---|---|
-| `cpu-throttlerd` | демон: применяет режим, следует за датчиком освещённости, пишет телеметрию, отвечает на DBus-именах |
-| `cpu-throttlerctl` | скриптуемое управление: выбрать режим, подкрутить вживую, поставить пометку |
-| `cpu-throttler-export` | читает кольцо телеметрии в CSV или JSON |
-| `cpu-throttler-tray` | экспериментальный пульт |
+| `ombrad` | демон: применяет режим, следует за датчиком освещённости, пишет телеметрию, отвечает на DBus-именах |
+| `ombra` | скриптуемое управление: выбрать режим, подкрутить вживую, поставить пометку, прочитать кольцо телеметрии |
+| `ombra-tray` | экспериментальный пульт |
+
+`ombra export` — подкоманда, а не отдельная программа, и единственная, которая
+не ходит к демону: кольцо это файл, истории демон не хранит, а неделе выборок
+нечего делать в построчном протоколе.
 
 | Скрипт | Назначение |
 |---|---|
 | `scripts/install.sh` | собирает, ставит и передаёт тепловые ручки демону |
 | `scripts/rollback.sh` | возвращает их вендорскому демону |
-| `scripts/cool-mode.sh` | ручной костыль, предшествовавший демону: фиксированный режим пониженной мощности |
-| `scripts/measure-combos.sh` | калибровочный прогон: измеряет, как каждая ручка влияет на температуру и обороты |
-| `scripts/log-session.sh` | логгер только на чтение: записывает поведение машины под реальной нагрузкой |
 
 Числа режимов в `config/modes.conf` получены измерением на одной машине и
 являются отправной точкой, а не результатом. Их предполагается докручивать по
-записанной телеметрии — ровно для этого существуют утилита экспорта и
+записанной телеметрии — ровно для этого существуют `ombra export` и
 субъективные пометки.
 
 ## Сборка и установка
@@ -155,11 +161,11 @@ root только там, где это нужно, и отказывается 
 руками:
 
 ```bash
-sudo dpkg -i build-package/cpu-throttler_*.deb
+sudo dpkg -i build-package/ombra_*.deb
 sudo systemctl disable --now com.system76.PowerDaemon.service
 sudo systemctl mask com.system76.PowerDaemon.service
-sudo systemctl enable --now cpu-throttlerd
-sudo usermod -aG cpu_throttler "$USER"    # перелогиниться, ради трея
+sudo systemctl enable --now ombrad
+sudo usermod -aG ombra "$USER"    # перелогиниться, ради трея
 ```
 
 Группа, в которую вас добавили во время сеанса, вступает в силу только после
@@ -182,15 +188,15 @@ sudo usermod -aG cpu_throttler "$USER"    # перелогиниться, рад
 сокет:
 
 ```bash
-cpu-throttlerctl status                   # показания и уставки в JSON
-cpu-throttlerctl mode quiet
-cpu-throttlerctl set pl1=15 max_perf_pct=40   # вживую, немедленно, никуда не сохраняется
-cpu-throttlerctl mark too-loud            # вердикт, проставленный в текущую выборку
-cpu-throttlerctl fan max                  # только по явной команде
-cpu-throttler-export --format csv > session.csv
+ombra status                   # показания и уставки в JSON
+ombra mode quiet
+ombra set pl1=15 max_perf_pct=40   # вживую, немедленно, никуда не сохраняется
+ombra mark too-loud            # вердикт, проставленный в текущую выборку
+ombra fan max                  # только по явной команде
+ombra export --format csv > session.csv
 ```
 
-Долговременные определения режимов живут в `/etc/cpu_throttler/modes.conf`,
+Долговременные определения режимов живут в `/etc/ombra/modes.conf`,
 который демон читает и никогда не пишет. Изменения подхватываются без
 перезапуска.
 
@@ -201,9 +207,9 @@ cpu-throttler-export --format csv > session.csv
 не достаёт до тепловой части.
 
 ```bash
-cpu-throttlerctl brightness on
-cpu-throttlerctl brightness off           # запоминается на перезагрузку
-cpu-throttlerctl brightness profile indoors
+ombra brightness on
+ombra brightness off           # запоминается на перезагрузку
+ombra brightness profile indoors
 ```
 
 Модель короткая:
@@ -228,7 +234,7 @@ cpu-throttlerctl brightness profile indoors
   подсветку вообще, и ни включение, ни выключение само по себе подсветку не
   двигает.
 
-Кривая описывается в `/etc/cpu_throttler/modes.conf` в собственных единицах
+Кривая описывается в `/etc/ombra/modes.conf` в собственных единицах
 датчика, а не в люксах — см. `HARDWARE.md`. Калибровать её следует по колонке
 `light` экспортированной сессии.
 
@@ -263,7 +269,7 @@ cpu-throttlerctl brightness profile indoors
 режимы, и неудачный вечер не повод её выбрасывать. Руками это:
 
 ```bash
-sudo systemctl disable --now cpu-throttlerd
+sudo systemctl disable --now ombrad
 sudo systemctl unmask com.system76.PowerDaemon.service
 sudo systemctl enable --now com.system76.PowerDaemon.service
 ```

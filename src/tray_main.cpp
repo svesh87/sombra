@@ -75,19 +75,19 @@ void rebuildModeActions(QMenu &menu, QAction *before, QActionGroup &group, TrayC
 int main(int argc, char **argv)
 {
     QApplication app(argc, argv);
-    QApplication::setApplicationName(QStringLiteral("cpu-throttler-tray"));
+    QApplication::setApplicationName(QStringLiteral("ombra-tray"));
     QApplication::setApplicationVersion(QStringLiteral("0.1.0"));
     QApplication::setQuitOnLastWindowClosed(false);
 
     QCommandLineParser parser;
     parser.setApplicationDescription(QStringLiteral(
-            "Experimentation console for cpu-throttlerd. Sliders apply immediately and are never "
+            "Experimentation console for ombrad. Sliders apply immediately and are never "
             "written back; durable mode definitions live in the daemon's configuration file."));
     parser.addHelpOption();
     parser.addVersionOption();
     const QCommandLineOption socketOption(
             QStringLiteral("socket"), QStringLiteral("Control socket."), QStringLiteral("path"),
-            QStringLiteral("/run/cpu_throttler/control.sock"));
+            QStringLiteral("/run/ombra/control.sock"));
     const QCommandLineOption intervalOption(
             QStringLiteral("interval-ms"),
             QStringLiteral("How often to ask the daemon for readings."), QStringLiteral("ms"),
@@ -116,7 +116,7 @@ int main(int argc, char **argv)
     QActionGroup modeGroup(&menu);
     modeGroup.setExclusive(true);
 
-    tray.setToolTip(QStringLiteral("CPU Throttler"));
+    tray.setToolTip(QStringLiteral("Ombra"));
     tray.setIcon(trayIcon(false, false));
     tray.setContextMenu(&menu);
     tray.show();
