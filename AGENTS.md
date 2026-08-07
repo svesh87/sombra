@@ -169,6 +169,16 @@ itself.
 - **The tray never writes the configuration.** When a live setting is worth
   keeping, the tray offers it as a configuration snippet to copy; promoting it
   is a deliberate edit by the maintainer.
+- **The one exception is the tray's own autostart entry, and it is not
+  configuration.** Whether the tray starts with the session is what the console
+  knows about itself; the daemon's file has no way to describe it, and no mode
+  definition or brightness profile is reachable from that switch. The tray owns
+  `$XDG_CONFIG_HOME/autostart/ombra-tray.desktop` and nothing else. The entry is
+  the state — there is no settings file behind the switch — which is what makes
+  "switched off and it stayed off" a property of the arrangement rather than of
+  a mechanism. The package writes nothing into autostart: `dpkg -i` must not add
+  a process to a session, for the same reason it does not take the thermal
+  controls.
 - **Every live setpoint is recorded in every telemetry sample** — active mode,
   power limits, frequency ceiling, turbo, EPP, HWP dynamic boost, platform
   profile. A log that does not say what was applied cannot be analysed. Mode and
@@ -253,6 +263,12 @@ marking tests as expected failures to satisfy the gates are all prohibited.
   with a specific list of file plus anchor, not a line saying "update comments".
   Doc blocks, comments on constants, on controller thresholds and on sysfs paths
   go stale first and go stale silently.
+- **A change to the interface is not finished until the screenshots are
+  regenerated.** Same reason as the comments: a picture of controls that are no
+  longer there goes stale silently and no test catches it. Regenerating is one
+  command, `ombra-tray --screenshot screenshots`; what each picture shows and
+  what to check before committing it live in `SCREENSHOTS.md`. Give it its own
+  plan step, naming the pictures, not a line saying "update screenshots".
 - The **last** step of any plan is a consistency pass across code, comments and
   documentation, fixing what it finds in place. Minimum scope: grep for
   terminology from superseded models; grep for edit-history residue ("used to",
@@ -260,7 +276,8 @@ marking tests as expected failures to satisfy the gates are all prohibited.
   every claim in the root documents against the code that implements it (sysfs
   paths, thresholds, units, partial-failure behaviour, restart behaviour);
   every `*.ru.md` copy against its English original; terminology consistency;
-  `git diff --check`.
+  screenshots regenerated if the diff touched `src/tray_window.cpp` or
+  `src/tray_main.cpp`; `git diff --check`.
 - If the consistency pass touched code, rerun the gates in full.
 
 ## Delegating to subagents

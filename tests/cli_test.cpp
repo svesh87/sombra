@@ -140,9 +140,13 @@ void CliTest::ctlDrivesTheRunningDaemon()
     const Run status = run(ctlBinary(), { QStringLiteral("--socket"), socket,
                                           QStringLiteral("status") });
     QCOMPARE(status.code, 0);
-    QVERIFY(status.out.startsWith(QStringLiteral("ok {")));
+    // The payload alone, without the protocol's "ok": the answer has to go
+    // straight into a JSON parser.
+    QVERIFY(status.out.startsWith(QStringLiteral("{")));
+    QJsonParseError error {};
     const QJsonObject parsed =
-            QJsonDocument::fromJson(status.out.trimmed().mid(3).toUtf8()).object();
+            QJsonDocument::fromJson(status.out.trimmed().toUtf8(), &error).object();
+    QCOMPARE(error.error, QJsonParseError::NoError);
     QCOMPARE(parsed.value(QStringLiteral("mode")).toString(), QStringLiteral("work"));
 
     QCOMPARE(run(ctlBinary(), { QStringLiteral("--socket"), socket, QStringLiteral("mode"),

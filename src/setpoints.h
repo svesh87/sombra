@@ -37,7 +37,13 @@ inline constexpr int kMaxConfirmedPl2W = 65;
 // the frequency ceiling can be pushed to.
 inline constexpr int kMinPerfPct = 8;
 inline constexpr int kMaxGtMhz = 2350;  // gt_RP0_freq_mhz, the hardware maximum
-inline constexpr int kMinGtMhz = 100;   // gt_min_freq_mhz
+// gt_RPn_freq_mhz, which is the floor the driver accepts for gt_max_freq_mhz.
+// Not gt_min_freq_mhz, which reads 100 on this machine and is a different node:
+// a gt_max below RPn is refused outright. Measured — with 100 here the write
+// never took, and every one of the 3826 samples recorded with it flagged the
+// control as disagreeing. The emergency guard clamps the iGPU ceiling to this
+// value, so the wrong number meant the guard's iGPU clamp did nothing either.
+inline constexpr int kMinGtMhz = 800;
 
 // The state the machine is left in when the daemon exits. Not the firmware
 // default, which would restore the 200 W PL1, and not the current setpoints,

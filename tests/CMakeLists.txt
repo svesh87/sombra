@@ -36,6 +36,7 @@ ombra_test(dbus_service_test LIBS ombra_daemon)
 # Offscreen: the tray is tested without a display. Both drive the real daemon
 # and the real tray binary as child processes, which is the topology they will
 # run in, so the build order has to guarantee those exist.
+ombra_test(autostart_test LIBS ombra_tray)
 ombra_test(tray_client_test LIBS ombra_tray ENV "QT_QPA_PLATFORM=offscreen")
 ombra_test(tray_window_test LIBS ombra_tray ENV "QT_QPA_PLATFORM=offscreen")
 add_dependencies(tray_client_test ombrad)

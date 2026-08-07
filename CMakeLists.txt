@@ -53,6 +53,7 @@ target_compile_options(ombra_daemon PRIVATE ${OMBRA_WARNINGS})
 # The tray talks to the daemon over the control socket and shares nothing else
 # with it, so it links the core for the setpoint types and nothing more.
 add_library(ombra_tray STATIC
+    src/autostart.cpp
     src/tray_client.cpp
     src/tray_window.cpp
 )

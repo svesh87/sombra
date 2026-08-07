@@ -61,7 +61,8 @@ QString csvHeader()
             "ts,pkg_c,board_c,nvme_c,fan_rpm,pkg_w,core_w,uncore_w,cpu_mhz,gpu_mhz,load1,"
             "pkg_throttle,core_throttle,mode_id,pl1_w,pl2_w,max_perf_pct,turbo,epp,hwp_boost,"
             "profile,gt_max_mhz,fan_mode,charge_limit,on_ac,guard,mismatch,degraded,live,mark,"
-            "light,brightness,brightness_base,brightness_profile,auto_brightness");
+            "light,brightness,brightness_base,brightness_profile,auto_brightness,"
+            "brightness_span,brightness_floor,brightness_ceiling");
 }
 
 QString csvRow(const Sample &s)
@@ -102,6 +103,9 @@ QString csvRow(const Sample &s)
         field(optional8(s.brightnessBase), 0),
         field(optional8(s.brightnessProfile), 0),
         QString::number((s.flags & FlagAutoBrightness) ? 1 : 0),
+        field(optional8(s.brightnessSpan), 0),
+        field(optional8(s.brightnessFloor), 0),
+        field(optional8(s.brightnessCeiling), 0),
     };
     return fields.join(QLatin1Char(','));
 }
@@ -144,6 +148,9 @@ QString jsonRow(const Sample &s)
     row[QStringLiteral("brightness_base")] = jsonValue(optional8(s.brightnessBase));
     row[QStringLiteral("brightness_profile")] = jsonValue(optional8(s.brightnessProfile));
     row[QStringLiteral("auto_brightness")] = (s.flags & FlagAutoBrightness) != 0;
+    row[QStringLiteral("brightness_span")] = jsonValue(optional8(s.brightnessSpan));
+    row[QStringLiteral("brightness_floor")] = jsonValue(optional8(s.brightnessFloor));
+    row[QStringLiteral("brightness_ceiling")] = jsonValue(optional8(s.brightnessCeiling));
     return QString::fromUtf8(QJsonDocument(row).toJson(QJsonDocument::Compact));
 }
 

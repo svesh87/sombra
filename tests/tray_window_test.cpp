@@ -1,7 +1,8 @@
 // Copyright (c) 2026 Sergei Sveshnikov. MIT licensed, see LICENSE.
+#include "autostart.h"
+#include "control_socket.h"
 #include "fake_sysfs.h"
 #include "modes.h"
-#include "control_socket.h"
 #include "tray_window.h"
 
 #include <QCheckBox>
@@ -14,11 +15,14 @@
 #include <QGuiApplication>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QImage>
 #include <QLabel>
 #include <QProcess>
+#include <QProcessEnvironment>
 #include <QPushButton>
 #include <QSignalSpy>
 #include <QSlider>
+#include <QTabWidget>
 #include <QTemporaryDir>
 #include <QTest>
 
@@ -80,6 +84,45 @@ private:
     QProcess m_process;
 };
 
+// The environment a spawned ombra-tray gets.
+//
+// The offscreen platform keeps its window off the display, but that is not
+// enough on its own: QSystemTrayIcon speaks StatusNotifierItem over the session
+// bus, which is a protocol and not a window, so an offscreen process still puts
+// a real icon into the panel of whoever is running the suite — and a killed one
+// never gets to remove it again. Pointing the process at a bus that does not
+// exist leaves it with no tray to register with, and main() then shows the
+// console instead, which offscreen means nothing at all.
+QProcessEnvironment isolatedEnvironment()
+{
+    QProcessEnvironment environment = QProcessEnvironment::systemEnvironment();
+    environment.insert(QStringLiteral("QT_QPA_PLATFORM"), QStringLiteral("offscreen"));
+    environment.insert(QStringLiteral("DBUS_SESSION_BUS_ADDRESS"),
+                       QStringLiteral("unix:path=/nonexistent/ombra-test-has-no-session-bus"));
+    return environment;
+}
+
+// A failing QVERIFY returns from the test, so a spawned process has to be
+// reaped by a destructor: a line at the end of the case would be skipped, and
+// the leftover would poll a dead socket for as long as the machine is up.
+class Reaped {
+public:
+    explicit Reaped(QProcess &process)
+        : m_process(process)
+    {
+    }
+    ~Reaped()
+    {
+        if (m_process.state() == QProcess::NotRunning)
+            return;
+        m_process.kill();
+        m_process.waitForFinished(10000);
+    }
+
+private:
+    QProcess &m_process;
+};
+
 TrayClient::Status statusFrom(const QByteArray &json)
 {
     return TrayClient::parseStatus(QJsonDocument::fromJson(json).object());
@@ -103,9 +146,12 @@ private slots:
     void copiesTheLiveSetpointsAsAConfigurationSnippet();
     void maximumFanSpeedIsAControlOfItsOwn();
     void theBacklightSwitchIsOneAction();
+    void theBacklightWindowIsTunedFromTheWindow();
+    void theAutostartSwitchOwnsItsOwnEntry();
     void repaintingFromAStatusSendsNothing();
     void saysSoWhenTheDaemonIsUnreachable();
     void theTrayBinaryRunsAgainstADaemon();
+    void theTrayBinaryWritesTheDocumentationScreenshots();
 
 private:
     QString socketPath() const { return m_work.path() + QStringLiteral("/control.sock"); }
@@ -477,6 +523,89 @@ void TrayWindowTest::theBacklightSwitchIsOneAction()
                     .contains(QStringLiteral("your level")));
 }
 
+void TrayWindowTest::theBacklightWindowIsTunedFromTheWindow()
+{
+    TestDaemon daemon(m_tree->root(), m_work.path());
+    QVERIFY(daemon.waitUntilListening());
+    TrayClient client(socketPath());
+    TrayWindow window(client);
+    client.poll();
+
+    auto *span = window.findChild<QSlider *>(QStringLiteral("brightness_span"));
+    auto *floor = window.findChild<QSlider *>(QStringLiteral("brightness_floor"));
+    auto *ceiling = window.findChild<QSlider *>(QStringLiteral("brightness_ceiling"));
+    QVERIFY(span->isEnabled());
+    QCOMPARE(span->value(), kBrightnessDefaultSpanPct);
+
+    // "The range is too narrow" is answered here rather than by editing the
+    // file, and the answer applies at once.
+    span->setValue(30);
+    QTRY_COMPARE(client.status().brightnessSpanPct, 30);
+    QVERIFY(client.status().brightnessLive);
+    QCOMPARE(window.findChild<QLabel *>(QStringLiteral("brightness_span_value"))->text(),
+             QStringLiteral("\u00B1 30 pp"));
+
+    // The pair cannot cross: the dragged slider pushes the other ahead of it
+    // rather than reaching a pair the daemon refuses.
+    ceiling->setValue(60);
+    QTRY_COMPARE(client.status().brightnessCeilingPct, 60);
+    floor->setValue(80);
+    QTRY_COMPARE(client.status().brightnessCeilingPct, 80);
+    QCOMPARE(client.status().brightnessFloorPct, 80);
+    floor->setValue(20);
+    ceiling->setValue(10);
+    QTRY_COMPARE(client.status().brightnessFloorPct, 10);
+
+    // Nothing was written back, so dropping the overlay returns the profile's
+    // own numbers.
+    window.findChild<QPushButton *>(QStringLiteral("brightness_reset"))->click();
+    QTRY_VERIFY(!client.status().brightnessLive);
+    QCOMPARE(client.status().brightnessSpanPct, kBrightnessDefaultSpanPct);
+}
+
+void TrayWindowTest::theAutostartSwitchOwnsItsOwnEntry()
+{
+    QTemporaryDir config;
+    QVERIFY(config.isValid());
+    qputenv("XDG_CONFIG_HOME", config.path().toUtf8());
+
+    // No daemon on purpose: the tray starting with the session has nothing to
+    // do with whether the daemon is answering, so the switch must work anyway.
+    TrayClient client(socketPath());
+    TrayWindow window(client);
+    auto *toggle = window.findChild<QCheckBox *>(QStringLiteral("autostart"));
+    QVERIFY(toggle);
+    QVERIFY(toggle->isEnabled());
+    QVERIFY(!toggle->isChecked());
+
+    toggle->setChecked(true);
+    QVERIFY(QFile::exists(autostart::entryPath()));
+    QVERIFY(window.findChild<QLabel *>(QStringLiteral("notice"))
+                    ->text()
+                    .contains(QStringLiteral("next login")));
+
+    toggle->setChecked(false);
+    QVERIFY(!QFile::exists(autostart::entryPath()));
+
+    // An entry already there is what a freshly opened window reads, because the
+    // file is the state and nothing else is remembered.
+    QVERIFY(autostart::setEnabled(true));
+    TrayWindow reopened(client);
+    QVERIFY(reopened.findChild<QCheckBox *>(QStringLiteral("autostart"))->isChecked());
+    QVERIFY(autostart::setEnabled(false));
+
+    // A failed write puts the switch back: a checkbox that stayed on would be
+    // claiming something the file does not say.
+    qputenv("XDG_CONFIG_HOME", QByteArray("/proc/self/impossible"));
+    toggle->setChecked(true);
+    QVERIFY(!toggle->isChecked());
+    QVERIFY(window.findChild<QLabel *>(QStringLiteral("notice"))
+                    ->text()
+                    .startsWith(QStringLiteral("autostart")));
+
+    qputenv("XDG_CONFIG_HOME", config.path().toUtf8());
+}
+
 void TrayWindowTest::repaintingFromAStatusSendsNothing()
 {
     TestDaemon daemon(m_tree->root(), m_work.path());
@@ -558,6 +687,8 @@ void TrayWindowTest::theTrayBinaryRunsAgainstADaemon()
     QVERIFY(daemon->waitUntilListening());
 
     QProcess tray;
+    const Reaped reaped(tray);
+    tray.setProcessEnvironment(isolatedEnvironment());
     tray.start(binary, { QStringLiteral("--socket"), socketPath(),
                          QStringLiteral("--interval-ms"), QStringLiteral("40"),
                          QStringLiteral("--quit-after-ms"), QStringLiteral("2000") });
@@ -574,20 +705,71 @@ void TrayWindowTest::theTrayBinaryRunsAgainstADaemon()
     QCOMPARE(tray.exitCode(), 0);
 
     QProcess help;
+    help.setProcessEnvironment(isolatedEnvironment());
     help.start(binary, { QStringLiteral("--help") });
     QVERIFY(help.waitForFinished(10000));
     QCOMPARE(help.exitCode(), 0);
     QVERIFY(!help.readAllStandardOutput().isEmpty());
 
     QProcess version;
+    version.setProcessEnvironment(isolatedEnvironment());
     version.start(binary, { QStringLiteral("--version") });
     QVERIFY(version.waitForFinished(10000));
     QCOMPARE(version.exitCode(), 0);
 
     QProcess nonsense;
+    nonsense.setProcessEnvironment(isolatedEnvironment());
     nonsense.start(binary, { QStringLiteral("--nonsense") });
     QVERIFY(nonsense.waitForFinished(10000));
     QCOMPARE(nonsense.exitCode(), 1);
+}
+
+void TrayWindowTest::theTrayBinaryWritesTheDocumentationScreenshots()
+{
+    const QString binary = QDir::cleanPath(QCoreApplication::applicationDirPath()
+                                           + QStringLiteral("/../ombra-tray"));
+    QVERIFY2(QFile::exists(binary), qPrintable(binary));
+
+    TestDaemon daemon(m_tree->root(), m_work.path());
+    QVERIFY(daemon.waitUntilListening());
+
+    QTemporaryDir target;
+    QProcess shot;
+    const Reaped reapedShot(shot);
+    shot.setProcessEnvironment(isolatedEnvironment());
+    shot.start(binary, { QStringLiteral("--socket"), socketPath(),
+                         QStringLiteral("--screenshot"), target.path() });
+    QVERIFY(shot.waitForFinished(30000));
+    QCOMPARE(shot.exitCode(), 0);
+
+    // The menu and one picture per tab, all readable as images: a documentation
+    // command that writes an empty file is worse than one that fails.
+    QStringList expected { QStringLiteral("tray-menu.png") };
+    {
+        TrayClient client(socketPath());
+        const TrayWindow window(client);
+        const auto *tabs = window.findChild<QTabWidget *>();
+        QVERIFY(tabs);
+        QVERIFY(tabs->count() > 1);
+        for (int i = 0; i < tabs->count(); ++i)
+            expected.append(QStringLiteral("console-%1.png").arg(tabs->tabText(i).toLower()));
+    }
+    for (const QString &name : std::as_const(expected)) {
+        const QImage picture(target.filePath(name));
+        QVERIFY2(!picture.isNull(), qPrintable(name));
+        QVERIFY2(picture.width() > 100 && picture.height() > 100, qPrintable(name));
+    }
+
+    // A directory that is not there is a failure with a reason, not a silent
+    // success: the pictures would simply be missing from the next commit.
+    QProcess nowhere;
+    const Reaped reapedNowhere(nowhere);
+    nowhere.setProcessEnvironment(isolatedEnvironment());
+    nowhere.start(binary, { QStringLiteral("--socket"), socketPath(),
+                            QStringLiteral("--screenshot"),
+                            target.filePath(QStringLiteral("absent")) });
+    QVERIFY(nowhere.waitForFinished(30000));
+    QCOMPARE(nowhere.exitCode(), 1);
 }
 
 QTEST_MAIN(TrayWindowTest)

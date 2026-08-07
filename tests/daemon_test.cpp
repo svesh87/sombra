@@ -14,6 +14,7 @@
 #include <QTemporaryDir>
 #include <QTest>
 
+#include <algorithm>
 #include <memory>
 
 namespace {
@@ -65,6 +66,8 @@ private slots:
     void selectingAModeDoesNotMoveTheBacklight();
     void brightnessChoicesSurviveARestart();
     void brightnessCommandsAreValidated();
+    void theBrightnessWindowIsTunedLive();
+    void theBrightnessOverlayBelongsToItsProfile();
     void theBacklightPathDegradesOnItsOwn();
 
 private:
@@ -502,6 +505,20 @@ void DaemonTest::snippetReproducesTheLiveSetpoints()
     QVERIFY(snippet.contains(QStringLiteral("pl1_w=17")));
     QVERIFY(snippet.contains(QStringLiteral("pl2_w=26")));
     QVERIFY(snippet.contains(QStringLiteral("platform_profile=quiet")));
+    // Nothing live on the backlight side, so the snippet says nothing about it.
+    QVERIFY(!snippet.contains(QStringLiteral("[brightness")));
+
+    // One file holds both kinds of section, so one snippet is one paste.
+    daemon.handleCommand(QStringLiteral("brightness set span_pct=30 floor_pct=10"));
+    const QString both = QString::fromUtf8(QByteArray::fromBase64(
+            daemon.handleCommand(QStringLiteral("snippet tuned")).mid(3).toUtf8()));
+    QVERIFY(both.contains(QStringLiteral("[mode tuned]")));
+    QVERIFY(both.contains(QStringLiteral("[brightness indoors]")));
+    QVERIFY(both.contains(QStringLiteral("span_pct=30")));
+    QVERIFY(both.contains(QStringLiteral("floor_pct=10")));
+    // The curve is not tunable here, and a section without it could not be
+    // pasted into the file.
+    QVERIFY(both.contains(QStringLiteral("curve=0:0")));
 }
 
 void DaemonTest::unknownCommandsAreRejected()
@@ -704,7 +721,10 @@ void DaemonTest::theBacklightFollowsTheLightOnceItHasChanged()
     daemon.tick();
     const Sample &s = daemon.lastSample();
     QCOMPARE(s.brightnessBase, uint8_t(50));
-    QVERIFY(s.brightness >= 40 && s.brightness <= 60);
+    // Inside the window the profile allows around that level, whatever the
+    // default span happens to be tuned to.
+    QVERIFY(s.brightness >= 50 - kBrightnessDefaultSpanPct
+            && s.brightness <= 50 + kBrightnessDefaultSpanPct);
 }
 
 void DaemonTest::theFadeMovesInSeveralStepsRatherThanOne()
@@ -749,8 +769,12 @@ void DaemonTest::aHandCorrectionBecomesTheNewBase()
     const QJsonObject brightness =
             statusOf(daemon).value(QStringLiteral("brightness")).toObject();
     QCOMPARE(brightness.value(QStringLiteral("base")).toInt(), 75);
-    QCOMPARE(brightness.value(QStringLiteral("window_low")).toInt(), 65);
-    QCOMPARE(brightness.value(QStringLiteral("window_high")).toInt(), 85);
+    // The window moved with the correction, and the ceiling cuts it rather than
+    // shifting it — which is why the top is not 75 + span when that overshoots.
+    QCOMPARE(brightness.value(QStringLiteral("window_low")).toInt(),
+             75 - kBrightnessDefaultSpanPct);
+    QCOMPARE(brightness.value(QStringLiteral("window_high")).toInt(),
+             std::min(100, 75 + kBrightnessDefaultSpanPct));
 
     // The correction is not immediately argued with: the automation adopts the
     // new position and waits for the light to change.
@@ -859,11 +883,116 @@ void DaemonTest::brightnessCommandsAreValidated()
     QVERIFY(daemon.start());
     for (const QString &command :
          { QStringLiteral("brightness"), QStringLiteral("brightness sideways"),
-           QStringLiteral("brightness profile"), QStringLiteral("brightness profile nowhere") }) {
+           QStringLiteral("brightness profile"), QStringLiteral("brightness profile nowhere"),
+           QStringLiteral("brightness set span_pct"),
+           QStringLiteral("brightness set span_pct=wide"),
+           QStringLiteral("brightness set span_pct=101"),
+           QStringLiteral("brightness set span_pct=-1"),
+           QStringLiteral("brightness set sideways_pct=10"),
+           QStringLiteral("brightness set floor_pct=80 ceiling_pct=60") }) {
         QVERIFY2(daemon.handleCommand(command).startsWith(QStringLiteral("err")),
                  qPrintable(command));
     }
     QCOMPARE(daemon.state().autoBrightness, false);
+
+    // A refused command changes nothing, so the profile's own numbers are
+    // still the ones in force.
+    const QJsonObject brightness =
+            statusOf(daemon).value(QStringLiteral("brightness")).toObject();
+    QCOMPARE(brightness.value(QStringLiteral("live")).toBool(), false);
+    QCOMPARE(brightness.value(QStringLiteral("span_pct")).toInt(), kBrightnessDefaultSpanPct);
+}
+
+void DaemonTest::theBrightnessWindowIsTunedLive()
+{
+    Daemon daemon(options());
+    QVERIFY(daemon.start());
+    daemon.handleCommand(QStringLiteral("brightness on"));
+    setBacklightByHand(FakeSysfs::kBacklightMax / 2);
+    daemon.tick();
+    QCOMPARE(daemon.state().brightnessBase, 50);
+
+    // As text, because the pair is only ever compared as a whole here.
+    const auto window = [&daemon] {
+        const QJsonObject brightness =
+                statusOf(daemon).value(QStringLiteral("brightness")).toObject();
+        return QStringLiteral("%1..%2")
+                .arg(brightness.value(QStringLiteral("window_low")).toInt())
+                .arg(brightness.value(QStringLiteral("window_high")).toInt());
+    };
+    const QString profileWindow = QStringLiteral("%1..%2")
+                                          .arg(50 - kBrightnessDefaultSpanPct)
+                                          .arg(50 + kBrightnessDefaultSpanPct);
+    QCOMPARE(window(), profileWindow);
+
+    // Widening it further is a judgement made by eye rather than an edit to the
+    // file.
+    QCOMPARE(daemon.handleCommand(QStringLiteral("brightness set span_pct=35")),
+             QStringLiteral("ok"));
+    QCOMPARE(window(), QStringLiteral("15..85"));
+
+    // Cut by the bounds, not shifted by them.
+    QCOMPARE(daemon.handleCommand(QStringLiteral("brightness set floor_pct=35 ceiling_pct=70")),
+             QStringLiteral("ok"));
+    QCOMPARE(window(), QStringLiteral("35..70"));
+
+    // Every live value is in the record, because the profile index alone does
+    // not say what the automation was allowed to do.
+    daemon.tick();
+    const Sample &s = daemon.lastSample();
+    QCOMPARE(s.brightnessSpan, uint8_t(35));
+    QCOMPARE(s.brightnessFloor, uint8_t(35));
+    QCOMPARE(s.brightnessCeiling, uint8_t(70));
+    QVERIFY(exporter::csvRow(s).contains(QStringLiteral(",35,35,70")));
+
+    QJsonObject brightness = statusOf(daemon).value(QStringLiteral("brightness")).toObject();
+    QCOMPARE(brightness.value(QStringLiteral("live")).toBool(), true);
+
+    // Nothing was written back: the file still says what it said.
+    QCOMPARE(daemon.handleCommand(QStringLiteral("brightness reset")), QStringLiteral("ok"));
+    QCOMPARE(window(), profileWindow);
+    brightness = statusOf(daemon).value(QStringLiteral("brightness")).toObject();
+    QCOMPARE(brightness.value(QStringLiteral("live")).toBool(), false);
+}
+
+void DaemonTest::theBrightnessOverlayBelongsToItsProfile()
+{
+    writeConfig(QStringLiteral("[general]\ndefault_mode=work\n"
+                               "default_brightness_profile=indoors\n"
+                               "[mode work]\npl1_w=20\n"
+                               "[brightness indoors]\n"
+                               "span_pct=10\nfloor_pct=5\nceiling_pct=100\n"
+                               "curve=0:0, 1000:100\n"
+                               "[brightness outdoors]\n"
+                               "span_pct=15\nfloor_pct=30\nceiling_pct=100\n"
+                               "curve=0:0, 1000:100\n"));
+    Daemon daemon(options());
+    QVERIFY(daemon.start());
+
+    const auto span = [&daemon] {
+        return statusOf(daemon)
+                .value(QStringLiteral("brightness"))
+                .toObject()
+                .value(QStringLiteral("span_pct"))
+                .toInt();
+    };
+
+    QCOMPARE(daemon.handleCommand(QStringLiteral("brightness set span_pct=40")),
+             QStringLiteral("ok"));
+    QCOMPARE(span(), 40);
+
+    // Selecting another profile drops it: the overlay was an overlay on the
+    // profile being left behind.
+    QCOMPARE(daemon.handleCommand(QStringLiteral("brightness profile outdoors")),
+             QStringLiteral("ok outdoors"));
+    QCOMPARE(span(), 15);
+
+    // And so does rereading the file, which is the source of truth.
+    QCOMPARE(daemon.handleCommand(QStringLiteral("brightness set span_pct=40")),
+             QStringLiteral("ok"));
+    QCOMPARE(span(), 40);
+    QCOMPARE(daemon.handleCommand(QStringLiteral("reload")), QStringLiteral("ok"));
+    QCOMPARE(span(), 15);
 }
 
 void DaemonTest::theBacklightPathDegradesOnItsOwn()

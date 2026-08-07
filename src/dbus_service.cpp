@@ -102,14 +102,19 @@ constexpr char kDegradedByHeat[] = "high-operating-temperature";
 // interface has nothing to switch and answers with this.
 constexpr char kIntegrated[] = "integrated";
 
-QString systemProfileName(const QString &standardProfile)
+// The vendor vocabulary is not the standard one: `power-saver` is called
+// `battery`, and all three names are capitalised. The spelling is not
+// cosmetic — the COSMIC panel applet matches the answer against these three
+// literals and aborts on anything else, which takes the battery indicator off
+// the panel along with the profile menu. Anything unrecognised therefore maps
+// to the middle name rather than being passed through.
+QString vendorProfileName(const QString &standardProfile)
 {
-    // The vendor vocabulary differs from the standard one in a single name.
     if (standardProfile == QLatin1String("power-saver"))
-        return QStringLiteral("battery");
-    if (standardProfile.isEmpty())
-        return QStringLiteral("balanced");
-    return standardProfile;
+        return QStringLiteral("Battery");
+    if (standardProfile == QLatin1String("performance"))
+        return QStringLiteral("Performance");
+    return QStringLiteral("Balanced");
 }
 
 // Everything the exported objects need in order to answer, in one place so
@@ -263,7 +268,7 @@ public:
         send(kUPowerPath, kPropertiesInterface, QStringLiteral("PropertiesChanged"),
              { QString::fromLatin1(kUPowerName), QVariant::fromValue(changed), QStringList() });
         send(kVendorPath, kVendorName, QStringLiteral("PowerProfileSwitch"),
-             { systemProfileName(activeProfile()) });
+             { vendorProfileName(activeProfile()) });
     }
 
     // Refusing a call takes the message itself: the reply Qt would send on
@@ -404,7 +409,7 @@ public slots:
     void Balanced() { m_backend->selectProfile(QStringLiteral("balanced")); }
     void Performance() { m_backend->selectProfile(QStringLiteral("performance")); }
 
-    QString GetProfile() const { return systemProfileName(m_backend->activeProfile()); }
+    QString GetProfile() const { return vendorProfileName(m_backend->activeProfile()); }
 
     QList<dbuscompat::ChargeProfile> GetChargeProfiles() const
     {

@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Sergei Sveshnikov. MIT licensed, see LICENSE.
 #include "tray_window.h"
 
+#include "autostart.h"
 #include "control_socket.h"
 
 #include <QCheckBox>
@@ -15,9 +16,17 @@
 #include <QScreen>
 #include <QScrollArea>
 #include <QSlider>
+#include <QTabWidget>
 #include <QVBoxLayout>
 
 namespace {
+
+// Room for a vertical scrollbar beside the widest page, in device-independent
+// pixels, so that a page is never squeezed sideways to make room for one.
+constexpr int kSideChromePx = 48;
+// The same for the height the tab bar, the connection banner and the reply line
+// take together, none of which is part of a page.
+constexpr int kVerticalChromePx = 150;
 
 // A reading the daemon could not take arrives as the sentinel. Rendering it as
 // a dash rather than as a number is the whole point of having a sentinel: a
@@ -38,6 +47,30 @@ QLabel *addReading(QFormLayout *form, const QString &caption, const QString &nam
     return label;
 }
 
+// A slider that applies on the spot and is never written back anywhere.
+// Deciding a setpoint is a judgement — by ear on the thermal side, by eye on
+// the backlight one — and that judgement needs the machine to change while it
+// is being made.
+void addTuner(QFormLayout *form, const QString &caption, const QString &name, int minimum,
+              int maximum, int step, QSlider **slider, QLabel **value)
+{
+    QWidget *parent = form->parentWidget();
+    *slider = new QSlider(Qt::Horizontal, parent);
+    (*slider)->setObjectName(name);
+    (*slider)->setRange(minimum, maximum);
+    (*slider)->setSingleStep(step);
+    (*slider)->setPageStep(step * 5);
+    *value = new QLabel(parent);
+    (*value)->setObjectName(name + QStringLiteral("_value"));
+    (*value)->setMinimumWidth(70);
+    auto *row = new QWidget(parent);
+    auto *rowLayout = new QHBoxLayout(row);
+    rowLayout->setContentsMargins(0, 0, 0, 0);
+    rowLayout->addWidget(*slider);
+    rowLayout->addWidget(*value);
+    form->addRow(caption, row);
+}
+
 QLabel *addIndicator(QVBoxLayout *layout, const QString &text, const QString &name)
 {
     auto *label = new QLabel(text, layout->parentWidget());
@@ -51,11 +84,15 @@ QLabel *addIndicator(QVBoxLayout *layout, const QString &text, const QString &na
 
 class TrayWindow::Ui {
 public:
-    // Everything below the banner lives in here, inside a scroll area: the
-    // console is a tall stack of groups and it must open shorter than the
-    // screen. A window whose bottom is off screen hides the controls at the
-    // end of it, and on this window those are the verdict buttons.
-    QWidget *content = nullptr;
+    // The groups are split across tabs rather than stacked in one column. One
+    // column of all of them is taller than the screen, and a window whose
+    // bottom is off screen hides the controls at the end of it. Each tab is
+    // still a scroll area, because a short screen can cut even one tab.
+    QTabWidget *tabs = nullptr;
+    // The widget inside each tab's scroll area, in tab order. Kept because the
+    // opening size is the largest of them and nothing else can say what that
+    // is before anything has been shown.
+    QList<QWidget *> pages;
     // The groups that command the daemon, as opposed to the ones that only
     // report. Disabled while the daemon is not answering, so that sliders
     // sitting at their minimum cannot be read as setpoints the daemon holds.
@@ -102,6 +139,17 @@ public:
     QCheckBox *autoBrightness = nullptr;
     QComboBox *brightnessProfile = nullptr;
     QLabel *brightnessState = nullptr;
+    QSlider *brightnessSpan = nullptr;
+    QSlider *brightnessFloor = nullptr;
+    QSlider *brightnessCeiling = nullptr;
+    QLabel *brightnessSpanValue = nullptr;
+    QLabel *brightnessFloorValue = nullptr;
+    QLabel *brightnessCeilingValue = nullptr;
+
+    // The one control that is about the console rather than about the machine,
+    // and the one thing the tray writes. Never greyed out with the others: the
+    // tray starting with the session does not depend on the daemon.
+    QCheckBox *autostart = nullptr;
 };
 
 TrayWindow::TrayWindow(TrayClient &client, QWidget *parent)
@@ -116,13 +164,38 @@ TrayWindow::TrayWindow(TrayClient &client, QWidget *parent)
     connect(&m_client, &TrayClient::connectionChanged, this, &TrayWindow::onConnectionChanged);
     onConnectionChanged(m_client.connected());
 
+}
+
+// Sized here rather than in the constructor, and once.
+//
+// A newly built window cannot say how wide it needs to be: the readings are
+// still dashes, the state lines are still empty, and the platform style and its
+// font have not been applied yet, so every size hint is far too small. By the
+// time the window is first shown it has been polled at, so the labels carry the
+// text that actually decides the width.
+void TrayWindow::showEvent(QShowEvent *event)
+{
+    QWidget::showEvent(event);
+    if (m_sized)
+        return;
+    m_sized = true;
+
+    // The largest tab, so switching tabs does not resize the window and no tab
+    // opens clipped.
+    QSize wanted;
+    int narrowest = 0;
+    for (const QWidget *page : std::as_const(m_ui->pages)) {
+        wanted = wanted.expandedTo(page->sizeHint());
+        narrowest = std::max(narrowest, page->minimumSizeHint().width());
+    }
+    // Below this the pages clip instead of scrolling sideways, which is the
+    // right trade for a console — a sideways scrollbar under a row of sliders
+    // is worse than a window that refuses to get narrower.
+    setMinimumWidth(narrowest + kSideChromePx);
     if (const QScreen *screen = QGuiApplication::primaryScreen()) {
         const QRect available = screen->availableGeometry();
-        const QSize wanted = m_ui->content->sizeHint();
-        // A scrollbar's width on top of the content, so the groups inside are
-        // never squeezed sideways to make room for it.
-        resize(std::min(wanted.width() + 32, available.width()),
-               std::min(wanted.height() + 48, available.height() * 9 / 10));
+        resize(std::min(wanted.width() + kSideChromePx, available.width()),
+               std::min(wanted.height() + kVerticalChromePx, available.height() * 9 / 10));
     }
 }
 
@@ -144,18 +217,30 @@ void TrayWindow::build()
     m_ui->connection->setContentsMargins(8, 6, 8, 6);
     outer->addWidget(m_ui->connection);
 
-    auto *scroll = new QScrollArea(this);
-    scroll->setObjectName(QStringLiteral("scroll"));
-    scroll->setWidgetResizable(true);
-    scroll->setFrameShape(QFrame::NoFrame);
-    scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
-    outer->addWidget(scroll, 1);
+    m_ui->tabs = new QTabWidget(this);
+    m_ui->tabs->setObjectName(QStringLiteral("tabs"));
+    outer->addWidget(m_ui->tabs, 1);
 
-    m_ui->content = new QWidget(scroll);
-    scroll->setWidget(m_ui->content);
-    QWidget *const self = m_ui->content;
+    // One tab is a scrollable column of groups. The lambda returns the layout
+    // to fill; the stretch at its end keeps the groups at the top of a tab
+    // that has room to spare.
+    const auto addPage = [this](const QString &title) {
+        auto *area = new QScrollArea(m_ui->tabs);
+        area->setWidgetResizable(true);
+        area->setFrameShape(QFrame::NoFrame);
+        area->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+        auto *page = new QWidget(area);
+        area->setWidget(page);
+        m_ui->tabs->addTab(area, title);
+        m_ui->pages.append(page);
+        return new QVBoxLayout(page);
+    };
 
-    auto *root = new QVBoxLayout(self);
+    // What only reports, separately from what commands: readings and
+    // indicators are what a glance is for, and they must not be behind the tab
+    // somebody left the sliders on.
+    auto *nowLayout = addPage(QStringLiteral("Now"));
+    QWidget *const self = m_ui->pages.constLast();
 
     auto *readings = new QGroupBox(QStringLiteral("Readings"), self);
     auto *readingsForm = new QFormLayout(readings);
@@ -176,7 +261,7 @@ void TrayWindow::build()
                               QStringLiteral("gpu_mhz"));
     m_ui->load1 = addReading(readingsForm, QStringLiteral("Load average:"),
                              QStringLiteral("load1"));
-    root->addWidget(readings);
+    nowLayout->addWidget(readings);
 
     auto *state = new QGroupBox(QStringLiteral("State"), self);
     auto *stateLayout = new QVBoxLayout(state);
@@ -206,21 +291,30 @@ void TrayWindow::build()
     m_ui->mismatch->setWordWrap(true);
     m_ui->sensors = addIndicator(stateLayout, QStringLiteral("Some sensors could not be read."),
                                  QStringLiteral("sensors"));
-    root->addWidget(state);
+    nowLayout->addWidget(state);
+    nowLayout->addStretch(1);
 
-    auto *modeBox = new QGroupBox(QStringLiteral("Mode"), self);
+    // The three deliberate acts, together: choosing an envelope, demanding
+    // maximum airflow, and recording what the result sounds like.
+    auto *modeLayout = addPage(QStringLiteral("Mode"));
+    QWidget *const modePage = m_ui->pages.constLast();
+
+    auto *modeBox = new QGroupBox(QStringLiteral("Mode"), modePage);
     auto *modeForm = new QFormLayout(modeBox);
     m_ui->mode = new QComboBox(modeBox);
     m_ui->mode->setObjectName(QStringLiteral("mode"));
     modeForm->addRow(QStringLiteral("Active mode:"), m_ui->mode);
-    root->addWidget(modeBox);
+    modeLayout->addWidget(modeBox);
 
-    // Its own box, deliberately not inside the mode one: following the ambient
+    // Its own tab, deliberately not beside the mode: following the ambient
     // light sensor is a separate function, and selecting a thermal mode never
     // moves the backlight. Switching this off is one click, takes effect at
     // once, and is remembered across a reboot; neither switching it on nor off
     // moves the backlight by itself.
-    auto *brightness = new QGroupBox(QStringLiteral("Backlight"), self);
+    auto *brightnessLayout = addPage(QStringLiteral("Backlight"));
+    QWidget *const brightnessPage = m_ui->pages.constLast();
+
+    auto *brightness = new QGroupBox(QStringLiteral("Backlight"), brightnessPage);
     auto *brightnessForm = new QFormLayout(brightness);
     m_ui->autoBrightness =
             new QCheckBox(QStringLiteral("Follow the ambient light sensor"), brightness);
@@ -236,45 +330,49 @@ void TrayWindow::build()
     m_ui->brightnessState->setObjectName(QStringLiteral("brightness_state"));
     m_ui->brightnessState->setWordWrap(true);
     brightnessForm->addRow(QStringLiteral("Now:"), m_ui->brightnessState);
-    root->addWidget(brightness);
 
-    auto *tuning = new QGroupBox(QStringLiteral("Live tuning"), self);
+    // How far the automation may wander from the level you set, and the two
+    // absolute bounds. These three are the answer to "the range is too narrow",
+    // and they are judged by eye in the room they are meant for, which is why
+    // they are sliders here and not only numbers in the file. Like the thermal
+    // sliders they apply at once and are never written back; the curve is not
+    // here on purpose — its shape is calibrated from recorded telemetry.
+    addTuner(brightnessForm, QStringLiteral("Range around your level:"),
+             QStringLiteral("brightness_span"), 0, 100, 1, &m_ui->brightnessSpan,
+             &m_ui->brightnessSpanValue);
+    addTuner(brightnessForm, QStringLiteral("Never below:"), QStringLiteral("brightness_floor"), 0,
+             100, 1, &m_ui->brightnessFloor, &m_ui->brightnessFloorValue);
+    addTuner(brightnessForm, QStringLiteral("Never above:"),
+             QStringLiteral("brightness_ceiling"), 0, 100, 1, &m_ui->brightnessCeiling,
+             &m_ui->brightnessCeilingValue);
+    auto *brightnessReset = new QPushButton(QStringLiteral("Back to the profile"), brightness);
+    brightnessReset->setObjectName(QStringLiteral("brightness_reset"));
+    brightnessReset->setToolTip(QStringLiteral("Drops the live values and returns to the three the "
+                                              "configuration file defines for this profile."));
+    brightnessForm->addRow(QString(), brightnessReset);
+    brightnessLayout->addWidget(brightness);
+    brightnessLayout->addStretch(1);
+
+    auto *tuningLayout = addPage(QStringLiteral("Tuning"));
+    QWidget *const tuningPage = m_ui->pages.constLast();
+
+    auto *tuning = new QGroupBox(QStringLiteral("Live tuning"), tuningPage);
     auto *tuningForm = new QFormLayout(tuning);
 
-    // Every slider applies on the spot and is never written back anywhere.
-    // Deciding a setpoint is a judgement made by ear, and that judgement needs
-    // the machine to change while it is being made.
-    const auto addTuner = [tuning, tuningForm](const QString &caption, const QString &name,
-                                               int minimum, int maximum, int step,
-                                               QSlider **slider, QLabel **value) {
-        *slider = new QSlider(Qt::Horizontal, tuning);
-        (*slider)->setObjectName(name);
-        (*slider)->setRange(minimum, maximum);
-        (*slider)->setSingleStep(step);
-        (*slider)->setPageStep(step * 5);
-        *value = new QLabel(tuning);
-        (*value)->setObjectName(name + QStringLiteral("_value"));
-        (*value)->setMinimumWidth(70);
-        auto *row = new QWidget(tuning);
-        auto *rowLayout = new QHBoxLayout(row);
-        rowLayout->setContentsMargins(0, 0, 0, 0);
-        rowLayout->addWidget(*slider);
-        rowLayout->addWidget(*value);
-        tuningForm->addRow(caption, row);
-    };
-    addTuner(QStringLiteral("PL1, long term:"), QStringLiteral("pl1"), 1, kMaxConfirmedPl1W, 1,
-             &m_ui->pl1, &m_ui->pl1Value);
-    addTuner(QStringLiteral("PL2, short term:"), QStringLiteral("pl2"), 1, kMaxConfirmedPl2W, 1,
-             &m_ui->pl2, &m_ui->pl2Value);
-    addTuner(QStringLiteral("Frequency ceiling:"), QStringLiteral("max_perf_pct"), kMinPerfPct,
-             100, 1, &m_ui->maxPerfPct, &m_ui->maxPerfPctValue);
-    addTuner(QStringLiteral("iGPU ceiling:"), QStringLiteral("gt_max_mhz"), kMinGtMhz, kMaxGtMhz,
-             50, &m_ui->gtMaxMhz, &m_ui->gtMaxMhzValue);
+    addTuner(tuningForm, QStringLiteral("PL1, long term:"), QStringLiteral("pl1"), 1,
+             kMaxConfirmedPl1W, 1, &m_ui->pl1, &m_ui->pl1Value);
+    addTuner(tuningForm, QStringLiteral("PL2, short term:"), QStringLiteral("pl2"), 1,
+             kMaxConfirmedPl2W, 1, &m_ui->pl2, &m_ui->pl2Value);
+    addTuner(tuningForm, QStringLiteral("Frequency ceiling:"), QStringLiteral("max_perf_pct"),
+             kMinPerfPct, 100, 1, &m_ui->maxPerfPct, &m_ui->maxPerfPctValue);
+    addTuner(tuningForm, QStringLiteral("iGPU ceiling:"), QStringLiteral("gt_max_mhz"), kMinGtMhz,
+             kMaxGtMhz, 50, &m_ui->gtMaxMhz, &m_ui->gtMaxMhzValue);
 
     m_ui->epp = new QComboBox(tuning);
     m_ui->epp->setObjectName(QStringLiteral("epp"));
-    for (const Epp value : { Epp::Default, Epp::Performance, Epp::BalancePerformance,
-                             Epp::BalancePower, Epp::Power }) {
+    // Epp::Default is not offered: see the comment on it in sample.h.
+    for (const Epp value : { Epp::Performance, Epp::BalancePerformance, Epp::BalancePower,
+                             Epp::Power }) {
         m_ui->epp->addItem(eppToString(value), static_cast<int>(value));
     }
     tuningForm->addRow(QStringLiteral("Energy preference:"), m_ui->epp);
@@ -305,9 +403,10 @@ void TrayWindow::build()
     tuningButtons->addWidget(resetButton);
     tuningButtons->addWidget(snippetButton);
     tuningForm->addRow(tuningButtons);
-    root->addWidget(tuning);
+    tuningLayout->addWidget(tuning);
+    tuningLayout->addStretch(1);
 
-    auto *fan = new QGroupBox(QStringLiteral("Fan"), self);
+    auto *fan = new QGroupBox(QStringLiteral("Fan"), modePage);
     auto *fanLayout = new QHBoxLayout(fan);
     m_ui->fanState = new QLabel(QStringLiteral("—"), fan);
     m_ui->fanState->setObjectName(QStringLiteral("fan_state"));
@@ -323,9 +422,9 @@ void TrayWindow::build()
     fanAutoButton->setObjectName(QStringLiteral("fan_auto"));
     fanLayout->addWidget(fanMaxButton);
     fanLayout->addWidget(fanAutoButton);
-    root->addWidget(fan);
+    modeLayout->addWidget(fan);
 
-    auto *verdict = new QGroupBox(QStringLiteral("Verdict"), self);
+    auto *verdict = new QGroupBox(QStringLiteral("Verdict"), modePage);
     auto *verdictLayout = new QHBoxLayout(verdict);
     // A judgement made by ear that cannot be traced back to the numbers that
     // produced it is worthless, so it is stamped onto the current sample.
@@ -338,12 +437,41 @@ void TrayWindow::build()
     auto *goodButton = addMark(QStringLiteral("Good"), QStringLiteral("mark_good"));
     auto *loudButton = addMark(QStringLiteral("Too loud"), QStringLiteral("mark_too_loud"));
     auto *slowButton = addMark(QStringLiteral("Too slow"), QStringLiteral("mark_too_slow"));
-    root->addWidget(verdict);
+    modeLayout->addWidget(verdict);
+    modeLayout->addStretch(1);
 
-    m_ui->notice = new QLabel(self);
+    // The console's own tab: everything else in this window is about the
+    // machine, and the one thing that is about the console itself does not
+    // belong beside it.
+    auto *trayLayout = addPage(QStringLiteral("Tray"));
+    QWidget *const trayPage = m_ui->pages.constLast();
+
+    auto *trayBox = new QGroupBox(QStringLiteral("Tray"), trayPage);
+    auto *trayForm = new QVBoxLayout(trayBox);
+    m_ui->autostart = new QCheckBox(QStringLiteral("Start with the session"), trayBox);
+    m_ui->autostart->setObjectName(QStringLiteral("autostart"));
+    m_ui->autostart->setChecked(autostart::enabled());
+    trayForm->addWidget(m_ui->autostart);
+    // The units are made when the session starts, so the entry is read then and
+    // not now. A switch that appears to do nothing is worse than no switch.
+    auto *autostartNote = new QLabel(
+            QStringLiteral("Takes effect from the next login. Switched off, it stays off: the "
+                           "state is the autostart entry itself, and there is nothing else to "
+                           "bring it back."),
+            trayBox);
+    autostartNote->setObjectName(QStringLiteral("autostart_note"));
+    autostartNote->setWordWrap(true);
+    trayForm->addWidget(autostartNote);
+    trayLayout->addWidget(trayBox);
+    trayLayout->addStretch(1);
+
+    // Outside the tabs, like the banner: a command sent from one tab is
+    // answered where the person is looking, not where the control was.
+    m_ui->notice = new QLabel(this);
     m_ui->notice->setObjectName(QStringLiteral("notice"));
     m_ui->notice->setWordWrap(true);
-    root->addWidget(m_ui->notice);
+    m_ui->notice->setContentsMargins(8, 0, 8, 6);
+    outer->addWidget(m_ui->notice);
 
     // Everything that sends a command, as opposed to everything that reports
     // one. Grey while nothing is answering: a slider parked at its minimum is
@@ -379,6 +507,32 @@ void TrayWindow::build()
         sendCommand(QStringLiteral("brightness profile ")
                     + m_ui->brightnessProfile->itemData(index).toString());
     });
+    connect(m_ui->brightnessSpan, &QSlider::valueChanged, this, [this]() {
+        updateTunerLabels();
+        sendBrightnessWindow();
+    });
+    // The pair cannot cross: the daemon refuses a floor above a ceiling, so the
+    // slider being dragged pushes the other one ahead of it rather than
+    // reaching a value that is always refused.
+    connect(m_ui->brightnessFloor, &QSlider::valueChanged, this, [this](int value) {
+        if (value > m_ui->brightnessCeiling->value()) {
+            m_ui->brightnessCeiling->setValue(value);
+            return;
+        }
+        updateTunerLabels();
+        sendBrightnessWindow();
+    });
+    connect(m_ui->brightnessCeiling, &QSlider::valueChanged, this, [this](int value) {
+        if (value < m_ui->brightnessFloor->value()) {
+            m_ui->brightnessFloor->setValue(value);
+            return;
+        }
+        updateTunerLabels();
+        sendBrightnessWindow();
+    });
+    connect(brightnessReset, &QPushButton::clicked, this,
+            [this]() { sendCommand(QStringLiteral("brightness reset")); });
+    connect(m_ui->autostart, &QCheckBox::toggled, this, &TrayWindow::setAutostart);
     connect(fanMaxButton, &QPushButton::clicked, this,
             [this]() { sendCommand(QStringLiteral("fan max")); });
     connect(fanAutoButton, &QPushButton::clicked, this,
@@ -470,6 +624,13 @@ void TrayWindow::applyStatus(const TrayClient::Status &status)
     m_ui->autoBrightness->setChecked(status.autoBrightness);
     m_ui->autoBrightness->setEnabled(status.brightnessAvailable);
     m_ui->brightnessProfile->setEnabled(status.brightnessAvailable);
+    m_ui->brightnessSpan->setValue(status.brightnessSpanPct);
+    m_ui->brightnessFloor->setValue(status.brightnessFloorPct);
+    m_ui->brightnessCeiling->setValue(status.brightnessCeilingPct);
+    for (QSlider *slider :
+         { m_ui->brightnessSpan, m_ui->brightnessFloor, m_ui->brightnessCeiling })
+        slider->setEnabled(status.brightnessAvailable);
+    updateTunerLabels();
     m_ui->brightnessState->setText(
             status.brightnessAvailable
                     ? QStringLiteral("%1, your level %2, ambient %3")
@@ -484,6 +645,16 @@ void TrayWindow::applyStatus(const TrayClient::Status &status)
     m_ui->sensors->setVisible(status.sensorsDegraded);
 
     m_updating = false;
+}
+
+void TrayWindow::sendBrightnessWindow()
+{
+    if (m_updating)
+        return;
+    sendCommand(QStringLiteral("brightness set span_pct=%1 floor_pct=%2 ceiling_pct=%3")
+                        .arg(m_ui->brightnessSpan->value())
+                        .arg(m_ui->brightnessFloor->value())
+                        .arg(m_ui->brightnessCeiling->value()));
 }
 
 void TrayWindow::sendCurrentSetpoints()
@@ -506,6 +677,25 @@ void TrayWindow::sendCurrentSetpoints()
                         .arg(m_ui->gtMaxMhz->value())
                         .arg(onOff(m_ui->turbo->isChecked()), onOff(m_ui->hwpBoost->isChecked()),
                              epp, profile));
+}
+
+void TrayWindow::setAutostart(bool on)
+{
+    if (m_updating)
+        return;
+    QString error;
+    if (autostart::setEnabled(on, &error)) {
+        m_ui->notice->setText(
+                on ? QStringLiteral("Will start with the session from the next login.")
+                   : QStringLiteral("Will not start with the session."));
+        return;
+    }
+    // The switch goes back, because the file is the state and the file did not
+    // change. A checkbox that stayed on after a failed write would be a lie.
+    m_updating = true;
+    m_ui->autostart->setChecked(!on);
+    m_updating = false;
+    m_ui->notice->setText(QStringLiteral("autostart → %1").arg(error));
 }
 
 void TrayWindow::copyConfigSnippet()
@@ -578,4 +768,11 @@ void TrayWindow::updateTunerLabels()
     m_ui->pl2Value->setText(QStringLiteral("%1 W").arg(m_ui->pl2->value()));
     m_ui->maxPerfPctValue->setText(QStringLiteral("%1 %").arg(m_ui->maxPerfPct->value()));
     m_ui->gtMaxMhzValue->setText(QStringLiteral("%1 MHz").arg(m_ui->gtMaxMhz->value()));
+    // Plus and minus, because the span is symmetric around the level the
+    // person set and reading it as an absolute level would be wrong.
+    m_ui->brightnessSpanValue->setText(
+            QStringLiteral("± %1 pp").arg(m_ui->brightnessSpan->value()));
+    m_ui->brightnessFloorValue->setText(QStringLiteral("%1 %").arg(m_ui->brightnessFloor->value()));
+    m_ui->brightnessCeilingValue->setText(
+            QStringLiteral("%1 %").arg(m_ui->brightnessCeiling->value()));
 }

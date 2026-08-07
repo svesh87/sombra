@@ -171,11 +171,17 @@ void SetpointsTest::safeExitStaysWithinConfirmedLimits()
 
 void SetpointsTest::enumRoundTrips()
 {
-    for (const Epp epp : { Epp::Default, Epp::Performance, Epp::BalancePerformance,
+    for (const Epp epp : { Epp::Performance, Epp::BalancePerformance,
                            Epp::BalancePower, Epp::Power })
         QCOMPARE(eppFromString(eppToString(epp)), epp);
     QCOMPARE(eppFromString(QStringLiteral("nonsense")), Epp::Unknown);
     QCOMPARE(eppToString(Epp::Unknown), QStringLiteral("unknown"));
+    // "default" is refused rather than accepted: the node takes it and then
+    // reports the preference it actually chose, which would look like another
+    // process writing the control on every single tick.
+    QCOMPARE(eppFromString(QStringLiteral("default")), Epp::Unknown);
+    // The name still renders, because a stored sample carries the number.
+    QCOMPARE(eppToString(Epp::Default), QStringLiteral("default"));
 
     for (const Profile profile : { Profile::Quiet, Profile::Balanced, Profile::Performance })
         QCOMPARE(profileFromString(profileToString(profile)), profile);

@@ -189,6 +189,9 @@ void Daemon::loadConfiguration()
         m_state.mode = m_modes.defaultModeId();
     if (!m_brightnessProfiles.find(m_state.brightnessProfile))
         m_state.brightnessProfile = m_brightnessProfiles.defaultProfileId();
+    // The overlay was an overlay on the profile as it read a moment ago. The
+    // file has just said something else, and the file is the source of truth.
+    m_liveBrightness.reset();
 
     if (!m_watcher.files().contains(m_options.configPath)
         && QFileInfo::exists(m_options.configPath)) {
@@ -292,6 +295,11 @@ void Daemon::updateBrightness(Sample &sample)
     sample.brightness = kAbsentPercent;
     sample.brightnessBase = kAbsentPercent;
     sample.brightnessProfile = kAbsentPercent;
+    // Zero is a legal span and a legal floor, so absence needs its own marker
+    // here as much as it does for the readings.
+    sample.brightnessSpan = kAbsentPercent;
+    sample.brightnessFloor = kAbsentPercent;
+    sample.brightnessCeiling = kAbsentPercent;
 
     if (!m_backlight.available())
         return;
@@ -299,6 +307,16 @@ void Daemon::updateBrightness(Sample &sample)
     const int profileIndex = m_brightnessProfiles.indexOf(m_state.brightnessProfile);
     if (profileIndex >= 0 && profileIndex < kAbsentPercent)
         sample.brightnessProfile = static_cast<uint8_t>(profileIndex);
+
+    // Recorded whether or not the automation is on, and taken from the
+    // overlay when one is in force: these three are what the next move would
+    // have been allowed to do, which the profile index alone does not say.
+    const std::optional<BrightnessProfile> effective = effectiveBrightnessProfile();
+    if (effective) {
+        sample.brightnessSpan = static_cast<uint8_t>(effective->spanPct);
+        sample.brightnessFloor = static_cast<uint8_t>(effective->floorPct);
+        sample.brightnessCeiling = static_cast<uint8_t>(effective->ceilingPct);
+    }
 
     // Read the panel before deciding anything: our own write would overwrite a
     // hand correction before it had been seen.
@@ -319,12 +337,11 @@ void Daemon::updateBrightness(Sample &sample)
         return;
     sample.flags |= FlagAutoBrightness;
 
-    const BrightnessProfile *profile = m_brightnessProfiles.find(m_state.brightnessProfile);
-    if (!profile)
+    if (!effective)
         return;
 
     m_brightness.base = m_state.brightnessBase;
-    const BrightnessDecision decision = decideBrightness(*profile, light, m_brightness);
+    const BrightnessDecision decision = decideBrightness(*effective, light, m_brightness);
     if (decision.move)
         startBrightnessFade(decision.target);
 }
@@ -414,6 +431,8 @@ QString Daemon::applyBrightnessCommand(const QStringList &parts)
             m_state.brightnessProfile = id;
             saveState();
         }
+        // The overlay belonged to the profile being left behind.
+        m_liveBrightness.reset();
         // A different window, adopted rather than jumped into.
         m_brightness.step = BrightnessState::kUnset;
         m_brightness.pending = BrightnessState::kUnset;
@@ -421,7 +440,62 @@ QString Daemon::applyBrightnessCommand(const QStringList &parts)
         return QStringLiteral("ok %1").arg(id);
     }
 
-    return QStringLiteral("err brightness takes on, off or profile");
+    if (what == QLatin1String("set")) {
+        const auto current = effectiveBrightnessProfile();
+        if (!current)
+            return QStringLiteral("err no brightness profile is configured");
+        BrightnessProfile profile = *current;
+
+        // The same key names as the configuration file, so that what is typed
+        // here and what is pasted into the file are one vocabulary.
+        for (const QString &assignment : parts.mid(1)) {
+            const int eq = assignment.indexOf(QLatin1Char('='));
+            if (eq <= 0)
+                return QStringLiteral("err malformed assignment %1").arg(assignment);
+            const QString key = assignment.left(eq).trimmed().toLower();
+            bool numberOk = false;
+            const int number = assignment.mid(eq + 1).trimmed().toInt(&numberOk);
+            if (!numberOk)
+                return QStringLiteral("err %1 is not a number").arg(key);
+            if (number < 0 || number > 100)
+                return QStringLiteral("err %1 is outside 0..100").arg(key);
+
+            if (key == QLatin1String("span_pct"))
+                profile.spanPct = number;
+            else if (key == QLatin1String("floor_pct"))
+                profile.floorPct = number;
+            else if (key == QLatin1String("ceiling_pct"))
+                profile.ceilingPct = number;
+            else
+                return QStringLiteral("err unknown brightness setting %1").arg(key);
+        }
+        if (profile.floorPct > profile.ceilingPct)
+            return QStringLiteral("err floor_pct above ceiling_pct");
+
+        // Deliberately not adopted the way a profile switch is. Moving these
+        // is a request to see the effect, and the anti-hunting machinery
+        // already keeps that honest: the new window has to survive the dwell
+        // before anything is written, so dragging a slider costs one fade
+        // after it stops rather than one per step.
+        m_liveBrightness = profile;
+        return QStringLiteral("ok");
+    }
+
+    if (what == QLatin1String("reset")) {
+        m_liveBrightness.reset();
+        return QStringLiteral("ok");
+    }
+
+    return QStringLiteral("err brightness takes on, off, profile, set or reset");
+}
+
+std::optional<BrightnessProfile> Daemon::effectiveBrightnessProfile() const
+{
+    if (m_liveBrightness)
+        return m_liveBrightness;
+    if (const BrightnessProfile *profile = m_brightnessProfiles.find(m_state.brightnessProfile))
+        return *profile;
+    return std::nullopt;
 }
 
 QString Daemon::applyLiveSetting(const QStringList &assignments)
@@ -545,11 +619,18 @@ QString Daemon::statusJson() const
     brightness[QStringLiteral("base")] =
             s.brightnessBase == kAbsentPercent ? QJsonValue() : QJsonValue(s.brightnessBase);
     brightness[QStringLiteral("light")] = plain(s.light);
-    if (const BrightnessProfile *profile = m_brightnessProfiles.find(m_state.brightnessProfile);
-        profile && m_state.brightnessBase != DaemonState::kBrightnessBaseUnset) {
-        const BrightnessWindow window = brightnessWindow(*profile, m_state.brightnessBase);
-        brightness[QStringLiteral("window_low")] = window.low;
-        brightness[QStringLiteral("window_high")] = window.high;
+    brightness[QStringLiteral("live")] = m_liveBrightness.has_value();
+    if (const std::optional<BrightnessProfile> profile = effectiveBrightnessProfile()) {
+        // The three the tray puts on sliders, effective values rather than the
+        // file's: with an overlay in force the file's are not what is acting.
+        brightness[QStringLiteral("span_pct")] = profile->spanPct;
+        brightness[QStringLiteral("floor_pct")] = profile->floorPct;
+        brightness[QStringLiteral("ceiling_pct")] = profile->ceilingPct;
+        if (m_state.brightnessBase != DaemonState::kBrightnessBaseUnset) {
+            const BrightnessWindow window = brightnessWindow(*profile, m_state.brightnessBase);
+            brightness[QStringLiteral("window_low")] = window.low;
+            brightness[QStringLiteral("window_high")] = window.high;
+        }
     }
 
     QJsonObject root;
@@ -655,9 +736,15 @@ QString Daemon::handleCommand(const QString &line)
 
     if (verb == QLatin1String("snippet")) {
         const QString id = parts.size() > 1 ? parts.at(1) : m_state.mode;
-        return QStringLiteral("ok ")
-                + QString::fromUtf8(
-                        ModeTable::toConfigSnippet(id, requestedSetpoints()).toUtf8().toBase64());
+        QString text = ModeTable::toConfigSnippet(id, requestedSetpoints());
+        // One file holds both kinds of section, so one snippet is one paste.
+        // The brightness section appears only while an overlay is in force:
+        // without one there is nothing live to promote.
+        if (m_liveBrightness) {
+            text += QLatin1Char('\n');
+            text += BrightnessProfileTable::toConfigSnippet(*m_liveBrightness);
+        }
+        return QStringLiteral("ok ") + QString::fromUtf8(text.toUtf8().toBase64());
     }
 
     return QStringLiteral("err unknown command %1").arg(verb);

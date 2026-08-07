@@ -157,6 +157,13 @@ TrayClient::Status TrayClient::parseStatus(const QJsonObject &object)
     status.brightness = reading(brightness, QLatin1String("level"));
     status.brightnessBase = reading(brightness, QLatin1String("base"));
     status.light = reading(brightness, QLatin1String("light"));
+    status.brightnessSpanPct = brightness.value(QLatin1String("span_pct"))
+                                       .toInt(status.brightnessSpanPct);
+    status.brightnessFloorPct = brightness.value(QLatin1String("floor_pct"))
+                                        .toInt(status.brightnessFloorPct);
+    status.brightnessCeilingPct = brightness.value(QLatin1String("ceiling_pct"))
+                                          .toInt(status.brightnessCeilingPct);
+    status.brightnessLive = brightness.value(QLatin1String("live")).toBool();
     return status;
 }
 

@@ -67,7 +67,11 @@ inline constexpr int kBrightnessDwellTicks = 5;
 inline constexpr int kBrightnessFadeSteps = 25;
 inline constexpr int kBrightnessFadeIntervalMs = 40;
 
-inline constexpr int kBrightnessDefaultSpanPct = 10;
+// Percentage points either side of the level the person set. Twenty rather than
+// ten because the narrower window was measured saturating: over a recorded
+// evening the automation spent 13% of its time pinned to the top of a ±10
+// window and none at the bottom, which is the automation asking for more room.
+inline constexpr int kBrightnessDefaultSpanPct = 20;
 inline constexpr int kBrightnessDefaultFloorPct = 5;
 inline constexpr int kBrightnessDefaultCeilingPct = 100;
 
@@ -142,6 +146,12 @@ public:
     const BrightnessProfile *find(const QString &id) const;
     int indexOf(const QString &id) const;
     const QString &defaultProfileId() const { return m_defaultProfileId; }
+
+    // The configuration text that would reproduce a profile, for the tray's
+    // "copy as a configuration snippet". The curve is written out unchanged:
+    // it is not tunable from the tray, and a section missing it would not be
+    // a section that could be pasted into the file.
+    static QString toConfigSnippet(const BrightnessProfile &profile);
 
 private:
     QList<BrightnessProfile> m_profiles;

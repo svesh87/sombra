@@ -16,7 +16,7 @@ inline constexpr uint32_t kRingMagic = 0x52424d4f;  // "OMBR" little-endian
 // Raised whenever the meaning of the record changes. There is no migration
 // path: an existing ring with a different version is reinitialised, because a
 // telemetry ring has no history worth converting.
-inline constexpr uint16_t kRingVersion = 1;
+inline constexpr uint16_t kRingVersion = 2;
 
 #pragma pack(push, 1)
 struct RingHeader {

@@ -78,6 +78,9 @@ int runControl(const QStringList &arguments)
             "  mark good|too-loud|too-slow  stamp a verdict onto the current sample\n"
             "  fan max|auto               full speed is explicit only\n"
             "  brightness on|off|profile <id>  follow the ambient light sensor\n"
+            "  brightness set <key>=<value> ...  live window: span_pct, floor_pct,\n"
+            "                             ceiling_pct\n"
+            "  brightness reset           drop the live window, return to the profile\n"
             "  charge <percent>           battery charge threshold\n"
             "  snippet [id]               live setpoints as a base64 config snippet\n"
             "  reload                     re-read the configuration file\n"
@@ -121,12 +124,21 @@ int runControl(const QStringList &arguments)
     const QString reply = QString::fromUtf8(socket.readLine()).trimmed();
     const bool accepted = reply.startsWith(QLatin1String("ok"));
 
-    // The protocol is one line per exchange, so a multi-line configuration
-    // snippet travels base64-encoded. Unpack it here rather than making every
-    // caller do it.
-    if (accepted && words.first() == QLatin1String("snippet") && reply.size() > 3) {
-        out << QString::fromUtf8(QByteArray::fromBase64(reply.mid(3).toUtf8()));
-        return 0;
+    // The "ok" is protocol framing, and two commands answer with a payload
+    // behind it. Printing the payload alone is what makes `ombra status | jq`
+    // and `ombra snippet >> modes.conf` work without a caller stripping a word
+    // off the front of the answer.
+    if (accepted && reply.size() > 3) {
+        // The protocol is one line per exchange, so a multi-line configuration
+        // snippet travels base64-encoded.
+        if (words.first() == QLatin1String("snippet")) {
+            out << QString::fromUtf8(QByteArray::fromBase64(reply.mid(3).toUtf8()));
+            return 0;
+        }
+        if (words.first() == QLatin1String("status")) {
+            out << reply.mid(3) << '\n';
+            return 0;
+        }
     }
 
     out << reply << '\n';

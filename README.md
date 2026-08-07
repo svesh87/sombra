@@ -197,6 +197,11 @@ ombra export --format csv > session.csv
 Durable mode definitions live in `/etc/ombra/modes.conf`, which the
 daemon reads and never writes. Changes take effect without a restart.
 
+The tray's *Tray* tab has one switch: whether the console starts with the
+session. It writes an XDG autostart entry and nothing else — installing the
+package adds no process to your session, and the entry is the whole state, so
+something switched off stays off. It takes effect at the next login.
+
 ## Brightness that follows the room
 
 A separate function from the thermal mode, with its own profile and its own
@@ -207,6 +212,8 @@ backlight reaches the thermal side.
 ombra brightness on
 ombra brightness off           # remembered across a reboot
 ombra brightness profile indoors
+ombra brightness set span_pct=30 floor_pct=20   # live, immediate, never persisted
+ombra brightness reset                          # back to the profile's own numbers
 ```
 
 The model is short:
@@ -230,9 +237,18 @@ The model is short:
 - **Off is off.** Switched off, the daemon does not write the backlight at all,
   and neither switching it on nor off moves the backlight by itself.
 
+The span, the floor and the ceiling are also three sliders in the tray, because
+"is this range right" is a judgement made by eye in the room it is meant for,
+and a file plus a reload cannot answer it while the light is still the same.
+Like the thermal sliders they apply at once and are never written back; the tray
+offers the result as a configuration snippet to paste.
+
 The curve is defined in `/etc/ombra/modes.conf` in the sensor's own
-units, which are not lux — see `HARDWARE.md`. The `light` column of an exported
-session is what to calibrate it against.
+units, which are not lux — see `HARDWARE.md`. It is not on a slider: its shape
+is calibrated from recorded telemetry rather than judged on the spot. The
+`light` column of an exported session is what to calibrate it against, and
+`brightness_span`, `brightness_floor` and `brightness_ceiling` say what the
+automation was allowed to do at the time of each sample.
 
 ## What survives a reboot
 
@@ -242,13 +258,16 @@ session is what to calibrate it against.
 | the brightness automation on/off | something you switched off must not come back on its own |
 | the brightness profile and your baseline level | otherwise it would have to be set again after every boot |
 | the charge threshold | it lives in sysfs, is lost on reboot, and nothing else re-applies it |
+| whether the tray starts with the session | the autostart entry is the state, so switched off stays off |
 
-Deliberately not kept: live tuning, which applies immediately and is never
-written back anywhere, and the forced maximum fan speed — 6100 RPM surviving a
-reboot is a surprise, not restored state.
+Deliberately not kept: live tuning of the setpoints and of the backlight window,
+which applies immediately and is never written back anywhere, and the forced
+maximum fan speed — 6100 RPM surviving a reboot is a surprise, not restored
+state.
 
-These live in a state file separate from the configuration, so the maintainer's
-comments in the configuration survive and the daemon never rewrites it.
+All but the last live in a state file separate from the configuration, so the
+maintainer's comments in the configuration survive and the daemon never rewrites
+it. The autostart entry is the tray's own and the daemon knows nothing about it.
 
 ## Rolling back
 
@@ -279,6 +298,8 @@ to automatic rather than assuming it.
 
 - `HARDWARE.md` — the control surface: which sysfs knobs exist, what they do,
   measured values, and which controls are absent on this platform.
+- `SCREENSHOTS.md` — what the tray menu and the console look like, and the one
+  command that makes the pictures again.
 - `AGENTS.md` (= `CLAUDE.md`) — repository conventions, frozen design
   decisions and quality gates.
 - `config/modes.conf` — the mode definitions, commented in place. This is the

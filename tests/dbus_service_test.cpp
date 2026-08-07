@@ -530,13 +530,14 @@ void DBusServiceTest::aModeChangeIsAnnouncedOnEveryInterface()
     for (const QVariantMap &changed : catcher.propertyChanges)
         QCOMPARE(changed.value(QStringLiteral("ActiveProfile")).toString(),
                  QStringLiteral("performance"));
-    QCOMPARE(catcher.profileSwitches, QStringList({ QStringLiteral("performance") }));
+    // The vendor spelling is capitalised, and the applet aborts on anything
+    // else, so the signal carries the vendor's word and not the standard one.
+    QCOMPARE(catcher.profileSwitches, QStringList({ QStringLiteral("Performance") }));
 
-    // The vendor vocabulary differs for the coolest mode, and the signal uses
-    // the vendor's word for it.
+    // The vendor vocabulary also differs for the coolest mode.
     m_daemon->handleCommand(QStringLiteral("mode quiet"));
     QVERIFY(waitFor([&catcher] { return catcher.profileSwitches.size() == 2; }));
-    QCOMPARE(catcher.profileSwitches.last(), QStringLiteral("battery"));
+    QCOMPARE(catcher.profileSwitches.last(), QStringLiteral("Battery"));
 }
 
 void DBusServiceTest::profilesAreHeldAndReleased()
@@ -628,9 +629,12 @@ void DBusServiceTest::performanceDegradedFollowsTheThermalGuard()
 
 void DBusServiceTest::theVendorInterfaceSelectsModesAndReportsThem()
 {
+    // Every name here is the vendor's capitalised spelling. The COSMIC panel
+    // applet parses this answer against exactly these three literals and
+    // aborts on anything else, so the case is part of the contract.
     QDBusMessage reply = call(service(kVendorName), kVendorPath, kVendorName,
                               QStringLiteral("GetProfile"));
-    QCOMPARE(reply.arguments().value(0).toString(), QStringLiteral("balanced"));
+    QCOMPARE(reply.arguments().value(0).toString(), QStringLiteral("Balanced"));
 
     QCOMPARE(call(service(kVendorName), kVendorPath, kVendorName, QStringLiteral("Battery")).type(),
              QDBusMessage::ReplyMessage);
@@ -639,7 +643,7 @@ void DBusServiceTest::theVendorInterfaceSelectsModesAndReportsThem()
                      .arguments()
                      .value(0)
                      .toString(),
-             QStringLiteral("battery"));
+             QStringLiteral("Battery"));
 
     QCOMPARE(call(service(kVendorName), kVendorPath, kVendorName, QStringLiteral("Performance"))
                      .type(),
@@ -654,7 +658,7 @@ void DBusServiceTest::theVendorInterfaceSelectsModesAndReportsThem()
                      .arguments()
                      .value(0)
                      .toString(),
-             QStringLiteral("balanced"));
+             QStringLiteral("Balanced"));
 }
 
 void DBusServiceTest::theGraphicsHalfAnswersWithConstants()

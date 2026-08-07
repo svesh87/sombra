@@ -130,7 +130,12 @@ void TrayClientTest::parsesAFullStatus()
                       "gt_max_mhz": 2350},
         "sensors": {"pkg_c": 61.0, "board_c": 45.0, "nvme_c": 38.8, "fan_rpm": 1900,
                     "pkg_w": 7.25, "core_w": 4.5, "uncore_w": 1.25, "cpu_mhz": 2400,
-                    "gpu_mhz": 300, "load1": 0.61}
+                    "gpu_mhz": 300, "load1": 0.61},
+        "brightness": {"available": true, "auto": true, "profile": "indoors",
+                       "profiles": [{"id": "indoors", "label": "Indoors"}],
+                       "level": 60, "base": 55, "light": 1500, "live": true,
+                       "span_pct": 30, "floor_pct": 35, "ceiling_pct": 70,
+                       "window_low": 35, "window_high": 70}
     })"));
 
     QVERIFY(status.valid);
@@ -181,6 +186,20 @@ void TrayClientTest::parsesAFullStatus()
     QCOMPARE(status.cpuMhz, 2400.0);
     QCOMPARE(status.gpuMhz, 300.0);
     QCOMPARE(status.load1, 0.61);
+
+    // The backlight side, reported alongside the thermal state and never mixed
+    // with it. The three window numbers are what the sliders sit on, and they
+    // are the effective ones rather than the file's while an overlay is live.
+    QVERIFY(status.brightnessAvailable);
+    QVERIFY(status.autoBrightness);
+    QCOMPARE(status.brightnessProfileId, QStringLiteral("indoors"));
+    QCOMPARE(status.brightness, 60.0);
+    QCOMPARE(status.brightnessBase, 55.0);
+    QCOMPARE(status.light, 1500.0);
+    QVERIFY(status.brightnessLive);
+    QCOMPARE(status.brightnessSpanPct, 30);
+    QCOMPARE(status.brightnessFloorPct, 35);
+    QCOMPARE(status.brightnessCeilingPct, 70);
 }
 
 void TrayClientTest::parsesAbsentReadingsAsTheSentinel()
@@ -230,6 +249,10 @@ void TrayClientTest::parsesMalformedRepliesWithoutCrashing()
     QCOMPARE(garbage.applied.epp, Setpoints().epp);
     QCOMPARE(garbage.applied.pl1W, Setpoints().pl1W);
     QCOMPARE(garbage.packageC, TrayClient::kNoReading);
+    // Without a brightness object the sliders still have somewhere to sit.
+    QCOMPARE(garbage.brightnessSpanPct, kBrightnessDefaultSpanPct);
+    QCOMPARE(garbage.brightnessCeilingPct, kBrightnessDefaultCeilingPct);
+    QVERIFY(!garbage.brightnessLive);
 }
 
 void TrayClientTest::pollsARunningDaemonAndReconnectsToANewOne()

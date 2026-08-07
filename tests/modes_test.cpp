@@ -146,9 +146,12 @@ void ModesTest::clampsAboveTheConfirmedCeiling()
 
 void ModesTest::reportsUnknownEnumValuesAndFallsBack()
 {
+    // "default" is among them on purpose: the kernel lists it, so a plausible
+    // configuration can ask for it, and it has to be refused with a reason
+    // rather than written and then read back as something else.
     const QString path = writeConfig(QStringLiteral("[mode odd]\n"
                                                     "platform_profile=turbo-max\n"
-                                                    "epp=whatever\n"
+                                                    "epp=default\n"
                                                     "turbo=maybe\n"));
     ModeTable table;
     QStringList problems;

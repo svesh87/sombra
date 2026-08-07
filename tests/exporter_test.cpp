@@ -38,6 +38,13 @@ Sample populated(uint32_t ts)
     s.chargeLimit = 80;
     s.flags = FlagOnAc | FlagLiveTuning;
     s.mark = static_cast<uint8_t>(Mark::TooLoud);
+    s.light = 1500;
+    s.brightness = 60;
+    s.brightnessBase = 55;
+    s.brightnessProfile = 0;
+    s.brightnessSpan = 30;
+    s.brightnessFloor = 35;
+    s.brightnessCeiling = 70;
     return s;
 }
 
@@ -57,6 +64,13 @@ Sample blind(uint32_t ts)
     s.load1 = kAbsentValue;
     s.modeId = 0xFF;
     s.flags = FlagSensorsDegraded | FlagGuardEngaged | FlagWriteMismatch;
+    s.light = kAbsentValue;
+    s.brightness = kAbsentPercent;
+    s.brightnessBase = kAbsentPercent;
+    s.brightnessProfile = kAbsentPercent;
+    s.brightnessSpan = kAbsentPercent;
+    s.brightnessFloor = kAbsentPercent;
+    s.brightnessCeiling = kAbsentPercent;
     return s;
 }
 
@@ -110,6 +124,12 @@ void ExporterTest::csvRendersEveryValueAndEverySetpoint()
     QCOMPARE(field(QStringLiteral("live")), QStringLiteral("1"));
     QCOMPARE(field(QStringLiteral("guard")), QStringLiteral("0"));
     QCOMPARE(field(QStringLiteral("mark")), QStringLiteral("too-loud"));
+    // The window the backlight automation was allowed to work in. Recorded per
+    // sample because live tuning can override the profile, and a row that
+    // needs the configuration file read alongside it is not self-contained.
+    QCOMPARE(field(QStringLiteral("brightness_span")), QStringLiteral("30"));
+    QCOMPARE(field(QStringLiteral("brightness_floor")), QStringLiteral("35"));
+    QCOMPARE(field(QStringLiteral("brightness_ceiling")), QStringLiteral("70"));
 }
 
 void ExporterTest::absentReadingsAreEmptyNotZero()
@@ -118,7 +138,9 @@ void ExporterTest::absentReadingsAreEmptyNotZero()
     const QStringList names = exporter::csvHeader().split(QLatin1Char(','));
     for (const QString &name : { QStringLiteral("pkg_c"), QStringLiteral("fan_rpm"),
                                  QStringLiteral("pkg_w"), QStringLiteral("load1"),
-                                 QStringLiteral("mode_id") }) {
+                                 QStringLiteral("mode_id"), QStringLiteral("brightness_span"),
+                                 QStringLiteral("brightness_floor"),
+                                 QStringLiteral("brightness_ceiling") }) {
         QVERIFY2(fields.at(names.indexOf(name)).isEmpty(), qPrintable(name));
     }
     QCOMPARE(fields.at(names.indexOf(QStringLiteral("degraded"))), QStringLiteral("1"));

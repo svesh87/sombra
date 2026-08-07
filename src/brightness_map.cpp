@@ -282,3 +282,22 @@ int BrightnessProfileTable::indexOf(const QString &id) const
     }
     return -1;
 }
+
+QString BrightnessProfileTable::toConfigSnippet(const BrightnessProfile &profile)
+{
+    QStringList points;
+    for (const BrightnessPoint &point : profile.curve)
+        points.append(QStringLiteral("%1:%2").arg(point.light).arg(point.position));
+
+    return QStringLiteral("[brightness %1]\n"
+                          "label=%2\n"
+                          "span_pct=%3\n"
+                          "floor_pct=%4\n"
+                          "ceiling_pct=%5\n"
+                          "curve=%6\n")
+            .arg(profile.id, profile.label)
+            .arg(profile.spanPct)
+            .arg(profile.floorPct)
+            .arg(profile.ceilingPct)
+            .arg(points.join(QStringLiteral(", ")));
+}

@@ -92,9 +92,10 @@ QString eppToString(Epp epp)
 
 Epp eppFromString(const QString &text)
 {
+    // "default" is deliberately absent: see the comment on Epp::Default. It is
+    // rejected rather than accepted, so a configuration asking for it is
+    // reported and falls back instead of producing a permanent disagreement.
     const QString value = text.trimmed().toLower();
-    if (value == QLatin1String("default"))
-        return Epp::Default;
     if (value == QLatin1String("performance"))
         return Epp::Performance;
     if (value == QLatin1String("balance_performance"))

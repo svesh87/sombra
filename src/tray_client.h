@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Sergei Sveshnikov. MIT licensed, see LICENSE.
 #pragma once
 
+#include "brightness_map.h"
 #include "setpoints.h"
 
 #include <QJsonObject>
@@ -63,6 +64,14 @@ public:
         double brightness = kNoReading;
         double brightnessBase = kNoReading;
         double light = kNoReading;
+        // The window the automation may work in, and whether a live overlay is
+        // in force rather than the profile as the file defines it. Defaults
+        // match the built-in profile so that the sliders have somewhere to sit
+        // before the first answer arrives.
+        int brightnessSpanPct = kBrightnessDefaultSpanPct;
+        int brightnessFloorPct = kBrightnessDefaultFloorPct;
+        int brightnessCeilingPct = kBrightnessDefaultCeilingPct;
+        bool brightnessLive = false;
     };
 
     explicit TrayClient(QString socketPath, QObject *parent = nullptr);

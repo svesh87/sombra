@@ -103,6 +103,10 @@ private:
     // thermal mode must not be able to reach the backlight, and the backlight
     // must not be able to reach the thermal controls, not even by accident.
     void updateBrightness(Sample &sample);
+    // The profile the backlight is actually working to: the selected one, or
+    // the live overlay on top of it. Absent when the configuration defines no
+    // usable profile at all.
+    std::optional<BrightnessProfile> effectiveBrightnessProfile() const;
     // A hand correction is an instruction, and it is read before anything is
     // computed: our own write would otherwise overwrite it before it was seen.
     void noticeManualBrightness();
@@ -132,6 +136,11 @@ private:
     int m_fadeStepRaw = 1;
 
     std::optional<Setpoints> m_live;
+    // The live brightness overlay: span, floor and ceiling judged by eye while
+    // the room is what it is. Like the thermal overlay it applies immediately
+    // and is never written back. It is dropped when the profile changes or the
+    // configuration is reread, because it was an overlay on that profile.
+    std::optional<BrightnessProfile> m_liveBrightness;
     // Held apart from live tuning because it is a different kind of thing: no
     // mode may ask for the fan, so an explicit fan command is not a setpoint
     // the mode could have carried.

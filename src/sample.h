@@ -30,6 +30,13 @@ inline constexpr uint8_t kAbsentPercent = UINT8_MAX;
 // a string so that the record stays fixed-size.
 enum class Epp : uint8_t {
     Unknown = 0,
+    // Listed by the kernel but never written by this daemon, and not accepted
+    // from the configuration: the node takes "default" and then reports the
+    // preference it actually chose, so a written "default" reads back as
+    // something else and the daemon would flag a disagreement that is really
+    // its own. It also is not a setpoint — it means "whatever the driver
+    // picks", which contradicts static setpoints per mode. The value stays in
+    // the enum because samples store these as numbers.
     Default,
     Performance,
     BalancePerformance,
@@ -122,8 +129,15 @@ struct Sample {
     uint8_t brightness;         // panel level, percent
     uint8_t brightnessBase;     // the level the person asked for, percent
     uint8_t brightnessProfile;  // index into the configured profile table
+    // The window the automation was allowed to work in, in percentage points
+    // of the panel scale. Recorded rather than looked up from the profile
+    // index, because live tuning can override these three and a record that
+    // needs the configuration file to be read is not self-contained.
+    uint8_t brightnessSpan;
+    uint8_t brightnessFloor;
+    uint8_t brightnessCeiling;
 
-    uint8_t reserved[17];
+    uint8_t reserved[14];
 };
 #pragma pack(pop)
 

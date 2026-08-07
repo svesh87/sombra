@@ -7,11 +7,14 @@
 #include <QApplication>
 #include <QCommandLineParser>
 #include <QDebug>
+#include <QDir>
 #include <QIcon>
 #include <QMenu>
 #include <QPainter>
 #include <QPixmap>
+#include <QScrollArea>
 #include <QSystemTrayIcon>
+#include <QTabWidget>
 #include <QTimer>
 
 namespace {
@@ -70,6 +73,68 @@ void rebuildModeActions(QMenu &menu, QAction *before, QActionGroup &group, TrayC
     }
 }
 
+// Saves the two pictures the documentation carries and says whether it worked.
+//
+// The grabs are of our own widgets, so no compositor and no screenshot tool are
+// involved and nothing but the widget ends up in the file — which also means
+// nothing else that happened to be on screen can leak into a public repository.
+// A menu is a widget too, which is why the same call takes both.
+bool saveScreenshots(const QString &directory, TrayWindow &window, QMenu &menu, QString *error)
+{
+    const QDir target(directory);
+    if (!target.exists()) {
+        *error = QStringLiteral("%1 does not exist").arg(directory);
+        return false;
+    }
+
+    // Shown, because a widget that has never been laid out grabs at the wrong
+    // size. WA_DontShowOnScreen lays it out without putting it in front of
+    // whoever is running the command.
+    menu.setAttribute(Qt::WA_DontShowOnScreen);
+    menu.show();
+    window.show();
+    QApplication::processEvents();
+
+    const auto write = [&](const QString &name, const QPixmap &picture) {
+        const QString path = target.filePath(name);
+        if (!picture.save(path)) {
+            *error = QStringLiteral("cannot write %1").arg(path);
+            return false;
+        }
+        qInfo().noquote() << "wrote" << path;
+        return true;
+    };
+
+    if (!write(QStringLiteral("tray-menu.png"), menu.grab()))
+        return false;
+
+    auto *tabs = window.findChild<QTabWidget *>();
+    if (!tabs) {
+        *error = QStringLiteral("the console has no tabs to photograph");
+        return false;
+    }
+    for (int i = 0; i < tabs->count(); ++i) {
+        tabs->setCurrentIndex(i);
+        QApplication::processEvents();
+        // Fitted to this tab exactly, in both directions. In use the window
+        // caps its height at the display and the tab scrolls, which is right
+        // there and wrong here, where the part outside the viewport would
+        // simply be missing; and a tab shorter than the window would otherwise
+        // be photographed with a field of empty space under it.
+        if (auto *area = qobject_cast<QScrollArea *>(tabs->widget(i))) {
+            const QSize hint = area->widget()->sizeHint();
+            window.resize(window.width() + hint.width() - area->viewport()->width(),
+                          window.height() + hint.height() - area->viewport()->height());
+            QApplication::processEvents();
+        }
+        if (!write(QStringLiteral("console-%1.png").arg(tabs->tabText(i).toLower()),
+                   window.grab())) {
+            return false;
+        }
+    }
+    return true;
+}
+
 } // namespace
 
 int main(int argc, char **argv)
@@ -98,7 +163,15 @@ int main(int argc, char **argv)
             QStringLiteral("quit-after-ms"),
             QStringLiteral("Exit after this many milliseconds instead of running until quit."),
             QStringLiteral("ms"), QStringLiteral("0"));
-    parser.addOptions({ socketOption, intervalOption, quitAfterOption });
+    // The documentation's pictures are generated rather than taken by hand: a
+    // screenshot of an interface goes stale silently, and regenerating it has
+    // to be one command or it will not happen.
+    const QCommandLineOption screenshotOption(
+            QStringLiteral("screenshot"),
+            QStringLiteral("Write tray-menu.png and one console-<tab>.png per tab to this "
+                           "directory and exit."),
+            QStringLiteral("directory"));
+    parser.addOptions({ socketOption, intervalOption, quitAfterOption, screenshotOption });
     parser.process(app);
 
     TrayClient client(parser.value(socketOption));
@@ -162,6 +235,20 @@ int main(int argc, char **argv)
     if (!QSystemTrayIcon::isSystemTrayAvailable()) {
         qWarning() << "no system tray available; showing the console instead";
         toggleConsole();
+    }
+
+    if (parser.isSet(screenshotOption)) {
+        // With real readings if the daemon is there: a console shown full of
+        // dashes would document the disconnected case and nothing else.
+        client.poll();
+        if (!client.connected())
+            qWarning() << "the daemon is not answering; the pictures will show that";
+        QString error;
+        if (!saveScreenshots(parser.value(screenshotOption), window, menu, &error)) {
+            qCritical().noquote() << error;
+            return 1;
+        }
+        return 0;
     }
 
     const int quitAfterMs = parser.value(quitAfterOption).toInt();

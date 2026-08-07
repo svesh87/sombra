@@ -122,7 +122,15 @@ controls of its own:
 | `/sys/class/drm/card*/gt_min_freq_mhz` | frequency floor | 100 |
 | `/sys/class/drm/card*/gt_act_freq_mhz` | current frequency | — |
 | `/sys/class/drm/card*/gt_RP0_freq_mhz` | hardware maximum | 2350 |
+| `/sys/class/drm/card*/gt_RPn_freq_mhz` | hardware minimum | 800 |
 | `/sys/class/powercap/intel-rapl:0:1/constraint_0_power_limit_uw` | power limit for the uncore domain | — |
+
+**The floor for a written `gt_max_freq_mhz` is `gt_RPn_freq_mhz`, which is 800
+here — not `gt_min_freq_mhz`.** The two nodes are easy to confuse and the
+difference is silent: a ceiling below RPn is refused outright, the node keeps its
+previous value, and nothing but a read-back says so. Measured the hard way — 3826
+consecutive samples with a requested ceiling of 100 all reported the control
+disagreeing with the daemon, and none of them had it applied.
 
 Together these allow the graphics engine to be limited without touching CPU
 performance, which matters when the heat originates there.
@@ -271,6 +279,12 @@ machine, `com.system76.PowerDaemon` is sixteen methods and two signals:
 
 Eleven of those concern graphics switching, which this machine cannot do: there
 is no discrete GPU. They are constants, not functionality.
+
+The vocabulary is the vendor's own, not the standard one: `GetProfile` and
+`PowerProfileSwitch` speak `Battery`, `Balanced` and `Performance`, capitalised.
+The spelling is part of the contract — the COSMIC panel applet matches the
+answer against those three literals and aborts on anything else, and an aborted
+applet takes the battery indicator off the panel along with the profile menu.
 
 The standard interface, `net.hadess.PowerProfiles` and its
 `org.freedesktop.UPower.PowerProfiles` alias, is the smaller one: the

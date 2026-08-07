@@ -56,6 +56,7 @@ private slots:
     void profilesAreReadFromTheConfigurationFile();
     void abrokenProfileFallsBackRatherThanVanishing();
     void aFileWithoutProfilesLeavesTheTableAlone();
+    void theSnippetReadsBackAsTheSameProfile();
 
 private:
     QString writeConfig(const QString &contents) const;
@@ -359,6 +360,31 @@ void BrightnessMapTest::aFileWithoutProfilesLeavesTheTableAlone()
     QCOMPARE(brightnessCurvePosition(indoors.curve, 100000), 100);
     QVERIFY(brightnessCurvePosition(indoors.curve, 1000)
             < brightnessCurvePosition(indoors.curve, 4000));
+}
+
+void BrightnessMapTest::theSnippetReadsBackAsTheSameProfile()
+{
+    BrightnessProfile tuned = BrightnessProfileTable::builtinDefaults().profiles().first();
+    tuned.spanPct = 30;
+    tuned.floorPct = 35;
+    tuned.ceilingPct = 70;
+
+    // The snippet is what the tray offers for promotion into the file, so the
+    // parser has to read it back as the profile it came from — curve included,
+    // since a section without one could not be pasted.
+    BrightnessProfileTable table;
+    QVERIFY(table.load(writeConfig(QStringLiteral("[general]\n"
+                                                 "default_brightness_profile=indoors\n")
+                                   + BrightnessProfileTable::toConfigSnippet(tuned))));
+    const BrightnessProfile *read = table.find(tuned.id);
+    QVERIFY(read);
+    QCOMPARE(read->label, tuned.label);
+    QCOMPARE(read->spanPct, 30);
+    QCOMPARE(read->floorPct, 35);
+    QCOMPARE(read->ceilingPct, 70);
+    QCOMPARE(read->curve.size(), tuned.curve.size());
+    QCOMPARE(read->curve.first().light, tuned.curve.first().light);
+    QCOMPARE(read->curve.last().position, tuned.curve.last().position);
 }
 
 QTEST_MAIN(BrightnessMapTest)

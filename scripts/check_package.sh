@@ -92,6 +92,15 @@ if [ -n "$strays" ]; then
     report "unexpected paths: $(printf '%s' "$strays" | tr '\n' ' ')"
 fi
 
+# An autostart entry belongs to the person, not to the package: dpkg -i must not
+# add a process to a session, for the same reason it does not take the thermal
+# controls. The tray writes its own entry when the switch in its window is
+# thrown, and that path is under the person's own config directory.
+autostarts=$(printf '%s\n' "$contents" | awk '{ print $NF }' | grep autostart || true)
+if [ -n "$autostarts" ]; then
+    report "the package ships an autostart entry: $(printf '%s' "$autostarts" | tr '\n' ' ')"
+fi
+
 # The mode definitions are edited in place and tuned from telemetry. Without
 # this the next upgrade silently reverts the tuning.
 conffiles=$(dpkg-deb -I "$deb" conffiles 2>/dev/null || true)
