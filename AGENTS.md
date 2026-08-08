@@ -39,6 +39,19 @@ Each root document has a Russian copy beside it, named `<NAME>.ru.md`.
   translation that contradicts the original is worse than no translation.
 - `AGENTS.ru.md` is a convenience copy for human review and is never a source of
   rules: agents follow `AGENTS.md`.
+- **A translation is written as a text in its own language, not word by word.**
+  The original's syntax does not carry across: a construction like "which is
+  what this exists to" becomes a fragment in Russian that attaches to nothing.
+  The test is to read the sentence aloud away from the original; if it does not
+  read, rewrite it whole instead of patching a word.
+- **The finished translation is proofread as a document of its own**, without
+  the original in view, and only then checked against the original for meaning.
+  False friends and dropped words — `underused` rendered as "underrated", a
+  missing `else` — stay plausible and survive a word-by-word comparison.
+- **One term, one translation across the repository.** The same word rendered
+  differently in neighbouring documents reads as two different things. Do not
+  invent words the language does not have: a calque looks like a typo rather
+  than a term, and where no short equivalent exists, describe it instead.
 - The final consistency pass checks the pairs against each other.
 
 ## Frozen decisions
