@@ -75,19 +75,25 @@ expect_file() {
 expect_file /usr/bin/ombrad -rwxr-xr-x
 expect_file /usr/bin/ombra -rwxr-xr-x
 expect_file /usr/bin/ombra-tray -rwxr-xr-x
-expect_file /etc/ombra/modes.conf -rw-r--r--
 expect_file /usr/lib/systemd/system/ombrad.service -rw-r--r--
 expect_file /usr/share/applications/ombra-tray.desktop -rw-r--r--
+expect_file /usr/share/bash-completion/completions/ombra -rw-r--r--
+expect_file /usr/share/zsh/vendor-completions/_ombra -rw-r--r--
+expect_file /usr/share/fish/vendor_completions.d/ombra.fish -rw-r--r--
+# Manual pages are compressed by debhelper, which is the one place in this
+# package where that is the right trade: `man` decompresses them itself.
+expect_file /usr/share/man/man1/ombra.1.gz -rw-r--r--
+expect_file /usr/share/man/man1/ombra-tray.1.gz -rw-r--r--
+expect_file /usr/share/man/man8/ombrad.8.gz -rw-r--r--
 expect_file /usr/share/doc/ombra/README.md -rw-r--r--
 expect_file /usr/share/doc/ombra/HARDWARE.md -rw-r--r--
 expect_file /usr/share/doc/ombra/copyright -rw-r--r--
 
-# Nothing may land outside these two trees. A stray path is how a package
-# quietly starts owning files it has no business owning.
+# Nothing may land outside /usr. A stray path is how a package quietly starts
+# owning files it has no business owning.
 strays=$(printf '%s\n' "$contents" | awk '{ print $NF }' \
     | grep -v '/$' \
-    | grep -v '^\./usr/' \
-    | grep -v '^\./etc/' || true)
+    | grep -v '^\./usr/' || true)
 if [ -n "$strays" ]; then
     report "unexpected paths: $(printf '%s' "$strays" | tr '\n' ' ')"
 fi
@@ -101,14 +107,23 @@ if [ -n "$autostarts" ]; then
     report "the package ships an autostart entry: $(printf '%s' "$autostarts" | tr '\n' ' ')"
 fi
 
-# The mode definitions are edited in place and tuned from telemetry. Without
-# this the next upgrade silently reverts the tuning.
+# The daemon carries its defaults compiled in and writes its own settings under
+# /var/lib/ombra. A conffile would be a second source of truth, and an upgrade
+# would then argue with values the daemon itself had written.
 conffiles=$(dpkg-deb -I "$deb" conffiles 2>/dev/null || true)
-if ! printf '%s\n' "$conffiles" | grep -qx '/etc/ombra/modes.conf'; then
-    report "modes.conf is not registered as a conffile"
+if [ -n "$(printf '%s' "$conffiles" | tr -d '[:space:]')" ]; then
+    report "the package registers conffiles: $(printf '%s' "$conffiles" | tr '\n' ' ')"
 fi
 
-for script in postinst prerm postrm; do
+# The old conffile has to be withdrawn on upgrade, in all three scripts dpkg
+# consults. Left behind, it looks like configuration that stopped working.
+for script in preinst postinst postrm; do
+    if ! dpkg-deb -I "$deb" "$script" 2>/dev/null | grep -q 'rm_conffile /etc/ombra/modes.conf'; then
+        report "$script does not withdraw the old /etc/ombra/modes.conf"
+    fi
+done
+
+for script in preinst postinst prerm postrm; do
     if ! dpkg-deb -I "$deb" "$script" >/dev/null 2>&1; then
         report "$script is missing from the package"
     fi

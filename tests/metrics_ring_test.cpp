@@ -1,9 +1,13 @@
 // Copyright (c) 2026 Sergei Sveshnikov. MIT licensed, see LICENSE.
 #include "metrics_ring.h"
 
+#include <QDir>
 #include <QFile>
+#include <QFileInfo>
 #include <QTemporaryDir>
 #include <QTest>
+
+#include <cstring>
 
 namespace {
 
@@ -14,6 +18,73 @@ Sample sampleAt(uint32_t ts, uint8_t pl1 = 20)
     s.pkgTemp = 600;
     s.pl1W = pl1;
     return s;
+}
+
+QByteArray contentsOf(const QString &path)
+{
+    QFile file(path);
+    return file.open(QIODevice::ReadOnly) ? file.readAll() : QByteArray();
+}
+
+void setHeaderVersion(const QString &path, uint16_t version)
+{
+    QFile file(path);
+    QVERIFY(file.open(QIODevice::ReadWrite));
+    RingHeader header {};
+    QCOMPARE(file.read(reinterpret_cast<char *>(&header), sizeof(header)), qint64(sizeof(header)));
+    header.version = version;
+    QVERIFY(file.seek(0));
+    QCOMPARE(file.write(reinterpret_cast<const char *>(&header), sizeof(header)),
+             qint64(sizeof(header)));
+}
+
+// A ring in a released layout, byte for byte, built here rather than by the
+// code under test: a migration test that generates its input with the same
+// definitions it is checking would pass whatever those definitions said.
+//
+// The two layouts share a prefix and differ in what follows the backlight
+// profile index, so the records are assembled from offsets.
+void writeLegacyRing(const QString &path, uint16_t version)
+{
+    constexpr int kRecord = 64;
+    const int capacity = 8;
+
+    QByteArray file(sizeof(RingHeader) + capacity * kRecord, '\0');
+    RingHeader header {};
+    header.magic = kRingMagic;
+    header.version = version;
+    header.recordSize = kRecord;
+    header.capacity = capacity;
+    header.seq = 2;
+    std::memcpy(file.data(), &header, sizeof(header));
+
+    for (int i = 0; i < 2; ++i) {
+        char record[kRecord] = {};
+        const auto put = [&record](int offset, const auto &value) {
+            std::memcpy(record + offset, &value, sizeof(value));
+        };
+        put(0, uint32_t(1000 + i));       // ts
+        put(4, int16_t(812));             // pkgTemp
+        put(10, uint16_t(2400));          // fanRpm
+        put(28, uint8_t(0));              // modeId
+        put(29, uint8_t(20));             // pl1W
+        // The light reading, and the backlight level beside it. The second
+        // sample has no reading at all, which is a different thing from dark.
+        put(42, uint16_t(i == 0 ? 25900 : kAbsentValue));
+        put(44, uint8_t(70));             // brightness
+        put(45, uint8_t(73));             // brightnessBase
+        put(46, uint8_t(0));              // brightnessProfile
+        if (version == 2) {
+            put(47, uint8_t(30));         // brightnessSpan
+            put(48, uint8_t(5));          // brightnessFloor
+            put(49, uint8_t(100));        // brightnessCeiling
+        }
+        std::memcpy(file.data() + sizeof(RingHeader) + i * kRecord, record, kRecord);
+    }
+
+    QFile out(path);
+    QVERIFY(out.open(QIODevice::WriteOnly));
+    QCOMPARE(out.write(file), qint64(file.size()));
 }
 
 } // namespace
@@ -28,8 +99,11 @@ private slots:
     void survivesReopen();
     void toleratesTruncatedTail();
     void readsATruncatedRingWithoutRepairingIt();
-    void reinitialisesOnVersionMismatch();
-    void reinitialisesOnCapacityMismatch();
+    void keepsARingItCannotReadInsteadOfDeletingIt();
+    void aDamagedRingCostsTheSamplesAndNothingElse();
+    void keepsTheRecordsAcrossAChangeOfCapacity();
+    void carriesVersionOneSamplesForward();
+    void carriesVersionTwoSamplesForward();
     void markNewestStampsTheLastRecord();
     void readOnlyMappingRefusesWrites();
     void refusesZeroCapacity();
@@ -154,44 +228,140 @@ void MetricsRingTest::readsATruncatedRingWithoutRepairingIt()
     QCOMPARE(reader.at(9).ts, uint32_t(0));
 }
 
-void MetricsRingTest::reinitialisesOnVersionMismatch()
+void MetricsRingTest::keepsARingItCannotReadInsteadOfDeletingIt()
 {
+    // What a rollback looks like from inside the older build: the file on disk
+    // announces a layout from a version that did not exist when this one was
+    // written.
     {
         MetricsRing ring;
         QVERIFY(ring.open(m_path, 16));
         ring.append(sampleAt(6000));
     }
-
-    QFile file(m_path);
-    QVERIFY(file.open(QIODevice::ReadWrite));
-    RingHeader header {};
-    QCOMPARE(file.read(reinterpret_cast<char *>(&header), sizeof(header)), qint64(sizeof(header)));
-    header.version = kRingVersion + 1;
-    QVERIFY(file.seek(0));
-    QCOMPARE(file.write(reinterpret_cast<const char *>(&header), sizeof(header)),
-             qint64(sizeof(header)));
-    file.close();
+    setHeaderVersion(m_path, kRingVersion + 1);
+    const QByteArray before = contentsOf(m_path);
 
     MetricsRing ring;
     QVERIFY(ring.open(m_path, 16));
+    // A fresh ring in its place, and the daemon keeps recording.
     QCOMPARE(ring.count(), uint64_t(0));
     QCOMPARE(ring.sequence(), uint64_t(0));
+    ring.append(sampleAt(6001));
+    QCOMPARE(ring.count(), uint64_t(1));
+    ring.close();
+
+    const QString kept = m_path + QStringLiteral(".bak");
+    QVERIFY2(QFile::exists(kept), qPrintable(ring.note()));
+    QCOMPARE(contentsOf(kept), before);
+    QVERIFY(ring.note().contains(kept));
+
+    // A second rollback replaces that copy instead of leaving a second one
+    // beside it. Down from one version to the next and then to the next again
+    // would otherwise strew the directory with rings nobody reads.
+    setHeaderVersion(m_path, kRingVersion + 1);
+    const QByteArray afterTheSecond = contentsOf(m_path);
+    MetricsRing third;
+    QVERIFY(third.open(m_path, 16));
+    QCOMPARE(third.count(), uint64_t(0));
+
+    const QDir directory(QFileInfo(m_path).absolutePath());
+    QCOMPARE(directory.entryList(QDir::Files).size(), 2);
+    QCOMPARE(contentsOf(kept), afterTheSecond);
 }
 
-void MetricsRingTest::reinitialisesOnCapacityMismatch()
+void MetricsRingTest::aDamagedRingCostsTheSamplesAndNothingElse()
 {
     {
         MetricsRing ring;
         QVERIFY(ring.open(m_path, 16));
-        ring.append(sampleAt(7000));
-        QCOMPARE(ring.count(), uint64_t(1));
+        ring.append(sampleAt(8000));
+    }
+    // A header nothing wrote deliberately: the machine lost power mid-write, or
+    // the file is somebody else's entirely.
+    QFile file(m_path);
+    QVERIFY(file.open(QIODevice::ReadWrite));
+    QCOMPARE(file.write(QByteArray(sizeof(RingHeader), '\x5a')), qint64(sizeof(RingHeader)));
+    file.close();
+
+    MetricsRing ring;
+    QVERIFY(ring.open(m_path, 16));
+    QVERIFY(QFile::exists(m_path + QStringLiteral(".bak")));
+    ring.append(sampleAt(8001));
+    QCOMPARE(ring.count(), uint64_t(1));
+    QCOMPARE(ring.at(0).ts, uint32_t(8001));
+}
+
+void MetricsRingTest::keepsTheRecordsAcrossAChangeOfCapacity()
+{
+    {
+        MetricsRing ring;
+        QVERIFY(ring.open(m_path, 16));
+        for (uint32_t ts = 7000; ts < 7005; ++ts)
+            ring.append(sampleAt(ts));
     }
 
-    MetricsRing resized;
-    QVERIFY(resized.open(m_path, 32));
-    QCOMPARE(resized.capacity(), uint64_t(32));
-    QCOMPARE(resized.count(), uint64_t(0));
+    MetricsRing grown;
+    QVERIFY(grown.open(m_path, 32));
+    QCOMPARE(grown.capacity(), uint64_t(32));
+    QCOMPARE(grown.count(), uint64_t(5));
+    QCOMPARE(grown.at(0).ts, uint32_t(7000));
+    QCOMPARE(grown.at(4).ts, uint32_t(7004));
     QCOMPARE(QFile(m_path).size(), qint64(sizeof(RingHeader) + 32 * sizeof(Sample)));
+    grown.close();
+
+    // Shrinking keeps the newest, which is the same rule the ring applies when
+    // it wraps.
+    MetricsRing shrunk;
+    QVERIFY(shrunk.open(m_path, 3));
+    QCOMPARE(shrunk.count(), uint64_t(3));
+    QCOMPARE(shrunk.at(0).ts, uint32_t(7002));
+    QCOMPARE(shrunk.at(2).ts, uint32_t(7004));
+}
+
+void MetricsRingTest::carriesVersionOneSamplesForward()
+{
+    writeLegacyRing(m_path, 1);
+
+    MetricsRing ring;
+    QVERIFY(ring.open(m_path, 16));
+    QCOMPARE(ring.count(), uint64_t(2));
+    QVERIFY2(ring.note().contains(QStringLiteral("version 1")), qPrintable(ring.note()));
+
+    const Sample first = ring.at(0);
+    QCOMPARE(first.ts, uint32_t(1000));
+    QCOMPARE(first.pkgTemp, int16_t(812));
+    QCOMPARE(first.pl1W, uint8_t(20));
+    QCOMPARE(first.brightness, uint8_t(70));
+    QCOMPARE(first.light, uint32_t(25900));
+    // Version 1 had no window and nobody counted displays: absent, not zero.
+    QCOMPARE(first.brightnessResponse, kAbsentPercent);
+    QCOMPARE(first.brightnessFloor, kAbsentPercent);
+    QCOMPARE(first.displays, kAbsentPercent);
+    QCOMPARE(ring.at(1).ts, uint32_t(1001));
+}
+
+void MetricsRingTest::carriesVersionTwoSamplesForward()
+{
+    writeLegacyRing(m_path, 2);
+
+    MetricsRing ring;
+    QVERIFY(ring.open(m_path, 16));
+    QCOMPARE(ring.count(), uint64_t(2));
+    QVERIFY2(ring.note().contains(QStringLiteral("version 2")), qPrintable(ring.note()));
+
+    const Sample first = ring.at(0);
+    QCOMPARE(first.ts, uint32_t(1000));
+    QCOMPARE(first.fanRpm, uint16_t(2400));
+    // The raw count was thousandths of a lux already, so the number stands.
+    QCOMPARE(first.light, uint32_t(25900));
+    // The span either side of the base is what the response means now.
+    QCOMPARE(first.brightnessResponse, uint8_t(30));
+    QCOMPARE(first.brightnessFloor, uint8_t(5));
+    QCOMPARE(first.displays, kAbsentPercent);
+
+    // An absent reading stays absent rather than becoming the largest lux
+    // value in the file.
+    QCOMPARE(ring.at(1).light, kAbsentLight);
 }
 
 void MetricsRingTest::markNewestStampsTheLastRecord()

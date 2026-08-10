@@ -5,6 +5,7 @@
 #include <QSettings>
 
 #include <algorithm>
+#include <optional>
 
 namespace {
 
@@ -24,22 +25,122 @@ int clampReported(int value, int low, int high, const QString &what, QStringList
     return clamped;
 }
 
-bool readBool(const QSettings &settings, const QString &key, bool fallback)
+std::optional<bool> parseBool(const QString &value)
 {
-    const QVariant value = settings.value(key);
-    if (!value.isValid())
-        return fallback;
-    const QString text = value.toString().trimmed().toLower();
+    const QString text = value.trimmed().toLower();
     if (text == QLatin1String("on") || text == QLatin1String("true") || text == QLatin1String("1")
         || text == QLatin1String("yes"))
         return true;
     if (text == QLatin1String("off") || text == QLatin1String("false")
         || text == QLatin1String("0") || text == QLatin1String("no"))
         return false;
-    return fallback;
+    return std::nullopt;
 }
 
 } // namespace
+
+bool applyModeSetting(Mode &mode, const QString &key, const QString &value, QString *error,
+                      QStringList *clamped)
+{
+    const auto fail = [error](const QString &message) {
+        if (error)
+            *error = message;
+        return false;
+    };
+    const auto number = [&](int *out) {
+        bool ok = false;
+        const int parsed = value.trimmed().toInt(&ok);
+        if (ok)
+            *out = parsed;
+        return ok;
+    };
+    const QString what = QStringLiteral("mode %1: %2").arg(mode.id, key);
+    Setpoints &points = mode.setpoints;
+
+    if (key == QLatin1String("label")) {
+        mode.label = value.trimmed();
+        return true;
+    }
+    if (key == QLatin1String("platform_profile")) {
+        const Profile profile = profileFromString(value.trimmed());
+        if (profile == Profile::Unknown)
+            return fail(QStringLiteral("%1: unknown platform_profile '%2'").arg(what, value));
+        points.profile = profile;
+        return true;
+    }
+    if (key == QLatin1String("epp")) {
+        const Epp epp = eppFromString(value.trimmed());
+        if (epp == Epp::Unknown)
+            return fail(QStringLiteral("%1: unknown epp '%2'").arg(what, value));
+        points.epp = epp;
+        return true;
+    }
+    if (key == QLatin1String("turbo")) {
+        const auto parsed = parseBool(value);
+        if (!parsed)
+            return fail(QStringLiteral("%1: '%2' is not on or off").arg(what, value));
+        points.noTurbo = !*parsed;
+        return true;
+    }
+    if (key == QLatin1String("hwp_dynamic_boost")) {
+        const auto parsed = parseBool(value);
+        if (!parsed)
+            return fail(QStringLiteral("%1: '%2' is not on or off").arg(what, value));
+        points.hwpBoost = *parsed;
+        return true;
+    }
+    if (key == QLatin1String("fan")) {
+        // A mode may drive the fan. It could not once, on the grounds that
+        // automatic control should never be loud — but the person choosing a
+        // mode is not automatic control, and making them reach for a second
+        // control to do the obvious thing served the rule rather than them.
+        const QString text = value.trimmed().toLower();
+        if (text == QLatin1String("max")) {
+            points.fanMode = 0;
+            return true;
+        }
+        if (text == QLatin1String("auto")) {
+            points.fanMode = 2;
+            return true;
+        }
+        return fail(QStringLiteral("%1: '%2' is not max or auto").arg(what, value));
+    }
+
+    int parsed = 0;
+    if (key == QLatin1String("pl1_w")) {
+        if (!number(&parsed))
+            return fail(QStringLiteral("%1: '%2' is not a number").arg(what, value));
+        points.pl1W = clampReported(parsed, 1, kMaxConfirmedPl1W, what, clamped);
+        return true;
+    }
+    if (key == QLatin1String("pl2_w")) {
+        if (!number(&parsed))
+            return fail(QStringLiteral("%1: '%2' is not a number").arg(what, value));
+        points.pl2W = clampReported(parsed, 1, kMaxConfirmedPl2W, what, clamped);
+        return true;
+    }
+    if (key == QLatin1String("max_perf_pct")) {
+        if (!number(&parsed))
+            return fail(QStringLiteral("%1: '%2' is not a number").arg(what, value));
+        points.maxPerfPct = clampReported(parsed, kMinPerfPct, 100, what, clamped);
+        return true;
+    }
+    if (key == QLatin1String("gt_max_mhz")) {
+        if (!number(&parsed))
+            return fail(QStringLiteral("%1: '%2' is not a number").arg(what, value));
+        points.gtMaxMhz = clampReported(parsed, kMinGtMhz, kMaxGtMhz, what, clamped);
+        return true;
+    }
+
+    return fail(QStringLiteral("mode %1: unknown setting '%2'").arg(mode.id, key));
+}
+
+void normalizeMode(Mode &mode, QStringList *clamped)
+{
+    mode.setpoints.pl2W = clampReported(mode.setpoints.pl2W, mode.setpoints.pl1W,
+                                        kMaxConfirmedPl2W,
+                                        QStringLiteral("mode %1: pl2_w").arg(mode.id), clamped);
+}
 
 ModeTable ModeTable::builtinDefaults()
 {
@@ -105,7 +206,6 @@ bool ModeTable::load(const QString &path, QStringList *problems)
         return false;
     }
 
-    const ModeTable defaults = builtinDefaults();
     QList<Mode> parsed;
 
     const QStringList groups = settings.childGroups();
@@ -123,56 +223,19 @@ bool ModeTable::load(const QString &path, QStringList *problems)
 
         settings.beginGroup(group);
 
-        Setpoints points;
-        const QString profileText =
-                settings.value(QStringLiteral("platform_profile"), QStringLiteral("balanced"))
-                        .toString();
-        points.profile = profileFromString(profileText);
-        if (points.profile == Profile::Unknown) {
-            if (problems) {
-                problems->append(
-                        QStringLiteral("mode %1: unknown platform_profile '%2', using balanced")
-                                .arg(id, profileText));
-            }
-            points.profile = Profile::Balanced;
-        }
-
-        points.pl1W = clampReported(settings.value(QStringLiteral("pl1_w"), 20).toInt(), 1,
-                                    kMaxConfirmedPl1W,
-                                    QStringLiteral("mode %1: pl1_w").arg(id), problems);
-        points.pl2W = clampReported(settings.value(QStringLiteral("pl2_w"), 30).toInt(),
-                                    points.pl1W, kMaxConfirmedPl2W,
-                                    QStringLiteral("mode %1: pl2_w").arg(id), problems);
-        points.maxPerfPct =
-                clampReported(settings.value(QStringLiteral("max_perf_pct"), 50).toInt(),
-                              kMinPerfPct, 100,
-                              QStringLiteral("mode %1: max_perf_pct").arg(id), problems);
-        points.noTurbo = !readBool(settings, QStringLiteral("turbo"), false);
-
-        const QString eppText =
-                settings.value(QStringLiteral("epp"), QStringLiteral("power")).toString();
-        points.epp = eppFromString(eppText);
-        if (points.epp == Epp::Unknown) {
-            if (problems) {
-                problems->append(
-                        QStringLiteral("mode %1: unknown epp '%2', using power").arg(id, eppText));
-            }
-            points.epp = Epp::Power;
-        }
-
-        points.hwpBoost = readBool(settings, QStringLiteral("hwp_dynamic_boost"), false);
-        points.gtMaxMhz =
-                clampReported(settings.value(QStringLiteral("gt_max_mhz"), kMaxGtMhz).toInt(),
-                              kMinGtMhz, kMaxGtMhz,
-                              QStringLiteral("mode %1: gt_max_mhz").arg(id), problems);
-        // Automatic control never forces the fan. Full speed is reachable only
-        // by explicit command, so it is not something a mode can define.
-        points.fanMode = 2;
-
+        // Every key goes through the same function the socket uses, so the two
+        // ways of setting a value cannot drift apart. What is not in the file
+        // keeps the built-in starting value rather than being an error.
         Mode mode;
         mode.id = id;
-        mode.label = settings.value(QStringLiteral("label"), id).toString();
-        mode.setpoints = points;
+        mode.label = id;
+        for (const QString &key : settings.childKeys()) {
+            QString error;
+            const QString value = settings.value(key).toStringList().join(QLatin1Char(','));
+            if (!applyModeSetting(mode, key.toLower(), value, &error, problems) && problems)
+                problems->append(error + QStringLiteral(", ignored"));
+        }
+        normalizeMode(mode, problems);
         parsed.append(mode);
 
         settings.endGroup();
@@ -242,24 +305,51 @@ const Mode *ModeTable::mostConservative() const
     return best;
 }
 
-QString ModeTable::toConfigSnippet(const QString &id, const Setpoints &setpoints)
+bool ModeTable::replace(const Mode &mode)
 {
-    return QStringLiteral("[mode %1]\n"
-                          "label=%1\n"
-                          "platform_profile=%2\n"
-                          "pl1_w=%3\n"
-                          "pl2_w=%4\n"
-                          "max_perf_pct=%5\n"
-                          "turbo=%6\n"
-                          "epp=%7\n"
-                          "hwp_dynamic_boost=%8\n"
-                          "gt_max_mhz=%9\n")
-            .arg(id, profileToString(setpoints.profile))
-            .arg(setpoints.pl1W)
-            .arg(setpoints.pl2W)
-            .arg(setpoints.maxPerfPct)
-            .arg(setpoints.noTurbo ? QStringLiteral("off") : QStringLiteral("on"),
-                 eppToString(setpoints.epp),
-                 setpoints.hwpBoost ? QStringLiteral("1") : QStringLiteral("0"))
-            .arg(setpoints.gtMaxMhz);
+    for (int i = 0; i < m_modes.size(); ++i) {
+        if (m_modes.at(i).id != mode.id)
+            continue;
+        m_modes[i] = mode;
+        // The table is a scale from the coolest envelope to the widest one, and
+        // an edit can move a mode along it. Sorting here keeps the panel's
+        // three slots in that order without the caller having to know.
+        std::sort(m_modes.begin(), m_modes.end(), [](const Mode &a, const Mode &b) {
+            if (a.setpoints.pl1W != b.setpoints.pl1W)
+                return a.setpoints.pl1W < b.setpoints.pl1W;
+            return a.id < b.id;
+        });
+        return true;
+    }
+    return false;
+}
+
+bool ModeTable::setDefaultModeId(const QString &id)
+{
+    if (!find(id))
+        return false;
+    m_defaultModeId = id;
+    return true;
+}
+
+QString ModeTable::toConfigSection(const QString &id, const QString &label,
+                                   const Setpoints &setpoints)
+{
+    QString text;
+    text += QStringLiteral("[mode %1]\n").arg(id);
+    // Quoted, because a label is free text and the parser splits an unquoted
+    // value on commas — a label with one in it would come back changed.
+    text += QStringLiteral("label=\"%1\"\n").arg(label.isEmpty() ? id : label);
+    text += QStringLiteral("platform_profile=%1\n").arg(profileToString(setpoints.profile));
+    text += QStringLiteral("pl1_w=%1\n").arg(setpoints.pl1W);
+    text += QStringLiteral("pl2_w=%1\n").arg(setpoints.pl2W);
+    text += QStringLiteral("max_perf_pct=%1\n").arg(setpoints.maxPerfPct);
+    text += QStringLiteral("turbo=%1\n")
+                    .arg(setpoints.noTurbo ? QStringLiteral("off") : QStringLiteral("on"));
+    text += QStringLiteral("epp=%1\n").arg(eppToString(setpoints.epp));
+    text += QStringLiteral("hwp_dynamic_boost=%1\n").arg(setpoints.hwpBoost ? 1 : 0);
+    text += QStringLiteral("gt_max_mhz=%1\n").arg(setpoints.gtMaxMhz);
+    text += QStringLiteral("fan=%1\n")
+                    .arg(setpoints.fanMode == 0 ? QStringLiteral("max") : QStringLiteral("auto"));
+    return text;
 }

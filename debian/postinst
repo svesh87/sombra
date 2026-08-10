@@ -21,6 +21,10 @@ configure)
 abort-upgrade | abort-remove | abort-deconfigure) ;;
 esac
 
+# Announced in preinst, postinst and postrm alike; see preinst for why the old
+# conffile goes.
+dpkg-maintscript-helper rm_conffile /etc/ombra/modes.conf 0.1.0 ombra -- "$@"
+
 #DEBHELPER#
 
 if [ "$1" = configure ]; then

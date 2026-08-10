@@ -58,20 +58,39 @@ public:
         // function with its own profile and its own switch.
         bool brightnessAvailable = false;
         bool autoBrightness = false;
-        QString brightnessProfileId;
-        QStringList brightnessProfileIds;
-        QStringList brightnessProfileLabels;
         double brightness = kNoReading;
+        // The level with the light's contribution taken out. Shown because it
+        // is what the automation works from, and a number that differs from the
+        // one just set looks like a defect until it is named.
         double brightnessBase = kNoReading;
-        double light = kNoReading;
-        // The window the automation may work in, and whether a live overlay is
-        // in force rather than the profile as the file defines it. Defaults
-        // match the built-in profile so that the sliders have somewhere to sit
-        // before the first answer arrives.
-        int brightnessSpanPct = kBrightnessDefaultSpanPct;
+        // How far the automation may move and the level nothing goes below.
+        // Defaults match the built-in settings so the sliders have somewhere to
+        // sit before the first answer arrives.
+        int brightnessResponsePct = kBrightnessDefaultResponsePct;
         int brightnessFloorPct = kBrightnessDefaultFloorPct;
-        int brightnessCeilingPct = kBrightnessDefaultCeilingPct;
-        bool brightnessLive = false;
+        // The band those two produce, which is what the window shows: "between
+        // 50 and 100 per cent" is a sentence, "a response of thirty" is not.
+        int brightnessWindowLow = kBrightnessDefaultFloorPct;
+        int brightnessWindowHigh = 100;
+    };
+
+    // What the daemon has saved, as opposed to what it is running. Fetched on
+    // demand rather than polled: definitions change when somebody changes
+    // them, and a console that re-read them once a second would fight whoever
+    // was typing into a field.
+    struct ModeDefinition {
+        QString id;
+        QString label;
+        Setpoints setpoints;
+    };
+
+    struct Configuration {
+        bool valid = false;
+        // Where the daemon keeps it, and whether anything has been changed yet.
+        QString path;
+        bool stored = false;
+        QString defaultModeId;
+        QList<ModeDefinition> modes;
     };
 
     explicit TrayClient(QString socketPath, QObject *parent = nullptr);
@@ -94,9 +113,13 @@ public:
     bool connected() const { return m_connected; }
     const QString &socketPath() const { return m_socketPath; }
 
+    // Asks the daemon what it has saved. Invalid when it did not answer.
+    Configuration fetchConfiguration();
+
     // Parses a status reply. Separate from the socket so that every field
     // mapping is testable without a running daemon.
     static Status parseStatus(const QJsonObject &object);
+    static Configuration parseConfiguration(const QJsonObject &object);
 
 public slots:
     void poll();

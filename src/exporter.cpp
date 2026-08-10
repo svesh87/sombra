@@ -35,6 +35,15 @@ QString field(std::optional<double> value, int precision)
     return QString::number(*value, 'f', precision);
 }
 
+// Millilux, reported as lux: the record keeps the dark end, where the sensor
+// resolves tenths, and a reader wants the unit everybody else uses.
+std::optional<double> lux(uint32_t millilux)
+{
+    if (millilux == kAbsentLight)
+        return std::nullopt;
+    return millilux / 1000.0;
+}
+
 // A byte-wide reading or index. Zero is a legal backlight level and a legal
 // profile index, so absence has its own marker rather than being zero.
 std::optional<double> optional8(uint8_t raw)
@@ -61,8 +70,8 @@ QString csvHeader()
             "ts,pkg_c,board_c,nvme_c,fan_rpm,pkg_w,core_w,uncore_w,cpu_mhz,gpu_mhz,load1,"
             "pkg_throttle,core_throttle,mode_id,pl1_w,pl2_w,max_perf_pct,turbo,epp,hwp_boost,"
             "profile,gt_max_mhz,fan_mode,charge_limit,on_ac,guard,mismatch,degraded,live,mark,"
-            "light,brightness,brightness_base,brightness_profile,auto_brightness,"
-            "brightness_span,brightness_floor,brightness_ceiling");
+            "light_lux,brightness,brightness_base,auto_brightness,brightness_response,"
+            "brightness_floor,displays");
 }
 
 QString csvRow(const Sample &s)
@@ -98,14 +107,16 @@ QString csvRow(const Sample &s)
         QString::number((s.flags & FlagSensorsDegraded) ? 1 : 0),
         QString::number((s.flags & FlagLiveTuning) ? 1 : 0),
         markToString(static_cast<Mark>(s.mark)),
-        field(scaled(s.light, 1.0), 0),
+        field(lux(s.light), 3),
         field(optional8(s.brightness), 0),
         field(optional8(s.brightnessBase), 0),
-        field(optional8(s.brightnessProfile), 0),
         QString::number((s.flags & FlagAutoBrightness) ? 1 : 0),
-        field(optional8(s.brightnessSpan), 0),
+        field(optional8(s.brightnessResponse), 0),
         field(optional8(s.brightnessFloor), 0),
-        field(optional8(s.brightnessCeiling), 0),
+        // Appended rather than placed among the readings it belongs with: a
+        // column that moves breaks every script that reads these files by
+        // position, and a new column at the end breaks none.
+        field(optional8(s.displays), 0),
     };
     return fields.join(QLatin1Char(','));
 }
@@ -143,14 +154,13 @@ QString jsonRow(const Sample &s)
     row[QStringLiteral("degraded")] = (s.flags & FlagSensorsDegraded) != 0;
     row[QStringLiteral("live")] = (s.flags & FlagLiveTuning) != 0;
     row[QStringLiteral("mark")] = markToString(static_cast<Mark>(s.mark));
-    row[QStringLiteral("light")] = jsonValue(scaled(s.light, 1.0));
+    row[QStringLiteral("light_lux")] = jsonValue(lux(s.light));
     row[QStringLiteral("brightness")] = jsonValue(optional8(s.brightness));
     row[QStringLiteral("brightness_base")] = jsonValue(optional8(s.brightnessBase));
-    row[QStringLiteral("brightness_profile")] = jsonValue(optional8(s.brightnessProfile));
     row[QStringLiteral("auto_brightness")] = (s.flags & FlagAutoBrightness) != 0;
-    row[QStringLiteral("brightness_span")] = jsonValue(optional8(s.brightnessSpan));
+    row[QStringLiteral("brightness_response")] = jsonValue(optional8(s.brightnessResponse));
     row[QStringLiteral("brightness_floor")] = jsonValue(optional8(s.brightnessFloor));
-    row[QStringLiteral("brightness_ceiling")] = jsonValue(optional8(s.brightnessCeiling));
+    row[QStringLiteral("displays")] = jsonValue(optional8(s.displays));
     return QString::fromUtf8(QJsonDocument(row).toJson(QJsonDocument::Compact));
 }
 

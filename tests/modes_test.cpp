@@ -1,6 +1,8 @@
 // Copyright (c) 2026 Sergei Sveshnikov. MIT licensed, see LICENSE.
 #include "modes.h"
 
+#include "settings_file.h"
+
 #include <QFile>
 #include <QTemporaryDir>
 #include <QTest>
@@ -18,7 +20,11 @@ private slots:
     void unknownDefaultFallsBackToTheMiddleMode();
     void tableIsOrderedByPowerNotByFileOrder();
     void mostConservativeIsTheLowestPowerLimit();
-    void snippetRoundTripsThroughTheParser();
+    void theSectionReadsBackAsTheSameMode();
+    void theWholeFileReadsBackAsTheSameTables();
+    void savingRefusesWhatItCannotWrite();
+    void modesAreEditedNeverCreated();
+    void oneSettingIsValidatedTheSameWayFromBothSides();
 
 private:
     QString writeConfig(const QString &contents);
@@ -160,9 +166,10 @@ void ModesTest::reportsUnknownEnumValuesAndFallsBack()
     QVERIFY(odd);
     QCOMPARE(odd->setpoints.profile, Profile::Balanced);
     QCOMPARE(odd->setpoints.epp, Epp::Power);
-    // An unparsable boolean keeps the safer default rather than guessing.
+    // An unparsable boolean keeps the safer default rather than guessing, and
+    // says so: all three bad values are reported, none of them silently.
     QVERIFY(odd->setpoints.noTurbo);
-    QCOMPARE(problems.size(), 2);
+    QCOMPARE(problems.size(), 3);
 }
 
 void ModesTest::missingFileLeavesTheTableAlone()
@@ -246,7 +253,7 @@ void ModesTest::mostConservativeIsTheLowestPowerLimit()
     QVERIFY(!empty.mostConservative());
 }
 
-void ModesTest::snippetRoundTripsThroughTheParser()
+void ModesTest::theSectionReadsBackAsTheSameMode()
 {
     Setpoints tuned;
     tuned.profile = Profile::Quiet;
@@ -258,8 +265,11 @@ void ModesTest::snippetRoundTripsThroughTheParser()
     tuned.hwpBoost = true;
     tuned.gtMaxMhz = 1200;
 
-    const QString snippet = ModeTable::toConfigSnippet(QStringLiteral("tuned"), tuned);
-    const QString path = writeConfig(snippet);
+    // The daemon writes this file and reads it back at the next boot, so a
+    // section that does not survive the round trip loses settings silently.
+    const QString section =
+            ModeTable::toConfigSection(QStringLiteral("tuned"), QStringLiteral("Tuned"), tuned);
+    const QString path = writeConfig(section);
 
     ModeTable table;
     QStringList problems;
@@ -267,8 +277,103 @@ void ModesTest::snippetRoundTripsThroughTheParser()
     QVERIFY2(problems.isEmpty(), qPrintable(problems.join(QStringLiteral("; "))));
     const Mode *mode = table.find(QStringLiteral("tuned"));
     QVERIFY(mode);
-    QCOMPARE(mode->label, QStringLiteral("tuned"));
+    QCOMPARE(mode->label, QStringLiteral("Tuned"));
     QCOMPARE(mode->setpoints, tuned);
+}
+
+void ModesTest::theWholeFileReadsBackAsTheSameTables()
+{
+    ModeTable modes = ModeTable::builtinDefaults();
+    Mode edited = *modes.find(QStringLiteral("work"));
+    edited.label = QStringLiteral("Work, tuned");
+    edited.setpoints.pl1W = 18;
+    edited.setpoints.pl2W = 26;
+    QVERIFY(modes.replace(edited));
+    QVERIFY(modes.setDefaultModeId(QStringLiteral("quiet")));
+
+    const BrightnessSettings brightness = builtinBrightnessSettings();
+    const QString path = writeConfig(settings_file::serialize(modes, brightness));
+
+    ModeTable readModes;
+    QStringList problems;
+    QVERIFY(readModes.load(path, &problems));
+    QVERIFY2(problems.isEmpty(), qPrintable(problems.join(QStringLiteral("; "))));
+    QCOMPARE(readModes.modes().size(), modes.modes().size());
+    QCOMPARE(readModes.defaultModeId(), QStringLiteral("quiet"));
+    for (const Mode &mode : modes.modes()) {
+        const Mode *read = readModes.find(mode.id);
+        QVERIFY(read);
+        QCOMPARE(read->label, mode.label);
+        QCOMPARE(read->setpoints, mode.setpoints);
+    }
+
+    BrightnessSettings readBrightness;
+    QVERIFY(loadBrightnessSettings(path, &readBrightness, &problems));
+    QVERIFY2(problems.isEmpty(), qPrintable(problems.join(QStringLiteral("; "))));
+    QCOMPARE(readBrightness.responsePct, brightness.responsePct);
+    QCOMPARE(readBrightness.floorPct, brightness.floorPct);
+    QCOMPARE(readBrightness.curve.size(), brightness.curve.size());
+    // Light levels are written in lux and read back as the same millilux, which
+    // is the only place the two units meet.
+    QCOMPARE(readBrightness.curve.last().light, brightness.curve.last().light);
+}
+
+void ModesTest::savingRefusesWhatItCannotWrite()
+{
+    // A regular file where the directory would have to be, so the write cannot
+    // succeed. The caller has to be told rather than left believing a change
+    // is durable when nothing was written.
+    const QString blocker = m_dir.filePath(QStringLiteral("blocker"));
+    QFile file(blocker);
+    QVERIFY(file.open(QIODevice::WriteOnly));
+    file.close();
+
+    QString error;
+    QVERIFY(!settings_file::save(blocker + QStringLiteral("/settings.conf"),
+                                 ModeTable::builtinDefaults(), builtinBrightnessSettings(),
+                                 &error));
+    QVERIFY(!error.isEmpty());
+}
+
+void ModesTest::modesAreEditedNeverCreated()
+{
+    ModeTable table = ModeTable::builtinDefaults();
+    Mode absent;
+    absent.id = QStringLiteral("nonexistent");
+    QVERIFY(!table.replace(absent));
+    QCOMPARE(table.modes().size(), 3);
+    QVERIFY(!table.setDefaultModeId(QStringLiteral("nonexistent")));
+    QCOMPARE(table.defaultModeId(), QStringLiteral("work"));
+}
+
+void ModesTest::oneSettingIsValidatedTheSameWayFromBothSides()
+{
+    Mode mode = *ModeTable::builtinDefaults().find(QStringLiteral("work"));
+    QString error;
+    QStringList clamped;
+
+    QVERIFY(!applyModeSetting(mode, QStringLiteral("pl1_w"), QStringLiteral("plenty"), &error,
+                              &clamped));
+    QVERIFY(error.contains(QStringLiteral("not a number")));
+    QVERIFY(!applyModeSetting(mode, QStringLiteral("nonsense"), QStringLiteral("1"), &error,
+                              &clamped));
+    QVERIFY(error.contains(QStringLiteral("unknown setting")));
+
+    // Out of range is clamped and reported rather than refused: one typo must
+    // not leave the machine unmanaged.
+    QVERIFY(applyModeSetting(mode, QStringLiteral("pl1_w"), QStringLiteral("500"), &error,
+                             &clamped));
+    QCOMPARE(mode.setpoints.pl1W, kMaxConfirmedPl1W);
+    QCOMPARE(clamped.size(), 1);
+
+    // PL2 below PL1 is what no single key can notice on its own.
+    clamped.clear();
+    QVERIFY(applyModeSetting(mode, QStringLiteral("pl2_w"), QStringLiteral("5"), &error, &clamped));
+    normalizeMode(mode, &clamped);
+    QCOMPARE(mode.setpoints.pl2W, mode.setpoints.pl1W);
+    QCOMPARE(clamped.size(), 1);
+    // No mode may drive the fan, whatever the file or the socket asks for.
+    QCOMPARE(mode.setpoints.fanMode, 2);
 }
 
 QTEST_MAIN(ModesTest)

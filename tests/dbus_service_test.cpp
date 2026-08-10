@@ -244,7 +244,7 @@ void DBusServiceTest::init()
 
     DaemonOptions options;
     options.sysfsRoot = m_tree->root();
-    options.configPath = m_work->path() + QStringLiteral("/modes.conf");
+    options.configPath = m_work->path() + QStringLiteral("/settings.conf");
     options.statePath = m_work->path() + QStringLiteral("/state");
     options.ringPath = m_work->path() + QStringLiteral("/metrics.ring");
     options.socketPath = m_work->path() + QStringLiteral("/control.sock");

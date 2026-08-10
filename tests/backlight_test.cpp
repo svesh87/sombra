@@ -134,16 +134,36 @@ void BacklightTest::theSensorIsFoundByItsReadingRatherThanItsIndex()
     // takes the first directory it sees fails here.
     QVERIFY(sensor.available());
     QCOMPARE(sensor.devicePath(), FakeSysfs::als());
-    QCOMPARE(sensor.read().value_or(-1), 1000);
+    // Millilux: the fake tree publishes the scale this machine has, 0.001, so
+    // a raw count of 1000 is one lux.
+    QCOMPARE(sensor.read().value_or(0), 1000u);
 
-    // The reported value is the sensor's own unit, and the telemetry field
-    // reserves its top value for "absent".
+    // Nothing is clamped on the way out. A sixteen-bit ceiling would sit at
+    // 65 lux, below an ordinary room with the ceiling light on, which measures
+    // 103, and every brighter room would read as the same number.
     m_tree->write(FakeSysfs::als() + QStringLiteral("/in_illuminance_raw"),
                   QStringLiteral("999999"));
-    QCOMPARE(sensor.read().value_or(-1), 65534);
+    QCOMPARE(sensor.read().value_or(0), 999999u);
+
+    // The scale is read rather than assumed. A driver publishing whole lux
+    // gives a thousand times the millilux for the same count.
+    m_tree->write(FakeSysfs::als() + QStringLiteral("/in_illuminance_scale"),
+                  QStringLiteral("1.000000"));
+    sensor.resolve();
+    QCOMPARE(sensor.read().value_or(0), 999999000u);
+
+    // A driver publishing neither scale nor offset means the raw count is
+    // already the unit.
+    m_tree->remove(FakeSysfs::als() + QStringLiteral("/in_illuminance_scale"));
+    m_tree->write(FakeSysfs::als() + QStringLiteral("/in_illuminance_raw"),
+                  QStringLiteral("7"));
+    sensor.resolve();
+    QCOMPARE(sensor.read().value_or(0), 7000u);
+
+    // Negative is not a light level.
     m_tree->write(FakeSysfs::als() + QStringLiteral("/in_illuminance_raw"),
                   QStringLiteral("-3"));
-    QCOMPARE(sensor.read().value_or(-1), 0);
+    QCOMPARE(sensor.read().value_or(1), 0u);
 }
 
 void BacklightTest::anAbsentSensorReadsAsNothing()

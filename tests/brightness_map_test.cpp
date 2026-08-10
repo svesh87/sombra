@@ -7,27 +7,33 @@
 
 namespace {
 
-// A profile whose arithmetic is easy to check by hand: the curve maps the
-// ambient reading straight onto a position, so with a base of 80 and a span of
-// 10 the window is 70..90 and a reading of L asks for 70 + L/5.
-BrightnessProfile testProfile()
+// Millilux, since that is what the model works in. Written as lux times a
+// thousand so the numbers in the cases below read as rooms.
+constexpr quint32 kDark = 300;        // 0.3 lux, the darkest recorded night
+constexpr quint32 kEvening = 25000;   // 25 lux, desk lamps and no ceiling light
+constexpr quint32 kCeiling = 103000;  // 103 lux, the same room lit up
+
+// Settings whose arithmetic is easy to follow: the curve is neutral at the
+// evening level, so a level set then is the base unchanged.
+BrightnessSettings testSettings()
 {
-    BrightnessProfile profile;
-    profile.id = QStringLiteral("test");
-    profile.spanPct = 10;
-    profile.floorPct = 5;
-    profile.ceilingPct = 100;
-    profile.curve = { { 0, 0 }, { 100, 100 } };
-    return profile;
+    BrightnessSettings settings;
+    settings.responsePct = 30;
+    settings.floorPct = 5;
+    // The first point sits at the darkest recorded night rather than at zero:
+    // below it the curve is flat, and that is the honest shape — 0.3 lux and
+    // 0.0 lux are the same room with the lights off.
+    settings.curve = { { kDark, 0 }, { kEvening, 50 }, { kCeiling, 100 } };
+    return settings;
 }
 
-// Ticks the controller and counts how many times it asked to move, which is
-// how many writes the backlight would have seen.
-int moves(const BrightnessProfile &profile, BrightnessState &state, int light, int ticks)
+// Ticks the model and counts how many times it asked to move, which is how many
+// writes the backlight would have seen.
+int moves(const BrightnessSettings &settings, BrightnessState &state, quint32 light, int ticks)
 {
     int count = 0;
     for (int i = 0; i < ticks; ++i) {
-        if (decideBrightness(profile, light, state).move)
+        if (decideBrightness(settings, light, state).move)
             ++count;
     }
     return count;
@@ -39,24 +45,22 @@ class BrightnessMapTest : public QObject {
     Q_OBJECT
 
 private slots:
-    void theSpanIsMeasuredFromTheBaseSymmetrically();
-    void theBoundsCutTheWindowRatherThanMovingIt();
-    void aBaseOutsideTheBoundsIsStillAccepted();
-    void theCurveInterpolatesAndIsFlatBeyondItsEnds();
-    void theCurveChoosesAPointInsideTheWindow();
-    void narrowingTheSpanReducesTheTravel();
+    void theCurveIsASignedContributionAroundItsNeutralPoint();
+    void theBaseIsTheLevelWithTheLightTakenOut();
+    void theSameLightReproducesTheLevelThatWasSet();
+    void aLevelBelowTheFloorNeverBecomesTheBase();
+    void theFloorAndTheTopOfTheScaleBoundTheResult();
+    void aWiderResponseMovesFurtherForTheSameLight();
     void theFirstDecisionAdoptsAPositionWithoutMoving();
     void steadyLightProducesNoWritesAtAll();
-    void movementInsideOneStepProducesNoWrite();
-    void noiseAtAStepBoundaryDoesNotSwitch();
     void aBurstShorterThanTheDwellIsIgnoredEntirely();
     void aSustainedChangeMovesOnceTheDwellHasPassed();
     void aMissingReadingHoldsTheLevel();
     void anUnknownBaseDecidesNothing();
-    void profilesAreReadFromTheConfigurationFile();
-    void abrokenProfileFallsBackRatherThanVanishing();
-    void aFileWithoutProfilesLeavesTheTableAlone();
-    void theSnippetReadsBackAsTheSameProfile();
+    void settingsAreReadFromTheFile();
+    void theSectionReadsBackAsTheSameSettings();
+    void curvePointsAreWrittenInLuxAndReadBackExactly();
+    void theBuiltInCurveCoversTheRoomThatWasMeasured();
 
 private:
     QString writeConfig(const QString &contents) const;
@@ -66,7 +70,7 @@ private:
 
 QString BrightnessMapTest::writeConfig(const QString &contents) const
 {
-    const QString path = m_work.path() + QStringLiteral("/modes.conf");
+    const QString path = m_work.path() + QStringLiteral("/settings.conf");
     QFile file(path);
     if (file.open(QIODevice::WriteOnly | QIODevice::Truncate))
         file.write(contents.toUtf8());
@@ -74,317 +78,249 @@ QString BrightnessMapTest::writeConfig(const QString &contents) const
     return path;
 }
 
-void BrightnessMapTest::theSpanIsMeasuredFromTheBaseSymmetrically()
+void BrightnessMapTest::theCurveIsASignedContributionAroundItsNeutralPoint()
 {
-    const BrightnessProfile profile = testProfile();
-    const BrightnessWindow window = brightnessWindow(profile, 80);
-    QCOMPARE(window.low, 70);
-    QCOMPARE(window.high, 90);
+    const BrightnessSettings settings = testSettings();
+    // Position 50 is the light at which the screen sits exactly on the level
+    // the person set. Below it the room subtracts, above it the room adds.
+    QCOMPARE(brightnessContribution(settings, kEvening), 0);
+    QCOMPARE(brightnessContribution(settings, kDark), -30);
+    QCOMPARE(brightnessContribution(settings, kCeiling), 30);
+    // No reading contributes nothing rather than darkness.
+    QCOMPARE(brightnessContribution(settings, std::nullopt), 0);
 }
 
-void BrightnessMapTest::theBoundsCutTheWindowRatherThanMovingIt()
+void BrightnessMapTest::theBaseIsTheLevelWithTheLightTakenOut()
 {
-    // The maintainer's own example: a base of 90 with a span of 10 and a
-    // ceiling of 95 gives 80..95. The ceiling trims the top and leaves the
-    // bottom where the span put it.
-    BrightnessProfile profile = testProfile();
-    profile.ceilingPct = 95;
-    const BrightnessWindow window = brightnessWindow(profile, 90);
-    QCOMPARE(window.low, 80);
-    QCOMPARE(window.high, 95);
-
-    profile.floorPct = 20;
-    const BrightnessWindow low = brightnessWindow(profile, 25);
-    QCOMPARE(low.low, 20);
-    QCOMPARE(low.high, 35);
+    const BrightnessSettings settings = testSettings();
+    // Set at the neutral light, the base is what was set.
+    QCOMPARE(brightnessBaseFor(settings, 80, kEvening), 80);
+    // Set in the dark, where the room was subtracting thirty, the base is
+    // thirty higher — which is what makes a bright room later come out right.
+    QCOMPARE(brightnessBaseFor(settings, 80, kDark), 110);
+    QCOMPARE(brightnessBaseFor(settings, 80, kCeiling), 50);
 }
 
-void BrightnessMapTest::aBaseOutsideTheBoundsIsStillAccepted()
+void BrightnessMapTest::theSameLightReproducesTheLevelThatWasSet()
 {
-    // The bounds constrain the automation, never the person. A level set by
-    // hand above the ceiling is accepted as the base, and the automation still
-    // works inside the permitted range.
-    BrightnessProfile profile = testProfile();
-    profile.ceilingPct = 60;
-    const BrightnessWindow window = brightnessWindow(profile, 100);
-    QCOMPARE(window.high, 60);
-    QVERIFY(window.low <= window.high);
-
+    // The whole point of the model, and the thing the older one could not do:
+    // leave the room, come back to the same light, get the same screen.
+    const BrightnessSettings settings = testSettings();
     BrightnessState state;
-    state.base = 100;
-    decideBrightness(profile, 100, state);
-    const BrightnessDecision decision = decideBrightness(profile, 0, state);
-    QVERIFY(decision.window.high <= profile.ceilingPct);
-    QVERIFY(decision.window.low >= profile.floorPct);
+    state.base = brightnessBaseFor(settings, 80, kEvening);
+
+    decideBrightness(settings, kEvening, state);
+    moves(settings, state, kCeiling, 20);
+    QCOMPARE(state.step, 100);
+    moves(settings, state, kEvening, 20);
+    QCOMPARE(state.step, 80);
 }
 
-void BrightnessMapTest::theCurveInterpolatesAndIsFlatBeyondItsEnds()
+void BrightnessMapTest::aLevelBelowTheFloorNeverBecomesTheBase()
 {
-    const QList<BrightnessPoint> curve = { { 100, 10 }, { 200, 50 }, { 400, 90 } };
-    QCOMPARE(brightnessCurvePosition(curve, 50), 10);
-    QCOMPARE(brightnessCurvePosition(curve, 100), 10);
-    QCOMPARE(brightnessCurvePosition(curve, 150), 30);
-    QCOMPARE(brightnessCurvePosition(curve, 300), 70);
-    QCOMPARE(brightnessCurvePosition(curve, 400), 90);
-    QCOMPARE(brightnessCurvePosition(curve, 9000), 90);
-    QCOMPARE(brightnessCurvePosition({}, 500), 0);
+    BrightnessSettings settings = testSettings();
+    settings.floorPct = 20;
+    // What got applied is what the base is derived from. A base built from a
+    // level nobody can see would leave the automation working towards a number
+    // that never appears on screen.
+    QCOMPARE(brightnessBaseFor(settings, 2, kEvening), 20);
+    QCOMPARE(brightnessBaseFor(settings, 2, kDark), 50);
 }
 
-void BrightnessMapTest::theCurveChoosesAPointInsideTheWindow()
+void BrightnessMapTest::theFloorAndTheTopOfTheScaleBoundTheResult()
 {
-    const BrightnessProfile profile = testProfile();
+    BrightnessSettings settings = testSettings();
+    settings.floorPct = 20;
     BrightnessState state;
-    state.base = 80;
+    state.base = 30;
 
-    // Darkness lands on the bottom of the window, not on the bottom of the
-    // scale: the curve chooses a position in the window.
-    decideBrightness(profile, 0, state);
-    QCOMPARE(state.step, 70);
+    decideBrightness(settings, kEvening, state);
+    moves(settings, state, kDark, 20);
+    // Thirty minus thirty is zero, and the floor is what actually happens.
+    QCOMPARE(state.step, 20);
 
-    BrightnessState bright;
-    bright.base = 80;
-    decideBrightness(profile, 100, bright);
-    QCOMPARE(bright.step, 90);
+    BrightnessState high;
+    high.base = 90;
+    decideBrightness(settings, kEvening, high);
+    moves(settings, high, kCeiling, 20);
+    QCOMPARE(high.step, 100);
+
+    // The window shown to the person is what will happen, not what the
+    // arithmetic wanted.
+    const BrightnessWindow window = brightnessWindow(settings, 90);
+    QCOMPARE(window.low, 60);
+    QCOMPARE(window.high, 100);
 }
 
-void BrightnessMapTest::narrowingTheSpanReducesTheTravel()
+void BrightnessMapTest::aWiderResponseMovesFurtherForTheSameLight()
 {
-    // The alternative — an absolute curve that the window clamps — would pin a
-    // narrow window to one edge and stop responding to light at all.
-    BrightnessProfile narrow = testProfile();
-    narrow.spanPct = 5;
+    BrightnessSettings narrow = testSettings();
+    narrow.responsePct = 10;
+    BrightnessSettings wide = testSettings();
+    wide.responsePct = 50;
 
-    BrightnessState dark;
-    dark.base = 80;
-    decideBrightness(narrow, 0, dark);
-    BrightnessState light;
-    light.base = 80;
-    decideBrightness(narrow, 100, light);
-
-    QCOMPARE(dark.step, 75);
-    QCOMPARE(light.step, 85);
-    QVERIFY(light.step > dark.step);
+    QCOMPARE(brightnessContribution(narrow, kCeiling), 10);
+    QCOMPARE(brightnessContribution(wide, kCeiling), 50);
+    QCOMPARE(brightnessContribution(narrow, kDark), -10);
+    QCOMPARE(brightnessContribution(wide, kDark), -50);
 }
 
 void BrightnessMapTest::theFirstDecisionAdoptsAPositionWithoutMoving()
 {
-    const BrightnessProfile profile = testProfile();
+    const BrightnessSettings settings = testSettings();
     BrightnessState state;
     state.base = 80;
 
-    const BrightnessDecision decision = decideBrightness(profile, 100, state);
+    const BrightnessDecision decision = decideBrightness(settings, kCeiling, state);
     QVERIFY(!decision.move);
     // The backlight stays where the person left it; only the position is
     // adopted, so the next move waits for the light itself to change.
     QCOMPARE(decision.target, 80);
-    QCOMPARE(state.step, 90);
+    QCOMPARE(state.step, 100);
 }
 
 void BrightnessMapTest::steadyLightProducesNoWritesAtAll()
 {
-    const BrightnessProfile profile = testProfile();
+    const BrightnessSettings settings = testSettings();
     BrightnessState state;
     state.base = 80;
-    decideBrightness(profile, 50, state);
+    decideBrightness(settings, kEvening, state);
 
     // An hour of unchanging light. Anything above zero here is the backlight
     // being written for no reason.
-    QCOMPARE(moves(profile, state, 50, 3600), 0);
-}
-
-void BrightnessMapTest::movementInsideOneStepProducesNoWrite()
-{
-    const BrightnessProfile profile = testProfile();
-    BrightnessState state;
-    state.base = 80;
-    decideBrightness(profile, 50, state);
-    QCOMPARE(state.step, 80);
-
-    // 50 asks for 80 and 60 asks for 82, both inside the same coarse step.
-    for (const int light : { 48, 52, 55, 58, 60 })
-        QCOMPARE(moves(profile, state, light, 20), 0);
-}
-
-void BrightnessMapTest::noiseAtAStepBoundaryDoesNotSwitch()
-{
-    const BrightnessProfile profile = testProfile();
-    BrightnessState state;
-    state.base = 80;
-    decideBrightness(profile, 50, state);
-
-    // 65 asks for 83, which rounds to the next step but has not cleared the
-    // boundary by the hysteresis margin. Without that margin the coarse grid
-    // would only look like it was working.
-    int count = 0;
-    for (int i = 0; i < 100; ++i)
-        count += moves(profile, state, i % 2 == 0 ? 65 : 60, 1);
-    QCOMPARE(count, 0);
-    QCOMPARE(state.step, 80);
+    QCOMPARE(moves(settings, state, kEvening, 3600), 0);
 }
 
 void BrightnessMapTest::aBurstShorterThanTheDwellIsIgnoredEntirely()
 {
-    const BrightnessProfile profile = testProfile();
+    const BrightnessSettings settings = testSettings();
     BrightnessState state;
     state.base = 80;
-    decideBrightness(profile, 0, state);
-    QCOMPARE(state.step, 70);
+    decideBrightness(settings, kEvening, state);
 
-    // A hand passing over the sensor, or headlights.
-    QCOMPARE(moves(profile, state, 100, kBrightnessDwellTicks - 1), 0);
-    QCOMPARE(moves(profile, state, 0, 5), 0);
-    QCOMPARE(state.step, 70);
+    // A hand passing over the sensor, or headlights through a window.
+    QCOMPARE(moves(settings, state, kCeiling, kBrightnessDwellTicks - 1), 0);
+    QCOMPARE(moves(settings, state, kEvening, 5), 0);
+    QCOMPARE(state.step, 80);
 }
 
 void BrightnessMapTest::aSustainedChangeMovesOnceTheDwellHasPassed()
 {
-    const BrightnessProfile profile = testProfile();
+    const BrightnessSettings settings = testSettings();
     BrightnessState state;
     state.base = 80;
-    decideBrightness(profile, 0, state);
+    decideBrightness(settings, kEvening, state);
 
-    QCOMPARE(moves(profile, state, 100, kBrightnessDwellTicks - 1), 0);
-    const BrightnessDecision decision = decideBrightness(profile, 100, state);
-    QVERIFY(decision.move);
-    QCOMPARE(decision.target, 90);
-    QCOMPARE(state.step, 90);
-
-    // And exactly once: the new step is where we now are.
-    QCOMPARE(moves(profile, state, 100, 100), 0);
+    int ticks = 0;
+    for (; ticks < 20; ++ticks) {
+        if (decideBrightness(settings, kCeiling, state).move)
+            break;
+    }
+    QCOMPARE(ticks, kBrightnessDwellTicks - 1);
+    QCOMPARE(state.step, 100);
+    // And exactly once: the move is not repeated every tick afterwards.
+    QCOMPARE(moves(settings, state, kCeiling, 60), 0);
 }
 
 void BrightnessMapTest::aMissingReadingHoldsTheLevel()
 {
-    const BrightnessProfile profile = testProfile();
+    const BrightnessSettings settings = testSettings();
     BrightnessState state;
     state.base = 80;
-    decideBrightness(profile, 0, state);
+    decideBrightness(settings, kEvening, state);
 
-    // No reading is not darkness.
-    for (int i = 0; i < 50; ++i)
-        QVERIFY(!decideBrightness(profile, std::nullopt, state).move);
-    QCOMPARE(state.step, 70);
-
-    // Nor is a profile without a usable curve.
-    BrightnessProfile empty = testProfile();
-    empty.curve.clear();
-    QVERIFY(!decideBrightness(empty, 100, state).move);
+    // Darkness and a missing sensor are not the same thing.
+    for (int i = 0; i < 100; ++i)
+        QVERIFY(!decideBrightness(settings, std::nullopt, state).move);
+    QCOMPARE(state.step, 80);
 }
 
 void BrightnessMapTest::anUnknownBaseDecidesNothing()
 {
-    const BrightnessProfile profile = testProfile();
+    const BrightnessSettings settings = testSettings();
     BrightnessState state;
-    const BrightnessDecision decision = decideBrightness(profile, 100, state);
-    QVERIFY(!decision.move);
-    QCOMPARE(state.step, BrightnessState::kUnset);
+    QVERIFY(!decideBrightness(settings, kEvening, state).move);
 }
 
-void BrightnessMapTest::profilesAreReadFromTheConfigurationFile()
+void BrightnessMapTest::settingsAreReadFromTheFile()
 {
-    const QString path = writeConfig(QStringLiteral(
-            "[general]\n"
-            "default_brightness_profile=evening\n"
-            "[brightness evening]\n"
-            "label=Evening\n"
-            "span_pct=15\n"
-            "floor_pct=10\n"
-            "ceiling_pct=80\n"
-            "curve=0:0, 250:40, 1000:100\n"
-            "[brightness daylight]\n"
-            "span_pct=5\n"
-            "curve=0:0, 5000:100\n"));
-
-    BrightnessProfileTable table;
+    BrightnessSettings settings = builtinBrightnessSettings();
     QStringList problems;
-    QVERIFY(table.load(path, &problems));
-    QCOMPARE(table.profiles().size(), 2);
-    QCOMPARE(table.defaultProfileId(), QStringLiteral("evening"));
-    QCOMPARE(table.indexOf(QStringLiteral("evening")), 1);
-    QCOMPARE(table.indexOf(QStringLiteral("absent")), -1);
+    QVERIFY(loadBrightnessSettings(writeConfig(QStringLiteral("[brightness]\n"
+                                                             "response_pct=40\n"
+                                                             "floor_pct=15\n"
+                                                             "curve=0:0, 25:50, 400:100\n")),
+                                   &settings, &problems));
+    QVERIFY2(problems.isEmpty(), qPrintable(problems.join(QStringLiteral("; "))));
+    QCOMPARE(settings.responsePct, 40);
+    QCOMPARE(settings.floorPct, 15);
+    QCOMPARE(settings.curve.size(), 3);
+    // Lux in the file, millilux inside.
+    QCOMPARE(settings.curve.at(1).light, 25000u);
 
-    const BrightnessProfile *evening = table.find(QStringLiteral("evening"));
-    QVERIFY(evening);
-    QCOMPARE(evening->label, QStringLiteral("Evening"));
-    QCOMPARE(evening->spanPct, 15);
-    QCOMPARE(evening->floorPct, 10);
-    QCOMPARE(evening->ceilingPct, 80);
-    QCOMPARE(evening->curve.size(), 3);
-    QCOMPARE(brightnessCurvePosition(evening->curve, 250), 40);
+    // A file without the section leaves the settings alone, which is how a
+    // fresh install runs on the built-in values.
+    BrightnessSettings untouched = builtinBrightnessSettings();
+    QVERIFY(!loadBrightnessSettings(writeConfig(QStringLiteral("[general]\n")), &untouched));
+    QCOMPARE(untouched.responsePct, kBrightnessDefaultResponsePct);
+
+    // One bad point is dropped and reported; the rest of the curve survives.
+    BrightnessSettings partial = builtinBrightnessSettings();
+    problems.clear();
+    QVERIFY(loadBrightnessSettings(writeConfig(QStringLiteral("[brightness]\n"
+                                                             "curve=0:0, nonsense, 400:100\n")),
+                                   &partial, &problems));
+    QCOMPARE(partial.curve.size(), 2);
+    QCOMPARE(problems.size(), 1);
 }
 
-void BrightnessMapTest::abrokenProfileFallsBackRatherThanVanishing()
+void BrightnessMapTest::theSectionReadsBackAsTheSameSettings()
 {
-    const QString path = writeConfig(QStringLiteral("[general]\n"
-                                                    "default_brightness_profile=missing\n"
-                                                    "[brightness ]\n"
-                                                    "curve=0:0\n"
-                                                    "[brightness broken]\n"
-                                                    "span_pct=400\n"
-                                                    "floor_pct=-10\n"
-                                                    "ceiling_pct=999\n"
-                                                    "curve=nonsense, 5:notanumber, 10:20\n"));
+    BrightnessSettings settings = builtinBrightnessSettings();
+    settings.responsePct = 45;
+    settings.floorPct = 12;
 
-    BrightnessProfileTable table;
-    QStringList problems;
-    QVERIFY(table.load(path, &problems));
-    QCOMPARE(table.profiles().size(), 1);
-
-    const BrightnessProfile *broken = table.find(QStringLiteral("broken"));
-    QVERIFY(broken);
-    QCOMPARE(broken->spanPct, 100);
-    QCOMPARE(broken->floorPct, 0);
-    QCOMPARE(broken->ceilingPct, 100);
-    // One usable point survived; the rest were reported rather than swallowed.
-    QCOMPARE(broken->curve.size(), 1);
-    QVERIFY(problems.size() >= 4);
-
-    // A default naming a profile that does not exist falls back to a real one
-    // instead of leaving the automation without a window.
-    QCOMPARE(table.defaultProfileId(), QStringLiteral("broken"));
+    // The daemon writes this section and reads it back at the next boot, so a
+    // section that does not survive the round trip loses settings silently.
+    BrightnessSettings read = builtinBrightnessSettings();
+    QVERIFY(loadBrightnessSettings(writeConfig(brightnessSettingsSection(settings)), &read));
+    QCOMPARE(read.responsePct, 45);
+    QCOMPARE(read.floorPct, 12);
+    QCOMPARE(read.curve.size(), settings.curve.size());
+    for (int i = 0; i < read.curve.size(); ++i) {
+        QCOMPARE(read.curve.at(i).light, settings.curve.at(i).light);
+        QCOMPARE(read.curve.at(i).position, settings.curve.at(i).position);
+    }
 }
 
-void BrightnessMapTest::aFileWithoutProfilesLeavesTheTableAlone()
+void BrightnessMapTest::curvePointsAreWrittenInLuxAndReadBackExactly()
 {
-    BrightnessProfileTable table = BrightnessProfileTable::builtinDefaults();
-    QCOMPARE(table.profiles().size(), 1);
+    BrightnessSettings settings = builtinBrightnessSettings();
+    // A tenth of a lux is a real difference at the dark end, and it has to
+    // survive being written down.
+    settings.curve = { { 300, 0 }, { 1500, 40 }, { 20855000, 100 } };
+    const QString section = brightnessSettingsSection(settings);
+    QVERIFY2(section.contains(QStringLiteral("0.3:0")), qPrintable(section));
+    QVERIFY2(section.contains(QStringLiteral("20855:100")), qPrintable(section));
 
-    QVERIFY(!table.load(m_work.path() + QStringLiteral("/absent.conf")));
-    QVERIFY(!table.load(writeConfig(QStringLiteral("[mode work]\npl1_w=20\n"))));
-    QCOMPARE(table.profiles().size(), 1);
-    QCOMPARE(table.defaultProfileId(), QStringLiteral("indoors"));
-
-    // The built-in curve rises with the light and never leaves 0..100.
-    const BrightnessProfile &indoors = table.profiles().first();
-    QCOMPARE(brightnessCurvePosition(indoors.curve, 0), 0);
-    QCOMPARE(brightnessCurvePosition(indoors.curve, 100000), 100);
-    QVERIFY(brightnessCurvePosition(indoors.curve, 1000)
-            < brightnessCurvePosition(indoors.curve, 4000));
+    BrightnessSettings read = builtinBrightnessSettings();
+    QVERIFY(loadBrightnessSettings(writeConfig(section), &read));
+    QCOMPARE(read.curve.at(0).light, 300u);
+    QCOMPARE(read.curve.at(2).light, 20855000u);
 }
 
-void BrightnessMapTest::theSnippetReadsBackAsTheSameProfile()
+void BrightnessMapTest::theBuiltInCurveCoversTheRoomThatWasMeasured()
 {
-    BrightnessProfile tuned = BrightnessProfileTable::builtinDefaults().profiles().first();
-    tuned.spanPct = 30;
-    tuned.floorPct = 35;
-    tuned.ceilingPct = 70;
-
-    // The snippet is what the tray offers for promotion into the file, so the
-    // parser has to read it back as the profile it came from — curve included,
-    // since a section without one could not be pasted.
-    BrightnessProfileTable table;
-    QVERIFY(table.load(writeConfig(QStringLiteral("[general]\n"
-                                                 "default_brightness_profile=indoors\n")
-                                   + BrightnessProfileTable::toConfigSnippet(tuned))));
-    const BrightnessProfile *read = table.find(tuned.id);
-    QVERIFY(read);
-    QCOMPARE(read->label, tuned.label);
-    QCOMPARE(read->spanPct, 30);
-    QCOMPARE(read->floorPct, 35);
-    QCOMPARE(read->ceilingPct, 70);
-    QCOMPARE(read->curve.size(), tuned.curve.size());
-    QCOMPARE(read->curve.first().light, tuned.curve.first().light);
-    QCOMPARE(read->curve.last().position, tuned.curve.last().position);
+    const BrightnessSettings settings = builtinBrightnessSettings();
+    // A curve whose last point sits below the room's ordinary light answers
+    // the same thing for every lit room there is. The last point has to be
+    // above what the room actually reaches.
+    QVERIFY(settings.curve.last().light > kCeiling);
+    // And it has to be neutral somewhere sensible: the evening light of that
+    // room, which is where the level the person sets should be left alone.
+    QCOMPARE(brightnessContribution(settings, kEvening), 0);
+    QVERIFY(brightnessContribution(settings, kDark) < 0);
+    QVERIFY(brightnessContribution(settings, kCeiling) > 0);
 }
 
 QTEST_MAIN(BrightnessMapTest)

@@ -50,7 +50,6 @@ private slots:
     void fanMaxIsExplicitOnly();
     void chargeThresholdIsSettable();
     void configurationIsRereadOnCommand();
-    void snippetReproducesTheLiveSetpoints();
     void unknownCommandsAreRejected();
     void shutdownRestoresTheHardware();
     void runsOverTheControlSocket();
@@ -62,13 +61,20 @@ private slots:
     void theBacklightFollowsTheLightOnceItHasChanged();
     void theFadeMovesInSeveralStepsRatherThanOne();
     void aHandCorrectionBecomesTheNewBase();
-    void theBoundsConstrainTheAutomationAndNotThePerson();
+    void theFloorBindsEverybodyIncludingThePerson();
     void selectingAModeDoesNotMoveTheBacklight();
     void brightnessChoicesSurviveARestart();
     void brightnessCommandsAreValidated();
     void theBrightnessWindowIsTunedLive();
-    void theBrightnessOverlayBelongsToItsProfile();
+    void theBacklightSettingsAreDurable();
     void theBacklightPathDegradesOnItsOwn();
+    void configShowAnswersWithWhatIsSaved();
+    void editingAModeIsDurableAndAppliesAtOnce();
+    void modesAreEditedNotCreated();
+    void aRefusedEditChangesNothingOnDiskOrInMemory();
+    void liveTuningIsSavedIntoTheModeThatIsNamed();
+    void resettingReturnsToTheBuiltInValues();
+    void theDisplayCountIsRecorded();
 
 private:
     DaemonOptions options() const;
@@ -95,14 +101,14 @@ void DaemonTest::init()
     m_tree = std::make_unique<FakeSysfs>();
     QFile::remove(m_work.path() + QStringLiteral("/state"));
     QFile::remove(m_work.path() + QStringLiteral("/metrics.ring"));
-    QFile::remove(m_work.path() + QStringLiteral("/modes.conf"));
+    QFile::remove(m_work.path() + QStringLiteral("/settings.conf"));
 }
 
 DaemonOptions DaemonTest::options() const
 {
     DaemonOptions o;
     o.sysfsRoot = m_tree->root();
-    o.configPath = m_work.path() + QStringLiteral("/modes.conf");
+    o.configPath = m_work.path() + QStringLiteral("/settings.conf");
     o.statePath = m_work.path() + QStringLiteral("/state");
     o.ringPath = m_work.path() + QStringLiteral("/metrics.ring");
     o.socketPath = m_work.path() + QStringLiteral("/control.sock");
@@ -113,7 +119,7 @@ DaemonOptions DaemonTest::options() const
 
 QString DaemonTest::writeConfig(const QString &contents) const
 {
-    const QString path = m_work.path() + QStringLiteral("/modes.conf");
+    const QString path = m_work.path() + QStringLiteral("/settings.conf");
     QFile file(path);
     if (file.open(QIODevice::WriteOnly | QIODevice::Truncate))
         file.write(contents.toUtf8());
@@ -487,38 +493,9 @@ void DaemonTest::configurationIsRereadOnCommand()
     daemon.handleCommand(QStringLiteral("reload"));
     QCOMPARE(daemon.activeModeId(), QStringLiteral("other"));
 
-    QFile::remove(m_work.path() + QStringLiteral("/modes.conf"));
+    QFile::remove(m_work.path() + QStringLiteral("/settings.conf"));
     daemon.handleCommand(QStringLiteral("reload"));
     QCOMPARE(daemon.modes().modes().size(), 3);
-}
-
-void DaemonTest::snippetReproducesTheLiveSetpoints()
-{
-    Daemon daemon(options());
-    QVERIFY(daemon.start());
-    daemon.handleCommand(QStringLiteral("set pl1=17 pl2=26 profile=quiet"));
-
-    const QString reply = daemon.handleCommand(QStringLiteral("snippet tuned"));
-    QVERIFY(reply.startsWith(QStringLiteral("ok ")));
-    const QString snippet = QString::fromUtf8(QByteArray::fromBase64(reply.mid(3).toUtf8()));
-    QVERIFY(snippet.contains(QStringLiteral("[mode tuned]")));
-    QVERIFY(snippet.contains(QStringLiteral("pl1_w=17")));
-    QVERIFY(snippet.contains(QStringLiteral("pl2_w=26")));
-    QVERIFY(snippet.contains(QStringLiteral("platform_profile=quiet")));
-    // Nothing live on the backlight side, so the snippet says nothing about it.
-    QVERIFY(!snippet.contains(QStringLiteral("[brightness")));
-
-    // One file holds both kinds of section, so one snippet is one paste.
-    daemon.handleCommand(QStringLiteral("brightness set span_pct=30 floor_pct=10"));
-    const QString both = QString::fromUtf8(QByteArray::fromBase64(
-            daemon.handleCommand(QStringLiteral("snippet tuned")).mid(3).toUtf8()));
-    QVERIFY(both.contains(QStringLiteral("[mode tuned]")));
-    QVERIFY(both.contains(QStringLiteral("[brightness indoors]")));
-    QVERIFY(both.contains(QStringLiteral("span_pct=30")));
-    QVERIFY(both.contains(QStringLiteral("floor_pct=10")));
-    // The curve is not tunable here, and a section without it could not be
-    // pasted into the file.
-    QVERIFY(both.contains(QStringLiteral("curve=0:0")));
 }
 
 void DaemonTest::unknownCommandsAreRejected()
@@ -703,16 +680,16 @@ void DaemonTest::theBacklightFollowsTheLightOnceItHasChanged()
     QVERIFY(!daemon.fading());
 
     // A burst shorter than the dwell is ignored entirely.
-    setLight(6000);
+    setLight(103000);
     for (int i = 0; i < kBrightnessDwellTicks - 1; ++i)
         daemon.tick();
     QVERIFY(!daemon.fading());
-    setLight(1000);
+    setLight(25000);
     daemon.tick();
     QCOMPARE(backlightRaw(), seeded);
 
     // A change that holds moves once the dwell has passed.
-    setLight(6000);
+    setLight(103000);
     QCOMPARE(tickUntilMove(daemon, kBrightnessDwellTicks + 2), kBrightnessDwellTicks);
     finishFade(daemon);
     QVERIFY(backlightRaw() > seeded);
@@ -720,11 +697,12 @@ void DaemonTest::theBacklightFollowsTheLightOnceItHasChanged()
     // And lands inside the window around the level the person set.
     daemon.tick();
     const Sample &s = daemon.lastSample();
-    QCOMPARE(s.brightnessBase, uint8_t(50));
-    // Inside the window the profile allows around that level, whatever the
-    // default span happens to be tuned to.
-    QVERIFY(s.brightness >= 50 - kBrightnessDefaultSpanPct
-            && s.brightness <= 50 + kBrightnessDefaultSpanPct);
+    // The base is the level with the light's contribution taken out, so at a
+    // light the curve does not call neutral it differs from what was set.
+    QVERIFY(s.brightnessBase != kAbsentPercent);
+    QVERIFY(s.brightness >= s.brightnessBase - kBrightnessDefaultResponsePct
+            && s.brightness <= std::min(100, s.brightnessBase
+                                                     + kBrightnessDefaultResponsePct));
 }
 
 void DaemonTest::theFadeMovesInSeveralStepsRatherThanOne()
@@ -761,20 +739,22 @@ void DaemonTest::aHandCorrectionBecomesTheNewBase()
     daemon.tick();
 
     // Moving the brightness is a statement about what is wanted in this light,
-    // so it becomes the base and the window moves with it.
+    // so the base is re-derived from it: what was asked for, with the light's
+    // contribution of that moment taken back out.
     setBacklightByHand(FakeSysfs::kBacklightMax * 3 / 4);
     daemon.tick();
-    QCOMPARE(daemon.state().brightnessBase, 75);
+    const int base = daemon.state().brightnessBase;
+    QVERIFY(base != DaemonState::kBrightnessBaseUnset);
 
     const QJsonObject brightness =
             statusOf(daemon).value(QStringLiteral("brightness")).toObject();
-    QCOMPARE(brightness.value(QStringLiteral("base")).toInt(), 75);
-    // The window moved with the correction, and the ceiling cuts it rather than
-    // shifting it — which is why the top is not 75 + span when that overshoots.
+    QCOMPARE(brightness.value(QStringLiteral("base")).toInt(), base);
+    // The band moved with the correction, and the ends of the scale cut it
+    // rather than shifting it.
     QCOMPARE(brightness.value(QStringLiteral("window_low")).toInt(),
-             75 - kBrightnessDefaultSpanPct);
+             std::max(kBrightnessDefaultFloorPct, base - kBrightnessDefaultResponsePct));
     QCOMPARE(brightness.value(QStringLiteral("window_high")).toInt(),
-             std::min(100, 75 + kBrightnessDefaultSpanPct));
+             std::min(100, base + kBrightnessDefaultResponsePct));
 
     // The correction is not immediately argued with: the automation adopts the
     // new position and waits for the light to change.
@@ -789,46 +769,39 @@ void DaemonTest::aHandCorrectionBecomesTheNewBase()
     // after every boot.
     QFile file(m_work.path() + QStringLiteral("/state"));
     QVERIFY(file.open(QIODevice::ReadOnly | QIODevice::Text));
-    QVERIFY(QString::fromUtf8(file.readAll()).contains(QStringLiteral("brightness_base=75")));
+    QVERIFY(QString::fromUtf8(file.readAll())
+                    .contains(QStringLiteral("brightness_base=%1").arg(base)));
 }
 
-void DaemonTest::theBoundsConstrainTheAutomationAndNotThePerson()
+void DaemonTest::theFloorBindsEverybodyIncludingThePerson()
 {
-    writeConfig(QStringLiteral("[general]\ndefault_mode=work\n"
-                               "default_brightness_profile=capped\n"
-                               "[mode work]\npl1_w=20\n"
-                               "[brightness capped]\n"
-                               "span_pct=10\nfloor_pct=20\nceiling_pct=60\n"
-                               "curve=0:0, 1000:100\n"));
     Daemon daemon(options());
     QVERIFY(daemon.start());
+    QCOMPARE(daemon.handleCommand(QStringLiteral("config set brightness floor_pct=30")),
+             QStringLiteral("ok"));
     daemon.handleCommand(QStringLiteral("brightness on"));
-    setLight(1000);
+    setLight(25000);
     daemon.tick();
 
-    // A level set by hand above the ceiling is accepted: the bounds constrain
-    // the automation, never the person.
+    // A level dragged below the floor is pulled back to it. The floor is the
+    // one bound that binds everybody: a screen driven into unreadable is a
+    // failure whoever did the driving.
+    setBacklightByHand(FakeSysfs::kBacklightMax / 20);
+    daemon.tick();
+    QVERIFY(daemon.lastSample().brightness >= 30);
+    // And the base is derived from what was applied rather than from what was
+    // asked for, so there is no hidden number behind the screen.
+    QVERIFY(daemon.state().brightnessBase >= 30);
+
+    // There is no ceiling. A hand at the top of the scale stays at the top,
+    // and the automation may take the screen there in a bright room.
     setBacklightByHand(FakeSysfs::kBacklightMax);
     daemon.tick();
-    QCOMPARE(daemon.state().brightnessBase, 100);
     for (int i = 0; i < 20; ++i) {
         daemon.tick();
         finishFade(daemon);
     }
     QCOMPARE(backlightRaw(), FakeSysfs::kBacklightMax);
-
-    // Back to a level inside the bounds, and the next automatic move stays
-    // within them.
-    setBacklightByHand(FakeSysfs::kBacklightMax * 55 / 100);
-    daemon.tick();
-    QCOMPARE(daemon.state().brightnessBase, 55);
-    setLight(0);
-    QVERIFY(tickUntilMove(daemon, kBrightnessDwellTicks + 2) > 0);
-    finishFade(daemon);
-
-    daemon.tick();
-    const Sample &s = daemon.lastSample();
-    QVERIFY(s.brightness >= 20 && s.brightness <= 60);
 }
 
 void DaemonTest::selectingAModeDoesNotMoveTheBacklight()
@@ -852,22 +825,21 @@ void DaemonTest::selectingAModeDoesNotMoveTheBacklight()
 
 void DaemonTest::brightnessChoicesSurviveARestart()
 {
+    int savedBase = 0;
     {
         Daemon daemon(options());
         QVERIFY(daemon.start());
         QCOMPARE(daemon.handleCommand(QStringLiteral("brightness on")), QStringLiteral("ok"));
-        QCOMPARE(daemon.handleCommand(QStringLiteral("brightness profile indoors")),
-                 QStringLiteral("ok indoors"));
         setBacklightByHand(FakeSysfs::kBacklightMax / 4);
         daemon.tick();
-        QCOMPARE(daemon.state().brightnessBase, 25);
+        QVERIFY(daemon.state().brightnessBase != DaemonState::kBrightnessBaseUnset);
+        savedBase = daemon.state().brightnessBase;
     }
 
     Daemon restarted(options());
     QVERIFY(restarted.start());
     QCOMPARE(restarted.state().autoBrightness, true);
-    QCOMPARE(restarted.state().brightnessProfile, QStringLiteral("indoors"));
-    QCOMPARE(restarted.state().brightnessBase, 25);
+    QCOMPARE(restarted.state().brightnessBase, savedBase);
 
     // Something switched off must not come back on by itself either.
     restarted.handleCommand(QStringLiteral("brightness off"));
@@ -883,13 +855,11 @@ void DaemonTest::brightnessCommandsAreValidated()
     QVERIFY(daemon.start());
     for (const QString &command :
          { QStringLiteral("brightness"), QStringLiteral("brightness sideways"),
-           QStringLiteral("brightness profile"), QStringLiteral("brightness profile nowhere"),
-           QStringLiteral("brightness set span_pct"),
-           QStringLiteral("brightness set span_pct=wide"),
-           QStringLiteral("brightness set span_pct=101"),
-           QStringLiteral("brightness set span_pct=-1"),
-           QStringLiteral("brightness set sideways_pct=10"),
-           QStringLiteral("brightness set floor_pct=80 ceiling_pct=60") }) {
+           QStringLiteral("brightness level"), QStringLiteral("brightness level plenty"),
+           QStringLiteral("brightness level 101"), QStringLiteral("brightness level -1"),
+           QStringLiteral("brightness set response_pct"),
+           QStringLiteral("brightness set response_pct=wide"),
+           QStringLiteral("brightness set sideways_pct=10") }) {
         QVERIFY2(daemon.handleCommand(command).startsWith(QStringLiteral("err")),
                  qPrintable(command));
     }
@@ -899,8 +869,8 @@ void DaemonTest::brightnessCommandsAreValidated()
     // still the ones in force.
     const QJsonObject brightness =
             statusOf(daemon).value(QStringLiteral("brightness")).toObject();
-    QCOMPARE(brightness.value(QStringLiteral("live")).toBool(), false);
-    QCOMPARE(brightness.value(QStringLiteral("span_pct")).toInt(), kBrightnessDefaultSpanPct);
+    QCOMPARE(brightness.value(QStringLiteral("response_pct")).toInt(),
+             kBrightnessDefaultResponsePct);
 }
 
 void DaemonTest::theBrightnessWindowIsTunedLive()
@@ -910,7 +880,7 @@ void DaemonTest::theBrightnessWindowIsTunedLive()
     daemon.handleCommand(QStringLiteral("brightness on"));
     setBacklightByHand(FakeSysfs::kBacklightMax / 2);
     daemon.tick();
-    QCOMPARE(daemon.state().brightnessBase, 50);
+    const int base = daemon.state().brightnessBase;
 
     // As text, because the pair is only ever compared as a whole here.
     const auto window = [&daemon] {
@@ -920,79 +890,77 @@ void DaemonTest::theBrightnessWindowIsTunedLive()
                 .arg(brightness.value(QStringLiteral("window_low")).toInt())
                 .arg(brightness.value(QStringLiteral("window_high")).toInt());
     };
-    const QString profileWindow = QStringLiteral("%1..%2")
-                                          .arg(50 - kBrightnessDefaultSpanPct)
-                                          .arg(50 + kBrightnessDefaultSpanPct);
-    QCOMPARE(window(), profileWindow);
+    QCOMPARE(window(),
+             QStringLiteral("%1..%2")
+                     .arg(std::max(kBrightnessDefaultFloorPct,
+                                   base - kBrightnessDefaultResponsePct))
+                     .arg(std::min(100, base + kBrightnessDefaultResponsePct)));
 
-    // Widening it further is a judgement made by eye rather than an edit to the
-    // file.
-    QCOMPARE(daemon.handleCommand(QStringLiteral("brightness set span_pct=35")),
+    // Widening the reaction is a judgement made by eye, and it applies at once.
+    // The base moves with it: a wider reaction means the light of this moment
+    // was contributing more, so the level on screen implies a different base.
+    QCOMPARE(daemon.handleCommand(QStringLiteral("brightness set response_pct=40")),
              QStringLiteral("ok"));
-    QCOMPARE(window(), QStringLiteral("15..85"));
+    const int widened = daemon.state().brightnessBase;
+    QCOMPARE(window(),
+             QStringLiteral("%1..%2")
+                     .arg(std::max(kBrightnessDefaultFloorPct, widened - 40))
+                     .arg(std::min(100, widened + 40)));
 
-    // Cut by the bounds, not shifted by them.
-    QCOMPARE(daemon.handleCommand(QStringLiteral("brightness set floor_pct=35 ceiling_pct=70")),
+    // The floor binds everybody, so it cuts the band from below.
+    QCOMPARE(daemon.handleCommand(QStringLiteral("brightness set floor_pct=35")),
              QStringLiteral("ok"));
-    QCOMPARE(window(), QStringLiteral("35..70"));
+    QVERIFY(window().startsWith(QStringLiteral("35..")));
 
-    // Every live value is in the record, because the profile index alone does
-    // not say what the automation was allowed to do.
+    // Every value in force is in the record, because a sample that needs
+    // another file read to be understood is not self-contained.
     daemon.tick();
     const Sample &s = daemon.lastSample();
-    QCOMPARE(s.brightnessSpan, uint8_t(35));
+    QCOMPARE(s.brightnessResponse, uint8_t(40));
     QCOMPARE(s.brightnessFloor, uint8_t(35));
-    QCOMPARE(s.brightnessCeiling, uint8_t(70));
-    QVERIFY(exporter::csvRow(s).contains(QStringLiteral(",35,35,70")));
 
-    QJsonObject brightness = statusOf(daemon).value(QStringLiteral("brightness")).toObject();
-    QCOMPARE(brightness.value(QStringLiteral("live")).toBool(), true);
-
-    // Nothing was written back: the file still says what it said.
-    QCOMPARE(daemon.handleCommand(QStringLiteral("brightness reset")), QStringLiteral("ok"));
-    QCOMPARE(window(), profileWindow);
-    brightness = statusOf(daemon).value(QStringLiteral("brightness")).toObject();
-    QCOMPARE(brightness.value(QStringLiteral("live")).toBool(), false);
+    // A floor above the level pulls the screen up to it: it binds the person
+    // as well, which is the whole point of having one.
+    setBacklightByHand(FakeSysfs::kBacklightMax / 10);
+    daemon.tick();
+    QVERIFY(daemon.lastSample().brightness >= 35);
 }
 
-void DaemonTest::theBrightnessOverlayBelongsToItsProfile()
+void DaemonTest::theBacklightSettingsAreDurable()
 {
-    writeConfig(QStringLiteral("[general]\ndefault_mode=work\n"
-                               "default_brightness_profile=indoors\n"
-                               "[mode work]\npl1_w=20\n"
-                               "[brightness indoors]\n"
-                               "span_pct=10\nfloor_pct=5\nceiling_pct=100\n"
-                               "curve=0:0, 1000:100\n"
-                               "[brightness outdoors]\n"
-                               "span_pct=15\nfloor_pct=30\nceiling_pct=100\n"
-                               "curve=0:0, 1000:100\n"));
     Daemon daemon(options());
     QVERIFY(daemon.start());
 
-    const auto span = [&daemon] {
+    const auto response = [&daemon] {
         return statusOf(daemon)
                 .value(QStringLiteral("brightness"))
                 .toObject()
-                .value(QStringLiteral("span_pct"))
+                .value(QStringLiteral("response_pct"))
                 .toInt();
     };
 
-    QCOMPARE(daemon.handleCommand(QStringLiteral("brightness set span_pct=40")),
+    // `brightness set` applies and nothing more: dragging a slider must not
+    // write a file thirty times on the way across.
+    QCOMPARE(daemon.handleCommand(QStringLiteral("brightness set response_pct=40")),
              QStringLiteral("ok"));
-    QCOMPARE(span(), 40);
+    QCOMPARE(response(), 40);
+    QVERIFY(!QFileInfo::exists(options().configPath));
 
-    // Selecting another profile drops it: the overlay was an overlay on the
-    // profile being left behind.
-    QCOMPARE(daemon.handleCommand(QStringLiteral("brightness profile outdoors")),
-             QStringLiteral("ok outdoors"));
-    QCOMPARE(span(), 15);
-
-    // And so does rereading the file, which is the source of truth.
-    QCOMPARE(daemon.handleCommand(QStringLiteral("brightness set span_pct=40")),
+    // `config set brightness` is the one that keeps it, and it survives a
+    // restart — which is what makes these settings rather than an experiment.
+    QCOMPARE(daemon.handleCommand(QStringLiteral("config set brightness response_pct=45")),
              QStringLiteral("ok"));
-    QCOMPARE(span(), 40);
-    QCOMPARE(daemon.handleCommand(QStringLiteral("reload")), QStringLiteral("ok"));
-    QCOMPARE(span(), 15);
+    QVERIFY(QFileInfo::exists(options().configPath));
+    daemon.shutdown();
+
+    Daemon restarted(options());
+    QVERIFY(restarted.start());
+    QCOMPARE(statusOf(restarted)
+                     .value(QStringLiteral("brightness"))
+                     .toObject()
+                     .value(QStringLiteral("response_pct"))
+                     .toInt(),
+             45);
 }
 
 void DaemonTest::theBacklightPathDegradesOnItsOwn()
@@ -1010,7 +978,7 @@ void DaemonTest::theBacklightPathDegradesOnItsOwn()
     const Sample &s = daemon.lastSample();
     QCOMPARE(s.brightness, kAbsentPercent);
     QCOMPARE(s.brightnessBase, kAbsentPercent);
-    QCOMPARE(s.light, kAbsentValue);
+    QCOMPARE(s.light, kAbsentLight);
     QCOMPARE(m_tree->read(FakeSysfs::raplPackage()
                           + QStringLiteral("/constraint_0_power_limit_uw")),
              QStringLiteral("20000000"));
@@ -1018,6 +986,194 @@ void DaemonTest::theBacklightPathDegradesOnItsOwn()
     const QJsonObject brightness =
             statusOf(daemon).value(QStringLiteral("brightness")).toObject();
     QCOMPARE(brightness.value(QStringLiteral("available")).toBool(), false);
+}
+
+void DaemonTest::configShowAnswersWithWhatIsSaved()
+{
+    Daemon daemon(options());
+    QString error;
+    QVERIFY2(daemon.start(&error), qPrintable(error));
+
+    const QString reply = daemon.handleCommand(QStringLiteral("config show"));
+    QVERIFY(reply.startsWith(QLatin1String("ok ")));
+    const QJsonObject config = QJsonDocument::fromJson(reply.mid(3).toUtf8()).object();
+    // Nothing has been changed yet, so the built-in values are the answer and
+    // there is no file behind them.
+    QCOMPARE(config.value(QStringLiteral("stored")).toBool(), false);
+    QCOMPARE(config.value(QStringLiteral("default_mode")).toString(), QStringLiteral("work"));
+    QCOMPARE(config.value(QStringLiteral("modes")).toArray().size(), 3);
+    const QJsonObject brightness = config.value(QStringLiteral("brightness")).toObject();
+    QCOMPARE(brightness.value(QStringLiteral("response_pct")).toInt(),
+             kBrightnessDefaultResponsePct);
+    // Lux on the wire, and a curve whose last point is daylight rather than a
+    // lit room, because the sensor reads well past a lit room.
+    const QString curve = brightness.value(QStringLiteral("curve")).toString();
+    QVERIFY2(curve.contains(QLatin1String("400:100")), qPrintable(curve));
+}
+
+void DaemonTest::editingAModeIsDurableAndAppliesAtOnce()
+{
+    Daemon daemon(options());
+    QString error;
+    QVERIFY2(daemon.start(&error), qPrintable(error));
+    QCOMPARE(daemon.handleCommand(QStringLiteral("mode work")), QStringLiteral("ok work"));
+
+    QCOMPARE(daemon.handleCommand(QStringLiteral("config set mode work pl1_w=17 pl2_w=25")),
+             QStringLiteral("ok"));
+    // Applied without waiting for the next tick: an edit that appears to do
+    // nothing for a second reads as an edit that did not take.
+    QCOMPARE(m_tree->read(FakeSysfs::raplPackage()
+                          + QStringLiteral("/constraint_0_power_limit_uw")),
+             QStringLiteral("17000000"));
+
+    // And durable: a second daemon reading the same path sees it.
+    daemon.shutdown();
+    Daemon again(options());
+    QVERIFY2(again.start(&error), qPrintable(error));
+    const Mode *mode = again.modes().find(QStringLiteral("work"));
+    QVERIFY(mode);
+    QCOMPARE(mode->setpoints.pl1W, 17);
+    QCOMPARE(mode->setpoints.pl2W, 25);
+}
+
+void DaemonTest::modesAreEditedNotCreated()
+{
+    Daemon daemon(options());
+    QString error;
+    QVERIFY2(daemon.start(&error), qPrintable(error));
+
+    const QString reply = daemon.handleCommand(QStringLiteral("config set mode invented pl1_w=10"));
+    QVERIFY(reply.startsWith(QLatin1String("err unknown mode invented")));
+    // The answer names what does exist, because a refusal that leaves you
+    // guessing costs a second command.
+    QVERIFY(reply.contains(QStringLiteral("quiet")));
+    QCOMPARE(daemon.modes().modes().size(), 3);
+}
+
+void DaemonTest::aRefusedEditChangesNothingOnDiskOrInMemory()
+{
+    Daemon daemon(options());
+    QString error;
+    QVERIFY2(daemon.start(&error), qPrintable(error));
+    const int before = daemon.modes().find(QStringLiteral("work"))->setpoints.pl1W;
+
+    QVERIFY(daemon.handleCommand(QStringLiteral("config set mode work pl1_w=nonsense"))
+                    .startsWith(QLatin1String("err")));
+    QVERIFY(daemon.handleCommand(QStringLiteral("config set mode work invented=1"))
+                    .startsWith(QLatin1String("err")));
+    QCOMPARE(daemon.modes().find(QStringLiteral("work"))->setpoints.pl1W, before);
+    // Nothing was written either: a refused command must not leave a file
+    // behind that says something happened.
+    QVERIFY(!QFileInfo::exists(options().configPath));
+
+    // Out of range is a different matter: clamped, applied, and reported so
+    // that nobody tunes a number that never took effect.
+    const QString clamped = daemon.handleCommand(QStringLiteral("config set mode work pl1_w=900"));
+    QVERIFY(clamped.startsWith(QLatin1String("ok ")));
+    QVERIFY(clamped.contains(QStringLiteral("outside")));
+    QCOMPARE(daemon.modes().find(QStringLiteral("work"))->setpoints.pl1W, kMaxConfirmedPl1W);
+}
+
+void DaemonTest::liveTuningIsSavedIntoTheModeThatIsNamed()
+{
+    Daemon daemon(options());
+    QString error;
+    QVERIFY2(daemon.start(&error), qPrintable(error));
+    QCOMPARE(daemon.handleCommand(QStringLiteral("mode work")), QStringLiteral("ok work"));
+
+    QVERIFY(daemon.handleCommand(QStringLiteral("config save live to work"))
+                    .startsWith(QLatin1String("err")));
+
+    QCOMPARE(daemon.handleCommand(QStringLiteral("set pl1=13 max_perf_pct=44")),
+             QStringLiteral("ok"));
+    QVERIFY(daemon.liveTuning());
+
+    // Into a mode that is not the one in force: the definition changes, the
+    // overlay stays, and the machine does not move.
+    QCOMPARE(daemon.handleCommand(QStringLiteral("config save live to quiet")),
+             QStringLiteral("ok"));
+    QCOMPARE(daemon.modes().find(QStringLiteral("quiet"))->setpoints.pl1W, 13);
+    QVERIFY(daemon.liveTuning());
+
+    // Into the mode in force: the applied values do not change, so the overlay
+    // is dropped and the status stops claiming an experiment is running.
+    QCOMPARE(daemon.handleCommand(QStringLiteral("config save live to work")),
+             QStringLiteral("ok"));
+    QCOMPARE(daemon.modes().find(QStringLiteral("work"))->setpoints.maxPerfPct, 44);
+    QVERIFY(!daemon.liveTuning());
+    QCOMPARE(daemon.requestedSetpoints().pl1W, 13);
+}
+
+void DaemonTest::resettingReturnsToTheBuiltInValues()
+{
+    Daemon daemon(options());
+    QString error;
+    QVERIFY2(daemon.start(&error), qPrintable(error));
+
+    QCOMPARE(daemon.handleCommand(QStringLiteral("config set mode work pl1_w=41 pl2_w=50")),
+             QStringLiteral("ok"));
+    QCOMPARE(daemon.handleCommand(QStringLiteral("config set brightness response_pct=7")),
+             QStringLiteral("ok"));
+    QCOMPARE(daemon.handleCommand(QStringLiteral("set pl1=9")), QStringLiteral("ok"));
+
+    QVERIFY(daemon.handleCommand(QStringLiteral("config reset sideways"))
+                    .startsWith(QLatin1String("err")));
+
+    QCOMPARE(daemon.handleCommand(QStringLiteral("config reset modes")), QStringLiteral("ok"));
+    QCOMPARE(daemon.modes().find(QStringLiteral("work"))->setpoints.pl1W,
+             ModeTable::builtinDefaults().find(QStringLiteral("work"))->setpoints.pl1W);
+    // A reset is the way out of a mess, so the experiment goes with it.
+    QVERIFY(!daemon.liveTuning());
+    // Only the group that was named: the brightness edit is still there.
+    QString reply = daemon.handleCommand(QStringLiteral("config show"));
+    QJsonObject config = QJsonDocument::fromJson(reply.mid(3).toUtf8()).object();
+    QCOMPARE(config.value(QStringLiteral("brightness"))
+                     .toObject()
+                     .value(QStringLiteral("response_pct"))
+                     .toInt(),
+             7);
+
+    QCOMPARE(daemon.handleCommand(QStringLiteral("config reset all")), QStringLiteral("ok"));
+    reply = daemon.handleCommand(QStringLiteral("config show"));
+    config = QJsonDocument::fromJson(reply.mid(3).toUtf8()).object();
+    QCOMPARE(config.value(QStringLiteral("brightness"))
+                     .toObject()
+                     .value(QStringLiteral("response_pct"))
+                     .toInt(),
+             kBrightnessDefaultResponsePct);
+}
+
+void DaemonTest::theDisplayCountIsRecorded()
+{
+    Daemon daemon(options());
+    QString error;
+    QVERIFY2(daemon.start(&error), qPrintable(error));
+
+    daemon.tick();
+    // The fake tree has the internal panel connected and two empty sockets.
+    QCOMPARE(daemon.lastSample().displays, 1);
+
+    m_tree->write(FakeSysfs::connector(QStringLiteral("DP-1")), QStringLiteral("connected"));
+    daemon.tick();
+    QCOMPARE(daemon.lastSample().displays, 2);
+    QCOMPARE(statusOf(daemon)
+                     .value(QStringLiteral("sensors"))
+                     .toObject()
+                     .value(QStringLiteral("displays"))
+                     .toInt(),
+             2);
+
+    // No DRM tree at all is "nobody asked", not "nothing plugged in". The first
+    // daemon goes first: two owners of one control surface is the one thing
+    // this architecture forbids, and its socket is the evidence.
+    daemon.shutdown();
+    m_tree->remove(FakeSysfs::connector(QStringLiteral("eDP-1")));
+    m_tree->remove(FakeSysfs::connector(QStringLiteral("DP-1")));
+    m_tree->remove(FakeSysfs::connector(QStringLiteral("HDMI-A-1")));
+    Daemon bare(options());
+    QVERIFY2(bare.start(&error), qPrintable(error));
+    bare.tick();
+    QCOMPARE(bare.lastSample().displays, kAbsentPercent);
 }
 
 QTEST_MAIN(DaemonTest)

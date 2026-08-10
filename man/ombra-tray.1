@@ -1,0 +1,73 @@
+.TH OMBRA-TRAY 1 "2026-08-09" "ombra" "User Commands"
+.SH NAME
+ombra-tray \- experimentation console for the ombra daemon
+.SH SYNOPSIS
+.B ombra-tray
+.RI [ --socket " " path ]
+.RI [ --interval-ms " " ms ]
+.RI [ --screenshot " " directory ]
+.RI [ --quit-after-ms " " ms ]
+.SH DESCRIPTION
+A panel icon and a window with four tabs: the readings, the thermal mode, the
+backlight, and the settings of the console itself. What it adds over
+.BR ombra (1)
+is controls that apply the moment they move. Pick a mode and they take its
+numbers; move one and it applies at once, and the mode selector empties, because
+what is running is then no longer any of the three. One button writes the
+controls into a mode you name.
+.PP
+Every number has a field beside its slider: a slider cannot be landed on a
+particular value, and these values are compared between sessions. The readings
+sit on their own tab with three buttons — good, too loud, too slow — which stamp
+a judgement made by ear onto the sample it belongs to.
+.PP
+Nothing here writes the daemon's settings directly. When a live value is worth
+keeping, the console asks the daemon to save it, on the same commands
+.B ombra config
+sends. The one thing the console does write is its own autostart entry.
+.PP
+The panel icon shows which mode is in force, by the names desktop power-profile
+applets use, and two names that are not modes: one for a daemon that is not
+answering and one for the emergency guard clamping. A name rather than a picture,
+because the panel then draws the glyph of the icon theme in force and recolours
+it to match itself. A name the theme does not carry is never published — a
+StatusNotifierItem host would draw a question mark for it — and the icon is then
+a picture of the console's own, in fixed colours that read on any panel. The icon
+theme is read from the portal, so a change of it changes the icon.
+.PP
+Started with a session, it waits up to a minute for a panel to appear before
+deciding there is none: the tray host registers over the session bus and is
+routinely a second or two behind an autostarted process. Until an icon exists,
+closing the console ends the process.
+.SH OPTIONS
+.TP
+.BI --socket " path"
+The daemon's control socket. Default
+.IR /run/ombra/control.sock .
+Reaching it requires membership of the group
+.BR ombra .
+.TP
+.BI --interval-ms " ms"
+How often to ask the daemon for readings. Default 1000.
+.TP
+.BI --screenshot " directory"
+Write the documentation pictures there and exit. Grabs of the console's own
+widgets, so no compositor and no screenshot tool is involved. See
+.B scripts/screenshots.sh
+in the source tree, which is how they are actually taken.
+.TP
+.BI --quit-after-ms " ms"
+Exit after this long. A test hook.
+.SH FILES
+.TP
+.I $XDG_CONFIG_HOME/ombra/console.conf
+The console's own settings: at present, whether its window is light, dark or
+whatever the desktop says. Nothing about the machine is kept here.
+.TP
+.I $XDG_CONFIG_HOME/autostart/ombra-tray.desktop
+Whether the console starts with the session. The entry is the whole state,
+which is what makes "switched off and it stayed off" a property of the
+arrangement rather than of a mechanism. The package writes nothing here.
+.SH SEE ALSO
+.BR ombra (1),
+.BR ombrad (8)

@@ -47,7 +47,7 @@ Daemon::Daemon(DaemonOptions options, QObject *parent)
     , m_lightSensor(m_sysfs)
     , m_backlight(m_sysfs)
     , m_modes(ModeTable::builtinDefaults())
-    , m_brightnessProfiles(BrightnessProfileTable::builtinDefaults())
+    , m_brightnessSettings(builtinBrightnessSettings())
 {
     m_timer.setInterval(m_options.intervalMs);
     connect(&m_timer, &QTimer::timeout, this, &Daemon::tick);
@@ -110,6 +110,10 @@ bool Daemon::start(QString *error)
     QString ringError;
     if (!m_ring.open(m_options.ringPath, m_options.ringCapacity, &ringError))
         qWarning().noquote() << "telemetry disabled:" << ringError;
+    // Said out loud: samples carried across a change of format, or a file this
+    // build could not read and kept instead of deleting.
+    if (!m_ring.note().isEmpty())
+        qInfo().noquote() << m_ring.note();
 
     loadConfiguration();
     loadState();
@@ -165,6 +169,9 @@ void Daemon::shutdown()
 
 void Daemon::loadConfiguration()
 {
+    // No file means nothing has been changed yet, and the built-in values are
+    // the answer. They are also what a reset returns to, so the two paths agree
+    // by construction.
     ModeTable table;
     QStringList problems;
     if (table.load(m_options.configPath, &problems)) {
@@ -173,25 +180,19 @@ void Daemon::loadConfiguration()
         m_modes = ModeTable::builtinDefaults();
     }
 
-    // The same file, a separate list and a separate selection: the brightness
-    // side shares the configuration file with the modes and nothing else.
-    BrightnessProfileTable brightness;
-    if (brightness.load(m_options.configPath, &problems)) {
-        m_brightnessProfiles = brightness;
-    } else {
-        m_brightnessProfiles = BrightnessProfileTable::builtinDefaults();
-    }
+    // The same file, a separate section: the backlight shares the settings file
+    // with the modes and nothing else.
+    BrightnessSettings brightness;
+    if (loadBrightnessSettings(m_options.configPath, &brightness, &problems))
+        m_brightnessSettings = brightness;
+    else
+        m_brightnessSettings = builtinBrightnessSettings();
 
     for (const QString &problem : problems)
         qWarning().noquote() << "configuration:" << problem;
 
     if (!m_modes.find(m_state.mode))
         m_state.mode = m_modes.defaultModeId();
-    if (!m_brightnessProfiles.find(m_state.brightnessProfile))
-        m_state.brightnessProfile = m_brightnessProfiles.defaultProfileId();
-    // The overlay was an overlay on the profile as it read a moment ago. The
-    // file has just said something else, and the file is the source of truth.
-    m_liveBrightness.reset();
 
     if (!m_watcher.files().contains(m_options.configPath)
         && QFileInfo::exists(m_options.configPath)) {
@@ -209,8 +210,6 @@ void Daemon::loadState()
     // The middle mode is the working one and is what the machine boots into.
     if (!m_modes.find(m_state.mode))
         m_state.mode = m_modes.defaultModeId();
-    if (!m_brightnessProfiles.find(m_state.brightnessProfile))
-        m_state.brightnessProfile = m_brightnessProfiles.defaultProfileId();
 
     // The panel's current level is the first base. The machine is already set
     // up the way its owner likes it, and taking that as the starting point is
@@ -238,8 +237,6 @@ Setpoints Daemon::requestedSetpoints() const
     } else if (const Mode *fallback = m_modes.mostConservative()) {
         points = fallback->setpoints;
     }
-    if (m_fanOverride)
-        points.fanMode = *m_fanOverride;
     return points;
 }
 
@@ -248,10 +245,9 @@ QString Daemon::applyMode(const QString &id)
     const Mode *mode = m_modes.find(id);
     if (!mode)
         return QStringLiteral("err unknown mode %1").arg(id);
-    // Selecting a mode is the deliberate act that cancels live tuning and any
-    // fan command; the last command wins.
+    // Selecting a mode is the deliberate act that cancels live tuning; the last
+    // command wins.
     m_live.reset();
-    m_fanOverride.reset();
     m_state.mode = id;
     saveState();
     emit modeChanged(id);
@@ -274,49 +270,73 @@ void Daemon::noticeManualBrightness()
     m_backlight.noteObserved(*current);
 
     // Somebody else set this level, and on this machine that somebody is the
-    // person on the brightness keys. Their level is the new base, and the
-    // window moves with it. The step is dropped so the next decision only
-    // adopts a position: an automatic move on the heels of a hand correction
-    // is the automation arguing with the person.
-    const int percent = m_backlight.toPercent(*current);
+    // person on the brightness keys. What they asked for is an instruction, so
+    // the base is re-derived from it: the level they chose, with the light's
+    // contribution of this moment taken back out. Coming back to the same room
+    // then comes back to the same level.
+    //
+    // The floor applies to them as well. It is the one bound that binds
+    // everybody, because a screen driven into unreadable is a failure whoever
+    // did the driving — and a level that was overridden must not become a base
+    // nobody can see on screen.
+    const int asked = m_backlight.toPercent(*current);
+    const int applied = std::clamp(asked, m_brightnessSettings.floorPct, 100);
     stopBrightnessFade();
     m_brightness.step = BrightnessState::kUnset;
     m_brightness.pending = BrightnessState::kUnset;
     m_brightness.pendingTicks = 0;
-    if (m_state.brightnessBase != percent) {
-        m_state.brightnessBase = percent;
+    if (applied != asked) {
+        m_backlight.writeRaw(m_backlight.toRaw(applied));
+        if (const auto raw = m_backlight.readRaw())
+            m_backlight.noteObserved(*raw);
+    }
+
+    const int base = brightnessBaseFor(m_brightnessSettings, applied, m_lightSensor.read());
+    if (m_state.brightnessBase != base) {
+        m_state.brightnessBase = base;
         saveState();
     }
 }
 
+QString Daemon::applyBrightnessLevel(int percent)
+{
+    if (!m_backlight.available())
+        return QStringLiteral("err the backlight is not available");
+    const int applied = std::clamp(percent, m_brightnessSettings.floorPct, 100);
+    stopBrightnessFade();
+    if (!m_backlight.writeRaw(m_backlight.toRaw(applied)))
+        return QStringLiteral("err the backlight could not be written");
+    if (const auto raw = m_backlight.readRaw())
+        m_backlight.noteObserved(*raw);
+
+    // The same path a hand correction takes: a level is a level whoever set it,
+    // and the base follows from it the same way.
+    m_brightness.step = BrightnessState::kUnset;
+    m_brightness.pending = BrightnessState::kUnset;
+    m_brightness.pendingTicks = 0;
+    m_state.brightnessBase = brightnessBaseFor(m_brightnessSettings, applied,
+                                               m_lightSensor.read());
+    saveState();
+    return QStringLiteral("ok %1").arg(applied);
+}
+
 void Daemon::updateBrightness(Sample &sample)
 {
-    sample.light = kAbsentValue;
+    sample.light = kAbsentLight;
     sample.brightness = kAbsentPercent;
     sample.brightnessBase = kAbsentPercent;
-    sample.brightnessProfile = kAbsentPercent;
-    // Zero is a legal span and a legal floor, so absence needs its own marker
-    // here as much as it does for the readings.
-    sample.brightnessSpan = kAbsentPercent;
+    // Zero is a legal response and a legal floor, so absence needs its own
+    // marker here as much as it does for the readings.
+    sample.brightnessResponse = kAbsentPercent;
     sample.brightnessFloor = kAbsentPercent;
-    sample.brightnessCeiling = kAbsentPercent;
 
     if (!m_backlight.available())
         return;
 
-    const int profileIndex = m_brightnessProfiles.indexOf(m_state.brightnessProfile);
-    if (profileIndex >= 0 && profileIndex < kAbsentPercent)
-        sample.brightnessProfile = static_cast<uint8_t>(profileIndex);
-
-    // Recorded whether or not the automation is on, and taken from the
-    // overlay when one is in force: these three are what the next move would
-    // have been allowed to do, which the profile index alone does not say.
-    const std::optional<BrightnessProfile> effective = effectiveBrightnessProfile();
-    if (effective) {
-        sample.brightnessSpan = static_cast<uint8_t>(effective->spanPct);
-        sample.brightnessFloor = static_cast<uint8_t>(effective->floorPct);
-        sample.brightnessCeiling = static_cast<uint8_t>(effective->ceilingPct);
-    }
+    // Recorded whether or not the automation is on: this is what the next move
+    // would have been allowed to do.
+    sample.brightnessResponse = static_cast<uint8_t>(m_brightnessSettings.responsePct);
+    sample.brightnessFloor = static_cast<uint8_t>(m_brightnessSettings.floorPct);
 
     // Read the panel before deciding anything: our own write would overwrite a
     // hand correction before it had been seen.
@@ -329,7 +349,7 @@ void Daemon::updateBrightness(Sample &sample)
 
     const auto light = m_lightSensor.read();
     if (light)
-        sample.light = static_cast<uint16_t>(*light);
+        sample.light = *light;
 
     // Switched off, the automation does not write the backlight at all. Not
     // "moves it less" — at all.
@@ -337,11 +357,9 @@ void Daemon::updateBrightness(Sample &sample)
         return;
     sample.flags |= FlagAutoBrightness;
 
-    if (!effective)
-        return;
-
     m_brightness.base = m_state.brightnessBase;
-    const BrightnessDecision decision = decideBrightness(*effective, light, m_brightness);
+    const BrightnessDecision decision =
+            decideBrightness(m_brightnessSettings, light, m_brightness);
     if (decision.move)
         startBrightnessFade(decision.target);
 }
@@ -421,81 +439,56 @@ QString Daemon::applyBrightnessCommand(const QStringList &parts)
         return QStringLiteral("ok");
     }
 
-    if (what == QLatin1String("profile")) {
+    if (what == QLatin1String("level")) {
         if (parts.size() < 2)
-            return QStringLiteral("err brightness profile needs a name");
-        const QString id = parts.at(1);
-        if (!m_brightnessProfiles.find(id))
-            return QStringLiteral("err unknown brightness profile %1").arg(id);
-        if (m_state.brightnessProfile != id) {
-            m_state.brightnessProfile = id;
-            saveState();
-        }
-        // The overlay belonged to the profile being left behind.
-        m_liveBrightness.reset();
-        // A different window, adopted rather than jumped into.
-        m_brightness.step = BrightnessState::kUnset;
-        m_brightness.pending = BrightnessState::kUnset;
-        m_brightness.pendingTicks = 0;
-        return QStringLiteral("ok %1").arg(id);
+            return QStringLiteral("err brightness level needs a percentage");
+        bool ok = false;
+        const int percent = parts.at(1).toInt(&ok);
+        if (!ok)
+            return QStringLiteral("err brightness level is not a number");
+        if (percent < 0 || percent > 100)
+            return QStringLiteral("err brightness level is outside 0..100");
+        return applyBrightnessLevel(percent);
     }
 
     if (what == QLatin1String("set")) {
-        const auto current = effectiveBrightnessProfile();
-        if (!current)
-            return QStringLiteral("err no brightness profile is configured");
-        BrightnessProfile profile = *current;
-
-        // The same key names as the configuration file, so that what is typed
-        // here and what is pasted into the file are one vocabulary.
+        // These are settings, not an overlay: what the slider leaves behind is
+        // what the automation uses from then on, which is how every desktop
+        // treats a brightness control. Saving them is a separate command so
+        // that dragging a slider does not write a file thirty times.
+        BrightnessSettings edited = m_brightnessSettings;
+        QStringList clamped;
         for (const QString &assignment : parts.mid(1)) {
             const int eq = assignment.indexOf(QLatin1Char('='));
             if (eq <= 0)
                 return QStringLiteral("err malformed assignment %1").arg(assignment);
-            const QString key = assignment.left(eq).trimmed().toLower();
-            bool numberOk = false;
-            const int number = assignment.mid(eq + 1).trimmed().toInt(&numberOk);
-            if (!numberOk)
-                return QStringLiteral("err %1 is not a number").arg(key);
-            if (number < 0 || number > 100)
-                return QStringLiteral("err %1 is outside 0..100").arg(key);
-
-            if (key == QLatin1String("span_pct"))
-                profile.spanPct = number;
-            else if (key == QLatin1String("floor_pct"))
-                profile.floorPct = number;
-            else if (key == QLatin1String("ceiling_pct"))
-                profile.ceilingPct = number;
-            else
-                return QStringLiteral("err unknown brightness setting %1").arg(key);
+            QString error;
+            if (!applyBrightnessSetting(edited, assignment.left(eq).trimmed().toLower(),
+                                        assignment.mid(eq + 1).trimmed(), &error, &clamped)) {
+                return QStringLiteral("err ") + error;
+            }
         }
-        if (profile.floorPct > profile.ceilingPct)
-            return QStringLiteral("err floor_pct above ceiling_pct");
+        m_brightnessSettings = edited;
 
-        // Deliberately not adopted the way a profile switch is. Moving these
-        // is a request to see the effect, and the anti-hunting machinery
-        // already keeps that honest: the new window has to survive the dwell
-        // before anything is written, so dragging a slider costs one fade
-        // after it stops rather than one per step.
-        m_liveBrightness = profile;
-        return QStringLiteral("ok");
+        // A changed floor can leave the panel below it, and the floor binds
+        // everybody. Re-deriving the base keeps the level the person is looking
+        // at meaning what it says.
+        if (const auto percent = m_backlight.readPercent()) {
+            if (*percent < edited.floorPct)
+                applyBrightnessLevel(edited.floorPct);
+            else
+                m_state.brightnessBase =
+                        brightnessBaseFor(edited, *percent, m_lightSensor.read());
+        }
+        m_brightness.step = BrightnessState::kUnset;
+        m_brightness.pending = BrightnessState::kUnset;
+        m_brightness.pendingTicks = 0;
+        if (clamped.isEmpty())
+            return QStringLiteral("ok");
+        return QStringLiteral("ok ") + clamped.join(QStringLiteral("; "));
     }
 
-    if (what == QLatin1String("reset")) {
-        m_liveBrightness.reset();
-        return QStringLiteral("ok");
-    }
-
-    return QStringLiteral("err brightness takes on, off, profile, set or reset");
-}
-
-std::optional<BrightnessProfile> Daemon::effectiveBrightnessProfile() const
-{
-    if (m_liveBrightness)
-        return m_liveBrightness;
-    if (const BrightnessProfile *profile = m_brightnessProfiles.find(m_state.brightnessProfile))
-        return *profile;
-    return std::nullopt;
+    return QStringLiteral("err brightness takes on, off, level or set");
 }
 
 QString Daemon::applyLiveSetting(const QStringList &assignments)
@@ -540,15 +533,256 @@ QString Daemon::applyLiveSetting(const QStringList &assignments)
             if (profile == Profile::Unknown)
                 return QStringLiteral("err unknown profile %1").arg(value);
             points.profile = profile;
+        } else if (key == QLatin1String("fan")) {
+            if (value == QLatin1String("max")) {
+                points.fanMode = 0;
+            } else if (value == QLatin1String("auto")) {
+                points.fanMode = 2;
+            } else {
+                return QStringLiteral("err fan takes max or auto");
+            }
         } else {
             return QStringLiteral("err unknown setting %1").arg(key);
         }
     }
-    // Live values apply immediately and are never written back anywhere. When
-    // one is worth keeping, the tray offers it as a configuration snippet and
-    // promoting it stays a deliberate edit.
+    // Live values apply immediately and are never written to the settings file
+    // by themselves. Keeping one is a separate, deliberate command —
+    // `config save live to <id>` — which names the mode it lands in.
     m_live = points;
     return QStringLiteral("ok");
+}
+
+QString Daemon::commitTables(const ModeTable &modes, const BrightnessSettings &brightness,
+                             const QStringList &clamped)
+{
+    QString error;
+    if (!settings_file::save(m_options.configPath, modes, brightness, &error))
+        return QStringLiteral("err ") + error;
+
+    m_modes = modes;
+    m_brightnessSettings = brightness;
+    // An edit can rename nothing but can move a mode along the table, and a
+    // selection that no longer exists would leave the machine unmanaged.
+    if (!m_modes.find(m_state.mode))
+        m_state.mode = m_modes.defaultModeId();
+
+    // The file did not exist until the first change, so this is where the
+    // watch usually starts.
+    if (!m_watcher.files().contains(m_options.configPath)
+        && QFileInfo::exists(m_options.configPath)) {
+        m_watcher.addPath(m_options.configPath);
+    }
+
+    // The definition that changed may be the one in force, and waiting for the
+    // next tick to apply it would make an edit look like it did nothing.
+    if (m_running)
+        applyNow();
+
+    if (clamped.isEmpty())
+        return QStringLiteral("ok");
+    // Clamping is reported rather than silent: otherwise somebody spends an
+    // evening tuning a number that never took effect.
+    return QStringLiteral("ok ") + clamped.join(QStringLiteral("; "));
+}
+
+QString Daemon::configJson() const
+{
+    QJsonArray modeList;
+    for (const Mode &mode : m_modes.modes()) {
+        QJsonObject entry;
+        entry[QStringLiteral("id")] = mode.id;
+        entry[QStringLiteral("label")] = mode.label;
+        entry[QStringLiteral("platform_profile")] = profileToString(mode.setpoints.profile);
+        entry[QStringLiteral("pl1_w")] = mode.setpoints.pl1W;
+        entry[QStringLiteral("pl2_w")] = mode.setpoints.pl2W;
+        entry[QStringLiteral("max_perf_pct")] = mode.setpoints.maxPerfPct;
+        entry[QStringLiteral("turbo")] = !mode.setpoints.noTurbo;
+        entry[QStringLiteral("epp")] = eppToString(mode.setpoints.epp);
+        entry[QStringLiteral("hwp_dynamic_boost")] = mode.setpoints.hwpBoost;
+        entry[QStringLiteral("gt_max_mhz")] = mode.setpoints.gtMaxMhz;
+        modeList.append(entry);
+    }
+
+    QStringList points;
+    for (const BrightnessPoint &point : m_brightnessSettings.curve) {
+        points.append(QStringLiteral("%1:%2")
+                              .arg(point.light / 1000.0, 0, 'g', 6)
+                              .arg(point.position));
+    }
+    QJsonObject brightness;
+    brightness[QStringLiteral("response_pct")] = m_brightnessSettings.responsePct;
+    brightness[QStringLiteral("floor_pct")] = m_brightnessSettings.floorPct;
+    // Lux, like everywhere a light level leaves this process.
+    brightness[QStringLiteral("curve")] = points.join(QStringLiteral(", "));
+
+    QJsonObject root;
+    // The path is part of the answer: tooling that reports what it changed has
+    // to be able to say where, and a person asking "what is saved" is asking
+    // about a file.
+    root[QStringLiteral("path")] = m_options.configPath;
+    root[QStringLiteral("stored")] = QFileInfo::exists(m_options.configPath);
+    root[QStringLiteral("default_mode")] = m_modes.defaultModeId();
+    root[QStringLiteral("modes")] = modeList;
+    root[QStringLiteral("brightness")] = brightness;
+    return QString::fromUtf8(QJsonDocument(root).toJson(QJsonDocument::Compact));
+}
+
+QString Daemon::configModeCommand(const QStringList &parts)
+{
+    if (parts.isEmpty())
+        return QStringLiteral("err config set mode needs a mode name");
+    const QString id = parts.first();
+    const Mode *existing = m_modes.find(id);
+    if (!existing) {
+        // Modes are edited, never created: the desktop panel has three slots,
+        // and a fourth definition would live where the panel cannot reach it.
+        QStringList known;
+        for (const Mode &mode : m_modes.modes())
+            known.append(mode.id);
+        return QStringLiteral("err unknown mode %1; there are %2")
+                .arg(id, known.join(QStringLiteral(", ")));
+    }
+    if (parts.size() < 2)
+        return QStringLiteral("err config set mode needs at least one assignment");
+
+    Mode edited = *existing;
+    QStringList clamped;
+    for (const QString &assignment : parts.mid(1)) {
+        const int eq = assignment.indexOf(QLatin1Char('='));
+        if (eq <= 0)
+            return QStringLiteral("err malformed assignment %1").arg(assignment);
+        QString error;
+        if (!applyModeSetting(edited, assignment.left(eq).trimmed().toLower(),
+                              assignment.mid(eq + 1).trimmed(), &error, &clamped)) {
+            return QStringLiteral("err ") + error;
+        }
+    }
+    normalizeMode(edited, &clamped);
+
+    ModeTable modes = m_modes;
+    modes.replace(edited);
+    return commitTables(modes, m_brightnessSettings, clamped);
+}
+
+QString Daemon::configBrightnessCommand(const QStringList &parts)
+{
+    if (parts.isEmpty())
+        return QStringLiteral("err config set brightness needs at least one assignment");
+
+    BrightnessSettings edited = m_brightnessSettings;
+    QStringList clamped;
+    for (const QString &assignment : parts) {
+        const int eq = assignment.indexOf(QLatin1Char('='));
+        if (eq <= 0)
+            return QStringLiteral("err malformed assignment %1").arg(assignment);
+        QString error;
+        if (!applyBrightnessSetting(edited, assignment.left(eq).trimmed().toLower(),
+                                    assignment.mid(eq + 1).trimmed(), &error, &clamped)) {
+            return QStringLiteral("err ") + error;
+        }
+    }
+    return commitTables(m_modes, edited, clamped);
+}
+
+QString Daemon::configSaveCommand(const QStringList &parts)
+{
+    // "config save live to <id>". The destination is named rather than
+    // assumed: saving into whichever mode happens to be selected is the kind of
+    // guess that loses an evening's tuning.
+    //
+    // There is no brightness half any more. The backlight numbers are settings
+    // rather than an overlay — what the slider leaves behind is what the
+    // automation uses — and `config set brightness` writes them.
+    if (parts.size() != 3 || parts.first().toLower() != QLatin1String("live")
+        || parts.at(1).toLower() != QLatin1String("to")) {
+        return QStringLiteral("err config save takes live to <mode>");
+    }
+    const QString id = parts.at(2);
+
+    if (!m_live)
+        return QStringLiteral("err there is no live tuning to save");
+    const Mode *existing = m_modes.find(id);
+    if (!existing)
+        return QStringLiteral("err unknown mode %1").arg(id);
+
+    Mode edited = *existing;
+    edited.setpoints = *m_live;
+    QStringList clamped;
+    normalizeMode(edited, &clamped);
+
+    ModeTable modes = m_modes;
+    modes.replace(edited);
+    const QString reply = commitTables(modes, m_brightnessSettings, clamped);
+    // Dropped only when it has become the mode in force: the applied values do
+    // not change, and the status stops claiming an experiment is running when
+    // what is running is now a saved definition. Saving into another mode
+    // leaves the overlay alone, because dropping it there would move the
+    // machine.
+    if (reply.startsWith(QLatin1String("ok")) && id == m_state.mode)
+        m_live.reset();
+    return reply;
+}
+
+QString Daemon::configResetCommand(const QStringList &parts)
+{
+    if (parts.isEmpty())
+        return QStringLiteral("err config reset needs modes, brightness or all");
+    const QString what = parts.first().toLower();
+
+    ModeTable modes = m_modes;
+    BrightnessSettings brightness = m_brightnessSettings;
+    if (what == QLatin1String("modes") || what == QLatin1String("all"))
+        modes = ModeTable::builtinDefaults();
+    else if (what != QLatin1String("brightness"))
+        return QStringLiteral("err config reset takes modes, brightness or all");
+    if (what == QLatin1String("brightness") || what == QLatin1String("all"))
+        brightness = builtinBrightnessSettings();
+
+    // A reset is the answer to "I have made a mess and want out", so it drops
+    // the experiment too: an overlay surviving it would leave the machine on
+    // numbers that are no longer written anywhere.
+    if (what == QLatin1String("modes") || what == QLatin1String("all"))
+        m_live.reset();
+
+    return commitTables(modes, brightness, {});
+}
+
+QString Daemon::applyConfigCommand(const QStringList &parts)
+{
+    if (parts.isEmpty())
+        return QStringLiteral("err config needs show, set, save, default or reset");
+    const QString what = parts.first().toLower();
+
+    if (what == QLatin1String("show"))
+        return QStringLiteral("ok ") + configJson();
+
+    if (what == QLatin1String("set")) {
+        if (parts.size() < 2)
+            return QStringLiteral("err config set needs mode or brightness");
+        const QString kind = parts.at(1).toLower();
+        if (kind == QLatin1String("mode"))
+            return configModeCommand(parts.mid(2));
+        if (kind == QLatin1String("brightness"))
+            return configBrightnessCommand(parts.mid(2));
+        return QStringLiteral("err config set takes mode or brightness");
+    }
+
+    if (what == QLatin1String("save"))
+        return configSaveCommand(parts.mid(1));
+
+    if (what == QLatin1String("reset"))
+        return configResetCommand(parts.mid(1));
+
+    if (what == QLatin1String("default_mode")) {
+        if (parts.size() < 2)
+            return QStringLiteral("err config default_mode needs a mode name");
+        ModeTable modes = m_modes;
+        if (!modes.setDefaultModeId(parts.at(1)))
+            return QStringLiteral("err unknown mode %1").arg(parts.at(1));
+        return commitTables(modes, m_brightnessSettings, {});
+    }
+
+    return QStringLiteral("err config takes show, set, save, default_mode or reset");
 }
 
 QString Daemon::statusJson() const
@@ -590,6 +824,8 @@ QString Daemon::statusJson() const
     sensors[QStringLiteral("gpu_mhz")] = plain(s.gpuMhz);
     sensors[QStringLiteral("load1")] = s.load1 == kAbsentValue ? QJsonValue()
                                                               : QJsonValue(s.load1 / 100.0);
+    sensors[QStringLiteral("displays")] =
+            s.displays == kAbsentPercent ? QJsonValue() : QJsonValue(s.displays);
 
     QJsonArray modeList;
     for (const Mode &mode : m_modes.modes()) {
@@ -599,38 +835,29 @@ QString Daemon::statusJson() const
         modeList.append(entry);
     }
 
-    QJsonArray brightnessProfileList;
-    for (const BrightnessProfile &profile : m_brightnessProfiles.profiles()) {
-        QJsonObject entry;
-        entry[QStringLiteral("id")] = profile.id;
-        entry[QStringLiteral("label")] = profile.label;
-        brightnessProfileList.append(entry);
-    }
-
     // Its own object, because the backlight is its own function: the thermal
     // mode does not appear here and nothing here appears above.
     QJsonObject brightness;
     brightness[QStringLiteral("available")] = m_backlight.available();
     brightness[QStringLiteral("auto")] = m_state.autoBrightness;
-    brightness[QStringLiteral("profile")] = m_state.brightnessProfile;
-    brightness[QStringLiteral("profiles")] = brightnessProfileList;
     brightness[QStringLiteral("level")] =
             s.brightness == kAbsentPercent ? QJsonValue() : QJsonValue(s.brightness);
     brightness[QStringLiteral("base")] =
             s.brightnessBase == kAbsentPercent ? QJsonValue() : QJsonValue(s.brightnessBase);
-    brightness[QStringLiteral("light")] = plain(s.light);
-    brightness[QStringLiteral("live")] = m_liveBrightness.has_value();
-    if (const std::optional<BrightnessProfile> profile = effectiveBrightnessProfile()) {
-        // The three the tray puts on sliders, effective values rather than the
-        // file's: with an overlay in force the file's are not what is acting.
-        brightness[QStringLiteral("span_pct")] = profile->spanPct;
-        brightness[QStringLiteral("floor_pct")] = profile->floorPct;
-        brightness[QStringLiteral("ceiling_pct")] = profile->ceilingPct;
-        if (m_state.brightnessBase != DaemonState::kBrightnessBaseUnset) {
-            const BrightnessWindow window = brightnessWindow(*profile, m_state.brightnessBase);
-            brightness[QStringLiteral("window_low")] = window.low;
-            brightness[QStringLiteral("window_high")] = window.high;
-        }
+    // Lux on the wire as well: the console shows nothing of the sensor, and a
+    // diagnostic reading in millilux is a number nobody can picture.
+    brightness[QStringLiteral("light_lux")] =
+            s.light == kAbsentLight ? QJsonValue() : QJsonValue(s.light / 1000.0);
+    // The two the console puts on sliders, and the band they produce. The band
+    // is what the window actually shows, because "between 50 and 100 per cent"
+    // is a sentence and "a response of thirty" is not.
+    brightness[QStringLiteral("response_pct")] = m_brightnessSettings.responsePct;
+    brightness[QStringLiteral("floor_pct")] = m_brightnessSettings.floorPct;
+    if (m_state.brightnessBase != DaemonState::kBrightnessBaseUnset) {
+        const BrightnessWindow window =
+                brightnessWindow(m_brightnessSettings, m_state.brightnessBase);
+        brightness[QStringLiteral("window_low")] = window.low;
+        brightness[QStringLiteral("window_high")] = window.high;
     }
 
     QJsonObject root;
@@ -678,7 +905,6 @@ QString Daemon::handleCommand(const QString &line)
 
     if (verb == QLatin1String("reset")) {
         m_live.reset();
-        m_fanOverride.reset();
         return QStringLiteral("ok %1").arg(m_state.mode);
     }
 
@@ -701,14 +927,10 @@ QString Daemon::handleCommand(const QString &line)
     if (verb == QLatin1String("fan")) {
         if (parts.size() < 2)
             return QStringLiteral("err fan needs max or auto");
-        const QString what = parts.at(1).toLower();
-        if (what != QLatin1String("max") && what != QLatin1String("auto"))
-            return QStringLiteral("err fan takes max or auto");
-        // Full speed is reachable only by explicit command like this one;
-        // automatic control never engages it. It is held apart from live
-        // tuning so that a mode reload still reaches the other setpoints.
-        m_fanOverride = what == QLatin1String("max") ? 0 : 2;
-        return QStringLiteral("ok");
+        // A shorthand for the setpoint of the same name, and nothing more. The
+        // fan is a setpoint like the power limits, so one mechanism carries it
+        // and "full speed, right now" is one short command.
+        return applyLiveSetting({ QStringLiteral("fan=") + parts.at(1).toLower() });
     }
 
     if (verb == QLatin1String("charge")) {
@@ -729,22 +951,12 @@ QString Daemon::handleCommand(const QString &line)
         return QStringLiteral("ok");
     }
 
+    if (verb == QLatin1String("config"))
+        return applyConfigCommand(parts.mid(1));
+
     if (verb == QLatin1String("reload")) {
         loadConfiguration();
         return QStringLiteral("ok");
-    }
-
-    if (verb == QLatin1String("snippet")) {
-        const QString id = parts.size() > 1 ? parts.at(1) : m_state.mode;
-        QString text = ModeTable::toConfigSnippet(id, requestedSetpoints());
-        // One file holds both kinds of section, so one snippet is one paste.
-        // The brightness section appears only while an overlay is in force:
-        // without one there is nothing live to promote.
-        if (m_liveBrightness) {
-            text += QLatin1Char('\n');
-            text += BrightnessProfileTable::toConfigSnippet(*m_liveBrightness);
-        }
-        return QStringLiteral("ok ") + QString::fromUtf8(text.toUtf8().toBase64());
     }
 
     return QStringLiteral("err unknown command %1").arg(verb);
@@ -763,12 +975,12 @@ void Daemon::tick()
         // known one, and it overrides live tuning as well: an experiment does
         // not outrank the interlock it was relying on.
         if (const Mode *conservative = m_modes.mostConservative()) {
-            // A fan command is the exception. Only an explicit request ever
-            // sets this, and with no temperature reading more airflow is never
-            // the wrong answer.
+            // The fan is the exception. With no temperature reading more
+            // airflow is never the wrong answer, so a fan already running flat
+            // out keeps running.
             const int commandedFan = requested.fanMode;
             requested = conservative->setpoints;
-            requested.fanMode = commandedFan;
+            requested.fanMode = std::min(requested.fanMode, commandedFan);
         }
     }
 

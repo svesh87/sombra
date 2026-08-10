@@ -58,7 +58,9 @@ DaemonState DaemonState::load(const QString &path, QStringList *problems)
         if (key == QLatin1String("mode")) {
             state.mode = value;
         } else if (key == QLatin1String("brightness_profile")) {
-            state.brightnessProfile = value;
+            // Read and dropped. The backlight has one set of settings, so
+            // there is nothing for a profile name to select; a state file
+            // written before that is not a file with a typo in it.
         } else if (key == QLatin1String("auto_brightness")) {
             bool ok = false;
             const bool parsed = parseBool(value, &ok);
@@ -117,7 +119,6 @@ bool DaemonState::save(const QString &path) const
     text += QStringLiteral("mode=%1\n").arg(mode);
     text += QStringLiteral("auto_brightness=%1\n")
                     .arg(autoBrightness ? QStringLiteral("on") : QStringLiteral("off"));
-    text += QStringLiteral("brightness_profile=%1\n").arg(brightnessProfile);
     if (brightnessBase != kBrightnessBaseUnset)
         text += QStringLiteral("brightness_base=%1\n").arg(std::clamp(brightnessBase, 0, 100));
     if (chargeLimit != kChargeLimitUnset)

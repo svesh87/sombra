@@ -13,6 +13,7 @@ private slots:
     void anAbsentFileYieldsTheDefaults();
     void unknownKeysAndBrokenValuesAreReportedAndSkipped();
     void unsetValuesAreLeftOutOfTheFile();
+    void aProfileNameLeftInTheFileIsNotAComplaint();
     void anUnwritableFileIsReportedRatherThanThrown();
 
 private:
@@ -34,7 +35,6 @@ void DaemonStateTest::everyKeyMakesTheRoundTrip()
     DaemonState state;
     state.mode = QStringLiteral("quiet");
     state.autoBrightness = true;
-    state.brightnessProfile = QStringLiteral("evening");
     state.brightnessBase = 72;
     state.chargeLimit = 80;
     QVERIFY(state.save(path()));
@@ -42,7 +42,6 @@ void DaemonStateTest::everyKeyMakesTheRoundTrip()
     const DaemonState reloaded = DaemonState::load(path());
     QCOMPARE(reloaded.mode, QStringLiteral("quiet"));
     QCOMPARE(reloaded.autoBrightness, true);
-    QCOMPARE(reloaded.brightnessProfile, QStringLiteral("evening"));
     QCOMPARE(reloaded.brightnessBase, 72);
     QCOMPARE(reloaded.chargeLimit, 80);
 }
@@ -88,7 +87,6 @@ void DaemonStateTest::unsetValuesAreLeftOutOfTheFile()
 {
     DaemonState state;
     state.mode = QStringLiteral("work");
-    state.brightnessProfile = QStringLiteral("indoors");
     QVERIFY(state.save(path()));
 
     QFile file(path());
@@ -100,6 +98,25 @@ void DaemonStateTest::unsetValuesAreLeftOutOfTheFile()
     // is taken from the panel rather than invented.
     QVERIFY(!text.contains(QStringLiteral("charge_limit")));
     QVERIFY(!text.contains(QStringLiteral("brightness_base")));
+}
+
+void DaemonStateTest::aProfileNameLeftInTheFileIsNotAComplaint()
+{
+    // Written when the backlight still had profiles. There is nothing for the
+    // name to select now, and a file from the version before is not a file
+    // with a typo in it.
+    writeState(QStringLiteral("mode=work\nbrightness_profile=indoors\n"));
+
+    QStringList problems;
+    const DaemonState state = DaemonState::load(path(), &problems);
+    QCOMPARE(state.mode, QStringLiteral("work"));
+    QVERIFY2(problems.isEmpty(), qPrintable(problems.join(QStringLiteral("; "))));
+
+    // And it does not come back when the file is written again.
+    QVERIFY(state.save(path()));
+    QFile file(path());
+    QVERIFY(file.open(QIODevice::ReadOnly | QIODevice::Text));
+    QVERIFY(!QString::fromUtf8(file.readAll()).contains(QStringLiteral("brightness_profile")));
 }
 
 void DaemonStateTest::anUnwritableFileIsReportedRatherThanThrown()

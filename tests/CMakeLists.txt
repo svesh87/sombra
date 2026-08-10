@@ -37,10 +37,21 @@ ombra_test(dbus_service_test LIBS ombra_daemon)
 # and the real tray binary as child processes, which is the topology they will
 # run in, so the build order has to guarantee those exist.
 ombra_test(autostart_test LIBS ombra_tray)
+ombra_test(theme_test LIBS ombra_tray ENV "QT_QPA_PLATFORM=offscreen")
+ombra_test(tray_icon_test LIBS ombra_tray ENV "QT_QPA_PLATFORM=offscreen")
 ombra_test(tray_client_test LIBS ombra_tray ENV "QT_QPA_PLATFORM=offscreen")
 ombra_test(tray_window_test LIBS ombra_tray ENV "QT_QPA_PLATFORM=offscreen")
 add_dependencies(tray_client_test ombrad)
 add_dependencies(tray_window_test ombrad ombra-tray)
+
+# Builds the fake control surface as a directory, for the documentation
+# pictures. Not installed, and not a test: it is the same tree the suite uses,
+# handed to a throwaway daemon so the pictures carry no readings from a real
+# machine and come out the same every time.
+add_executable(ombra-fake-tree make_fake_tree.cpp)
+target_link_libraries(ombra-fake-tree PRIVATE ombra_core Qt6::Test)
+target_include_directories(ombra-fake-tree PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+target_compile_options(ombra-fake-tree PRIVATE ${OMBRA_WARNINGS})
 
 # The binaries themselves, so that option parsing and the exit paths are
 # covered by something other than reading them.

@@ -31,8 +31,10 @@ add_library(ombra_core STATIC
     src/light_sensor.cpp
     src/backlight.cpp
     src/brightness_map.cpp
+    src/settings_file.cpp
     src/daemon_state.cpp
     src/metrics_ring.cpp
+    src/ring_migrate.cpp
     src/exporter.cpp
     src/profile_bridge.cpp
 )
@@ -54,10 +56,14 @@ target_compile_options(ombra_daemon PRIVATE ${OMBRA_WARNINGS})
 # with it, so it links the core for the setpoint types and nothing more.
 add_library(ombra_tray STATIC
     src/autostart.cpp
+    src/theme.cpp
     src/tray_client.cpp
+    src/tray_icon.cpp
     src/tray_window.cpp
 )
-target_link_libraries(ombra_tray PUBLIC ombra_core Qt6::Network Qt6::Widgets)
+# DBus is here for one thing: asking the desktop portal whether it wants light
+# or dark. The tray talks to the daemon over the socket and to nothing else.
+target_link_libraries(ombra_tray PUBLIC ombra_core Qt6::DBus Qt6::Network Qt6::Widgets)
 target_compile_options(ombra_tray PRIVATE ${OMBRA_WARNINGS})
 
 add_executable(ombrad src/daemon_main.cpp)
@@ -82,14 +88,25 @@ endif()
 include(GNUInstallDirs)
 install(TARGETS ombrad ombra ombra-tray
         RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
-# Absolute, not under the prefix: the daemon looks for its configuration at
-# /etc/ombra/modes.conf and nowhere else, so a copy under a prefix
-# would be a file nothing reads.
-install(FILES config/modes.conf DESTINATION /etc/ombra)
+# No configuration is installed. The daemon carries its defaults compiled in
+# and writes its own settings file under /var/lib on first change, so a file
+# shipped in /etc would be a second source of truth with nothing to gain by it.
 install(FILES systemd/ombrad.service
         DESTINATION ${CMAKE_INSTALL_PREFIX}/lib/systemd/system)
 install(FILES desktop/ombra-tray.desktop
         DESTINATION ${CMAKE_INSTALL_DATAROOTDIR}/applications)
+
+# Shell completion, as static files rather than generated ones: three binaries
+# and a fixed list of verbs make a generator cost more than its output.
+install(FILES completions/bash/ombra
+        DESTINATION ${CMAKE_INSTALL_DATAROOTDIR}/bash-completion/completions)
+install(FILES completions/zsh/_ombra
+        DESTINATION ${CMAKE_INSTALL_DATAROOTDIR}/zsh/vendor-completions)
+install(FILES completions/fish/ombra.fish
+        DESTINATION ${CMAKE_INSTALL_DATAROOTDIR}/fish/vendor_completions.d)
+
+install(FILES man/ombra.1 man/ombra-tray.1 DESTINATION ${CMAKE_INSTALL_MANDIR}/man1)
+install(FILES man/ombrad.8 DESTINATION ${CMAKE_INSTALL_MANDIR}/man8)
 # Documentation is installed by debhelper from debian/docs, together with the
 # copyright file it requires; there is nothing here for a plain `make install`
 # to do with it.

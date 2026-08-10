@@ -57,6 +57,10 @@ private:
     QStringList m_cpuFreqPaths;
     QStringList m_coreThrottlePaths;
     QString m_packageThrottlePath;
+    // One `status` node per display connector. Resolved like everything else
+    // here, and re-resolved with the rest: a connector can appear when a
+    // docking station is plugged in.
+    QStringList m_displayStatusPaths;
 
     uint64_t m_prevPackageUj = 0;
     uint64_t m_prevCoreUj = 0;
@@ -72,6 +76,19 @@ private:
     uint64_t m_prevCoreThrottle = 0;
     bool m_haveThrottleBaseline = false;
 };
+
+// Centiwatts. Above this no domain on this platform is reporting a
+// measurement: the firmware's own fault-condition PL1 is 200 W and the silicon
+// draws a fraction of that.
+//
+// This is what tells a counter artefact from a reading. Resuming from suspend
+// restarts the RAPL counters, and the backwards step is then read as a wrap,
+// which turns almost the whole range into one tick's worth of energy —
+// measured, four samples of a recorded session claimed 655 W while the cores
+// drew under one. Such a tick is recorded as absent rather than as a number:
+// how much the machine spent while it slept is genuinely unknown, and both a
+// saturated peak and a tidy zero would be inventions.
+inline constexpr qint64 kMaxPlausiblePowerCw = 20000;
 
 // Difference between two readings of a counter that wraps at `range`.
 // Exposed because wraparound is the one thing in this file worth testing on

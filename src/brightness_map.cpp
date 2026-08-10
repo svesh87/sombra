@@ -22,10 +22,34 @@ int clampReported(int value, int low, int high, const QString &what, QStringList
     return clamped;
 }
 
-// "0:0, 40:15, 150:40" — an ambient reading and where in the window it puts
-// the backlight. Malformed points are dropped with a line in `problems`
-// rather than rejecting the profile: one typo must not switch the automation
-// into something unpredictable.
+// Lux in the file, millilux inside. A person reads and writes lux — it is the
+// unit rooms are described in — and the dark end needs the fraction: 0.3 lux
+// and 3 lux are different rooms.
+quint32 milliluxFromText(const QString &text, bool *ok)
+{
+    const double lux = text.trimmed().toDouble(ok);
+    if (!*ok || lux < 0)
+        return 0;
+    return static_cast<quint32>(std::min(lux * 1000.0, 4294967000.0));
+}
+
+QString luxText(quint32 millilux)
+{
+    QString text = QString::number(millilux / 1000.0, 'f', 3);
+    // Trailing zeroes on a light level are noise, and the file is read by
+    // people as well as by the parser.
+    while (text.endsWith(QLatin1Char('0')))
+        text.chop(1);
+    if (text.endsWith(QLatin1Char('.')))
+        text.chop(1);
+    return text;
+}
+
+// "0:0, 25:50, 400:100" — a light level in lux and what the room is worth
+// there, from 0 for "subtract the whole response" through 50 for "contribute
+// nothing" to 100 for "add all of it". Malformed points are dropped with a line
+// in `problems` rather than rejecting the curve: one typo must not switch the
+// automation into something unpredictable.
 QList<BrightnessPoint> parseCurve(const QString &text, const QString &what, QStringList *problems)
 {
     QList<BrightnessPoint> curve;
@@ -35,15 +59,15 @@ QList<BrightnessPoint> parseCurve(const QString &text, const QString &what, QStr
         bool lightOk = false;
         bool positionOk = false;
         if (halves.size() == 2) {
-            const int light = halves.at(0).trimmed().toInt(&lightOk);
+            const quint32 light = milliluxFromText(halves.at(0), &lightOk);
             const int position = halves.at(1).trimmed().toInt(&positionOk);
             if (lightOk && positionOk) {
-                curve.append({ std::max(0, light), std::clamp(position, 0, 100) });
+                curve.append({ light, std::clamp(position, 0, 100) });
                 continue;
             }
         }
         if (problems)
-            problems->append(QStringLiteral("%1: '%2' is not light:position").arg(what, entry));
+            problems->append(QStringLiteral("%1: '%2' is not lux:position").arg(what, entry));
     }
 
     std::sort(curve.begin(), curve.end(),
@@ -53,19 +77,115 @@ QList<BrightnessPoint> parseCurve(const QString &text, const QString &what, QStr
 
 } // namespace
 
-BrightnessWindow brightnessWindow(const BrightnessProfile &profile, int base)
+BrightnessSettings builtinBrightnessSettings()
 {
-    // The span is measured from the base, and only then do the floor and the
-    // ceiling cut the result. Applying them the other way round would move the
-    // window instead of trimming it.
-    const int floorPct = std::min(profile.floorPct, profile.ceilingPct);
-    BrightnessWindow window;
-    window.low = std::clamp(base - profile.spanPct, floorPct, profile.ceilingPct);
-    window.high = std::clamp(base + profile.spanPct, floorPct, profile.ceilingPct);
-    return window;
+    BrightnessSettings settings;
+    settings.responsePct = kBrightnessDefaultResponsePct;
+    settings.floorPct = kBrightnessDefaultFloorPct;
+    // Lux, and measured on this machine rather than guessed:
+    //
+    //   0.3   the darkest reading of a recorded night
+    //   25    an evening with the desk lamps on and the ceiling light off —
+    //         the light this room usually has, which is why the curve is
+    //         neutral there
+    //   103   the same room with the ceiling light on
+    //   400   past anything measured indoors here; the curve is flat above it
+    //
+    // The top is deliberately short of the sensor's own reach of about
+    // 20 000 lux: a daylight session at a window has not been recorded yet, and
+    // a point invented for it would be a guess wearing a measurement's clothes.
+    settings.curve = {
+        { 0, 0 }, { 1000, 20 }, { 8000, 38 }, { 25000, 50 },
+        { 60000, 70 }, { 103000, 85 }, { 400000, 100 },
+    };
+    return settings;
 }
 
-int brightnessCurvePosition(const QList<BrightnessPoint> &curve, int light)
+bool applyBrightnessSetting(BrightnessSettings &settings, const QString &key,
+                            const QString &value, QString *error, QStringList *clamped)
+{
+    const QString what = QStringLiteral("brightness: %1").arg(key);
+
+    if (key == QLatin1String("curve")) {
+        QStringList curveProblems;
+        const QList<BrightnessPoint> curve = parseCurve(value, what, &curveProblems);
+        if (curve.isEmpty()) {
+            if (error)
+                *error = QStringLiteral("%1: no usable points").arg(what);
+            return false;
+        }
+        if (clamped)
+            clamped->append(curveProblems);
+        settings.curve = curve;
+        return true;
+    }
+
+    bool ok = false;
+    const int number = value.trimmed().toInt(&ok);
+    if (!ok) {
+        if (error)
+            *error = QStringLiteral("%1: '%2' is not a number").arg(what, value);
+        return false;
+    }
+    if (key == QLatin1String("response_pct")) {
+        settings.responsePct = clampReported(number, 0, 100, what, clamped);
+        return true;
+    }
+    if (key == QLatin1String("floor_pct")) {
+        settings.floorPct = clampReported(number, 0, 100, what, clamped);
+        return true;
+    }
+
+    if (error)
+        *error = QStringLiteral("brightness: unknown setting '%1'").arg(key);
+    return false;
+}
+
+bool loadBrightnessSettings(const QString &path, BrightnessSettings *settings,
+                            QStringList *problems)
+{
+    if (!QFileInfo::exists(path))
+        return false;
+    QSettings file(path, QSettings::IniFormat);
+    if (file.status() != QSettings::NoError)
+        return false;
+    if (!file.childGroups().contains(QStringLiteral("brightness")))
+        return false;
+
+    BrightnessSettings parsed = builtinBrightnessSettings();
+    file.beginGroup(QStringLiteral("brightness"));
+    for (const QString &key : file.childKeys()) {
+        QString error;
+        // QSettings reads an unquoted comma-separated value as a list, and
+        // toString() on a list is empty. Rejoining is what makes the curve
+        // readable whether or not the file happens to quote it.
+        const QString value = file.value(key).toStringList().join(QLatin1Char(','));
+        if (!applyBrightnessSetting(parsed, key.toLower(), value, &error, problems) && problems)
+            problems->append(error + QStringLiteral(", ignored"));
+    }
+    file.endGroup();
+
+    *settings = parsed;
+    return true;
+}
+
+QString brightnessSettingsSection(const BrightnessSettings &settings)
+{
+    QStringList points;
+    for (const BrightnessPoint &point : settings.curve)
+        points.append(QStringLiteral("%1:%2").arg(luxText(point.light)).arg(point.position));
+
+    QString text;
+    text += QStringLiteral("[brightness]\n");
+    text += QStringLiteral("response_pct=%1\n").arg(settings.responsePct);
+    text += QStringLiteral("floor_pct=%1\n").arg(settings.floorPct);
+    // Lux, and the one place a light level is written down for a person to
+    // read. The parser takes the same text back.
+    text += QStringLiteral("curve=%1\n").arg(points.join(QStringLiteral(", ")));
+    return text;
+}
+
+int brightnessCurvePosition(const QList<BrightnessPoint> &curve, quint32 light)
 {
     if (curve.isEmpty())
         return 0;
@@ -79,40 +199,68 @@ int brightnessCurvePosition(const QList<BrightnessPoint> &curve, int light)
         if (light > high.light)
             continue;
         const BrightnessPoint &low = curve.at(i - 1);
-        const int span = high.light - low.light;
+        const qint64 span = static_cast<qint64>(high.light) - low.light;
         if (span <= 0)
             return high.position;
-        const qint64 rise = static_cast<qint64>(high.position - low.position) * (light - low.light);
+        const qint64 rise = static_cast<qint64>(high.position - low.position)
+                * (static_cast<qint64>(light) - low.light);
         return low.position + static_cast<int>((rise + span / 2) / span);
     }
     return curve.last().position;
 }
 
-BrightnessDecision decideBrightness(const BrightnessProfile &profile, std::optional<int> light,
-                                    BrightnessState &state)
+int brightnessContribution(const BrightnessSettings &settings, std::optional<quint32> light)
+{
+    if (!light || settings.curve.isEmpty())
+        return 0;
+    // Position 50 contributes nothing, 0 subtracts the whole response and 100
+    // adds it. Rounded away from zero so that a contribution of half a point
+    // does not silently vanish.
+    const int position = brightnessCurvePosition(settings.curve, *light);
+    const int scaled = (2 * position - 100) * settings.responsePct;
+    return scaled >= 0 ? (scaled + 50) / 100 : -((-scaled + 50) / 100);
+}
+
+int brightnessBaseFor(const BrightnessSettings &settings, int level,
+                      std::optional<quint32> light)
+{
+    // The floor first: what got applied is what the base is derived from, and a
+    // level nobody can see would make a base nobody can explain.
+    const int applied = std::clamp(level, settings.floorPct, 100);
+    return applied - brightnessContribution(settings, light);
+}
+
+BrightnessWindow brightnessWindow(const BrightnessSettings &settings, int base)
+{
+    BrightnessWindow window;
+    window.low = std::clamp(base - settings.responsePct, settings.floorPct, 100);
+    window.high = std::clamp(base + settings.responsePct, settings.floorPct, 100);
+    return window;
+}
+
+BrightnessDecision decideBrightness(const BrightnessSettings &settings,
+                                    std::optional<quint32> light, BrightnessState &state)
 {
     BrightnessDecision decision;
     if (state.base == BrightnessState::kUnset)
         return decision;
 
-    decision.window = brightnessWindow(profile, state.base);
+    decision.window = brightnessWindow(settings, state.base);
     decision.target = state.step == BrightnessState::kUnset ? state.base : state.step;
 
     // No reading is not darkness. Without one the automation holds where it
     // is, the same way the thermal side falls back rather than guessing.
-    if (!light || profile.curve.isEmpty())
+    if (!light || settings.curve.isEmpty())
         return decision;
 
-    const int position = brightnessCurvePosition(profile.curve, *light);
-    const int width = decision.window.high - decision.window.low;
-    const int wanted =
-            decision.window.low + static_cast<int>((static_cast<qint64>(width) * position + 50)
-                                                   / 100);
+    const int wanted = std::clamp(state.base + brightnessContribution(settings, light),
+                                  settings.floorPct, 100);
 
-    // Snap to the grid first, then keep it inside the window: the window's own
-    // edges are legitimate resting places even when they are not on the grid.
+    // Snap to the grid first, then keep it inside what is permitted: the floor
+    // and the top of the scale are legitimate resting places even when they are
+    // not on the grid.
     int candidate = (wanted + kBrightnessStepPct / 2) / kBrightnessStepPct * kBrightnessStepPct;
-    candidate = std::clamp(candidate, decision.window.low, decision.window.high);
+    candidate = std::clamp(candidate, settings.floorPct, 100);
 
     if (state.step == BrightnessState::kUnset) {
         // Adopt the position without moving. This is what makes switching the
@@ -121,7 +269,7 @@ BrightnessDecision decideBrightness(const BrightnessProfile &profile, std::optio
         state.step = candidate;
         state.pending = BrightnessState::kUnset;
         state.pendingTicks = 0;
-        decision.target = state.base;
+        decision.target = std::clamp(state.base, settings.floorPct, 100);
         return decision;
     }
 
@@ -133,11 +281,12 @@ BrightnessDecision decideBrightness(const BrightnessProfile &profile, std::optio
         return decision;
     }
 
-    // A target sitting on a grid boundary would flip between two steps on
-    // sensor noise alone. It has to clear the boundary by a margin before the
-    // step counts as changed.
-    if (kBrightnessHysteresisDenominator * std::abs(wanted - state.step)
-        < kBrightnessHysteresisNumerator * kBrightnessStepPct) {
+    // Hysteresis: a candidate that has not cleared the boundary by a margin is
+    // the same step as far as this is concerned. Without it a target sitting on
+    // a boundary would oscillate and the coarse grid would only look like it
+    // was working.
+    if (std::abs(candidate - state.step) * kBrightnessHysteresisDenominator
+        < kBrightnessStepPct * kBrightnessHysteresisNumerator) {
         state.pending = BrightnessState::kUnset;
         state.pendingTicks = 0;
         return decision;
@@ -147,6 +296,8 @@ BrightnessDecision decideBrightness(const BrightnessProfile &profile, std::optio
         state.pending = candidate;
         state.pendingTicks = 0;
     }
+    // The dwell: a new step has to hold, which is what ignores a hand passing
+    // over the sensor.
     if (++state.pendingTicks < kBrightnessDwellTicks)
         return decision;
 
@@ -156,148 +307,4 @@ BrightnessDecision decideBrightness(const BrightnessProfile &profile, std::optio
     decision.move = true;
     decision.target = candidate;
     return decision;
-}
-
-BrightnessProfileTable BrightnessProfileTable::builtinDefaults()
-{
-    BrightnessProfileTable table;
-
-    // One profile, because one is what this machine needs. The curve is a
-    // starting point calibrated by eye and meant to be replaced from recorded
-    // telemetry; the readings are the sensor's own units, not lux.
-    BrightnessProfile indoors;
-    indoors.id = QStringLiteral("indoors");
-    indoors.label = QStringLiteral("Indoors");
-    indoors.spanPct = kBrightnessDefaultSpanPct;
-    indoors.floorPct = kBrightnessDefaultFloorPct;
-    indoors.ceilingPct = kBrightnessDefaultCeilingPct;
-    indoors.curve = {
-        { 0, 0 }, { 500, 20 }, { 1500, 45 }, { 3000, 75 }, { 6000, 100 },
-    };
-
-    table.m_profiles = { indoors };
-    table.m_defaultProfileId = indoors.id;
-    return table;
-}
-
-bool BrightnessProfileTable::load(const QString &path, QStringList *problems)
-{
-    if (!QFileInfo::exists(path))
-        return false;
-
-    QSettings settings(path, QSettings::IniFormat);
-    if (settings.status() != QSettings::NoError)
-        return false;
-
-    const BrightnessProfile fallback = builtinDefaults().profiles().first();
-    QList<BrightnessProfile> parsed;
-
-    const QStringList groups = settings.childGroups();
-    for (const QString &group : groups) {
-        // "[brightness <id>]". A slash would be read by QSettings as a group
-        // separator, so the separator here is a space, as it is for modes.
-        if (!group.startsWith(QLatin1String("brightness ")))
-            continue;
-        const QString id = group.mid(11).trimmed();
-        if (id.isEmpty()) {
-            if (problems)
-                problems->append(QStringLiteral("a brightness section has an empty name, skipped"));
-            continue;
-        }
-
-        settings.beginGroup(group);
-
-        BrightnessProfile profile;
-        profile.id = id;
-        profile.label = settings.value(QStringLiteral("label"), id).toString();
-        profile.spanPct =
-                clampReported(settings.value(QStringLiteral("span_pct"), kBrightnessDefaultSpanPct)
-                                      .toInt(),
-                              0, 100, QStringLiteral("brightness %1: span_pct").arg(id), problems);
-        profile.floorPct = clampReported(
-                settings.value(QStringLiteral("floor_pct"), kBrightnessDefaultFloorPct).toInt(), 0,
-                100, QStringLiteral("brightness %1: floor_pct").arg(id), problems);
-        profile.ceilingPct = clampReported(
-                settings.value(QStringLiteral("ceiling_pct"), kBrightnessDefaultCeilingPct).toInt(),
-                profile.floorPct, 100, QStringLiteral("brightness %1: ceiling_pct").arg(id),
-                problems);
-        // QSettings reads an unquoted comma-separated value as a list, and
-        // toString() on a list is empty. Rejoining is what makes the curve
-        // readable whether or not the file happens to quote it.
-        profile.curve = parseCurve(
-                settings.value(QStringLiteral("curve")).toStringList().join(QLatin1Char(',')),
-                QStringLiteral("brightness %1: curve").arg(id), problems);
-        if (profile.curve.isEmpty()) {
-            if (problems) {
-                problems->append(QStringLiteral("brightness %1: no usable curve, using the "
-                                                "built-in one")
-                                         .arg(id));
-            }
-            profile.curve = fallback.curve;
-        }
-
-        parsed.append(profile);
-        settings.endGroup();
-    }
-
-    if (parsed.isEmpty())
-        return false;
-
-    std::sort(parsed.begin(), parsed.end(),
-              [](const BrightnessProfile &a, const BrightnessProfile &b) { return a.id < b.id; });
-    m_profiles = parsed;
-
-    // QSettings folds a "[general]" section into the root of the file, so the
-    // key is read without its section name.
-    const QString wanted =
-            settings.value(QStringLiteral("default_brightness_profile")).toString().trimmed();
-    if (!wanted.isEmpty() && find(wanted)) {
-        m_defaultProfileId = wanted;
-    } else {
-        if (!wanted.isEmpty() && problems) {
-            problems->append(QStringLiteral("default_brightness_profile '%1' is not a defined "
-                                            "profile, using %2")
-                                     .arg(wanted, m_profiles.first().id));
-        }
-        m_defaultProfileId = m_profiles.first().id;
-    }
-
-    return true;
-}
-
-const BrightnessProfile *BrightnessProfileTable::find(const QString &id) const
-{
-    for (const BrightnessProfile &profile : m_profiles) {
-        if (profile.id == id)
-            return &profile;
-    }
-    return nullptr;
-}
-
-int BrightnessProfileTable::indexOf(const QString &id) const
-{
-    for (int i = 0; i < m_profiles.size(); ++i) {
-        if (m_profiles.at(i).id == id)
-            return i;
-    }
-    return -1;
-}
-
-QString BrightnessProfileTable::toConfigSnippet(const BrightnessProfile &profile)
-{
-    QStringList points;
-    for (const BrightnessPoint &point : profile.curve)
-        points.append(QStringLiteral("%1:%2").arg(point.light).arg(point.position));
-
-    return QStringLiteral("[brightness %1]\n"
-                          "label=%2\n"
-                          "span_pct=%3\n"
-                          "floor_pct=%4\n"
-                          "ceiling_pct=%5\n"
-                          "curve=%6\n")
-            .arg(profile.id, profile.label)
-            .arg(profile.spanPct)
-            .arg(profile.floorPct)
-            .arg(profile.ceilingPct)
-            .arg(points.join(QStringLiteral(", ")));
 }

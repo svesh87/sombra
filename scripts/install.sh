@@ -27,15 +27,26 @@ self=$(cd "$(dirname "$0")" && pwd)/$(basename "$0")
 root=$(cd "$(dirname "$0")/.." && pwd)
 cd "$root"
 
+# Where the pre-install telemetry snapshot goes. Outside the repository on
+# purpose: the snapshot outlives both the package and this working copy, and
+# where it is filed for analysis is a decision for the person, not for a script.
+dump_dir=${XDG_STATE_HOME:-$HOME/.local/state}/ombra/telemetry
+
 force=no
-for argument in "$@"; do
-    case "$argument" in
+while [ $# -gt 0 ]; do
+    case "$1" in
     --force) force=yes ;;
+    --dump-dir)
+        shift
+        [ $# -gt 0 ] || { echo "--dump-dir needs a directory" >&2; exit 2; }
+        dump_dir=$1
+        ;;
     *)
-        echo "usage: $(basename "$0") [--force]" >&2
+        echo "usage: $(basename "$0") [--force] [--dump-dir <directory>]" >&2
         exit 2
         ;;
     esac
+    shift
 done
 
 if [ "$(id -u)" -ne 0 ]; then
@@ -54,13 +65,37 @@ if [ "$(id -u)" -ne 0 ]; then
         ;;
     esac
 
+    # Before anything is replaced, and as the invoking user: the ring is
+    # world-readable, so no privilege is needed, and the file should belong to
+    # the person rather than to root. It has to happen before dpkg, because the
+    # installed `ombra` is the only one that can read the record layout now on
+    # disk. The daemon converts an older ring rather than discarding it, but a
+    # CSV outlives every layout and costs one command.
+    if command -v ombra >/dev/null 2>&1 && [ -r /var/lib/ombra/metrics.ring ]; then
+        stamp=$(date +%Y-%m-%d_%H-%M-%S)
+        if mkdir -p "$dump_dir" 2>/dev/null \
+            && ombra export --format csv >"$dump_dir/ring_$stamp.csv" 2>/dev/null; then
+            echo "==> telemetry saved to $dump_dir/ring_$stamp.csv"
+        else
+            # Not a reason to stop: an install that refuses to run because a
+            # backup failed is worse than an install without a backup.
+            echo "==> telemetry could not be saved to $dump_dir, continuing" >&2
+            rm -f "$dump_dir/ring_$stamp.csv"
+        fi
+    fi
+
     # Built as the invoking user on purpose: a build under sudo leaves
     # root-owned objects behind in the source tree.
     echo "==> building and checking the package"
     "$root/scripts/check_package.sh"
 
     echo "==> elevating for the install"
-    exec sudo "$self" "$@"
+    # Only --force means anything on the far side; the snapshot is already
+    # taken, and it was taken deliberately as the person rather than as root.
+    if [ "$force" = yes ]; then
+        exec sudo "$self" --force
+    fi
+    exec sudo "$self"
 fi
 
 deb=$(ls "$root"/build-package/ombra_*.deb 2>/dev/null | head -n 1)

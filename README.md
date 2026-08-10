@@ -42,9 +42,10 @@ way to ask for the point in between. This project provides that point.
   `org.freedesktop.UPower.PowerProfiles` D-Bus names, and on
   `com.system76.PowerDaemon` for compatibility with the COSMIC panel applet.
   Both the desktop panel and the tray therefore keep working.
-- Envelopes are defined in a text configuration file, not in a settings dialog:
-  they are tuned from recorded telemetry, and a text file is what tooling can
-  edit. The daemon only ever reads that file.
+- Envelopes are edited through the daemon, from the command line or the tray,
+  and the daemon keeps them in a text file of its own. They are tuned by
+  analysing recorded telemetry, so the tooling that does the analysing has to be
+  able to apply what it found — without root, and without operating a dialog.
 - The daemon records sensor telemetry once per second into a fixed-size ring
   held in memory and flushed to disk infrequently, so that tuning decisions can
   be made from data rather than from guesswork. Every sample carries the
@@ -57,20 +58,20 @@ way to ask for the point in between. This project provides that point.
 - An emergency thermal guard is always active regardless of mode. It only ever
   lowers, and it is the one thing that will drive the fan by itself. This is a
   safety interlock, not regulation.
-- The tray is an experimentation console, not a settings editor. Durable mode
-  definitions live in the configuration file; what the tray adds is sliders
-  that apply immediately and are never written back, because choosing a
-  setpoint is a judgement made by ear — the useful question is "does this
-  sound acceptable right now", which cannot be answered by editing a file and
-  restarting a daemon. It can also stamp that judgement onto the current
-  sample, so an opinion stays traceable to the numbers that produced it.
+- The tray is a console, not a settings dialog. Pick a mode and its controls
+  take the mode's numbers; move one and it applies at once, and the mode
+  selector empties, because what is running is then not one of the three. One
+  button writes the controls into a mode you name, through the daemon and on the
+  same commands the command line sends. Three more stamp a judgement — good, too
+  loud, too slow — onto the current sample, so an opinion made by ear stays
+  traceable to the numbers that produced it.
 - Selecting a mode never moves the display backlight. Bundling the backlight
   with the power profile is vendor behaviour this project treats as a defect.
 - Following the ambient light sensor is a separate function with its own
-  profile and its own switch. It works in a window around the level the person
-  set rather than imposing one of its own, and a hand correction moves that
-  window instead of being overridden. It is off until switched on, and that
-  choice survives a reboot.
+  switch. It works around the level the person set rather than imposing one of
+  its own: the room adds or subtracts from that level, and a hand correction is
+  a new statement of what is wanted rather than something to override. It is off
+  until switched on, and that choice survives a reboot.
 
 ## Scope
 
@@ -94,14 +95,16 @@ Three, from the coolest envelope to the widest. The middle one is the working
 mode: the machine spends the overwhelming majority of its time there, it is
 applied at boot, and it is the one telemetry tuning targets.
 
-| Mode | PL1/PL2 | Frequency ceiling | Turbo | EPP | Fan curve |
-|---|---|---|---|---|---|
-| `quiet` | 12/20 W | 40 % | off | `power` | `quiet` |
-| `work` | 20/30 W | 50 % | off | `power` | `balanced` |
-| `full` | 45/65 W | 100 % | on | `balance_performance` | `balanced` |
+| Mode | PL1/PL2 | Frequency ceiling | iGPU ceiling | Turbo | EPP | Fan |
+|---|---|---|---|---|---|---|
+| `quiet` | 12/20 W | 40 % | 1000 MHz | off | `power` | `quiet` curve |
+| `work` | 20/30 W | 50 % | 2350 MHz | off | `power` | `balanced` curve |
+| `full` | 45/65 W | 100 % | 2350 MHz | on | `balance_performance` | `balanced` curve |
 
-No mode touches the fan. Maximum fan speed is reachable only by explicit
-command and through the emergency guard.
+The fan is a setpoint like the others: a mode names one of the firmware's three
+curves, and it may ask for full speed. What it must not do is arrive there by
+itself — nothing runs the fan up without having been told to, and the emergency
+guard is the one exception.
 
 ## What is in here
 
@@ -122,11 +125,34 @@ line protocol.
 |---|---|
 | `scripts/install.sh` | builds, installs and hands the thermal controls over |
 | `scripts/rollback.sh` | gives them back to the vendor daemon |
+| `scripts/screenshots.sh` | takes the documentation pictures |
 
-The mode numbers that ship in `config/modes.conf` come from measurement on one
-machine and are a starting point, not a result. They are meant to be tuned from
+The package installs manual pages — `ombra(1)`, `ombrad(8)`, `ombra-tray(1)` —
+and shell completion for bash, zsh and fish. Completion lists the verbs from a
+static file and asks the daemon only for mode names, because a Tab that opens a
+socket is a Tab that hangs when the daemon is not there.
+
+The mode numbers compiled into the daemon come from measurement on one machine
+and are a starting point, not a result. They are meant to be tuned from
 recorded telemetry, which is what `ombra export` and the subjective marks are
 for.
+
+A release that changes the record layout converts the ring at the next start,
+field by field, and records what the old format did not have as absent rather
+than as zero. A file this build cannot read is kept as `metrics.ring.bak` and a fresh ring
+takes its place: a layout from a newer build after a rollback, one that was
+never released, or a header damaged by a power cut. Nothing is deleted for being
+unreadable, and an unreadable ring costs the samples in it and nothing else —
+the daemon carries on managing the machine.
+
+There is one backup slot and each rollback replaces it. Rolling back twice
+would otherwise leave a ring behind at every step, and the middle one is of no
+use to anybody.
+
+`scripts/install.sh` also exports the ring to CSV before it replaces anything,
+into `$XDG_STATE_HOME/ombra/telemetry` (`--dump-dir` overrides). CSV outlives
+any layout, which the conversion above cannot promise for a format nobody has
+written yet.
 
 ## Building and installing
 
@@ -188,48 +214,108 @@ goes through the socket:
 ```bash
 ombra status                   # readings and setpoints as JSON
 ombra mode quiet
-ombra set pl1=15 max_perf_pct=40   # live, immediate, never persisted
+ombra set pl1=15 max_perf_pct=40   # live, immediate, not yet saved
 ombra mark too-loud            # a verdict, stamped onto the sample
 ombra fan max                  # explicit demand only
 ombra export --format csv > session.csv
 ```
 
-Durable mode definitions live in `/etc/ombra/modes.conf`, which the
-daemon reads and never writes. Changes take effect without a restart.
+Live tuning is not durable, and that is the point of it. When a value turns out
+to be worth keeping, one command writes it into a mode:
 
-The tray's *Tray* tab has one switch: whether the console starts with the
-session. It writes an XDG autostart entry and nothing else — installing the
-package adds no process to your session, and the entry is the whole state, so
-something switched off stays off. It takes effect at the next login.
+```bash
+ombra config show                              # what is saved, as JSON
+ombra config set mode quiet pl1_w=10 pl2_w=16  # a durable definition
+ombra config save live to quiet                # keep what the sliders found
+ombra config default_mode work                 # the mode applied at boot
+ombra config reset modes                       # back to the built-in values
+```
+
+### Where settings live
+
+The daemon carries its defaults compiled in and writes what it is told into
+`/var/lib/ombra/settings.conf`. There is no file in `/etc`: editing goes
+through the daemon, so that a script analysing telemetry can apply what it
+found without root and without a text editor, and so that the tray and the
+command line cannot drift apart. The file appears the first time something is
+changed; delete it and the built-in values are back.
+
+It is written by the daemon and comments in it do not survive a change. What
+each key means is below rather than in the file for that reason.
+
+| Key | Unit and range | Meaning |
+|---|---|---|
+| `label` | text | what the panel and the tray show |
+| `platform_profile` | `quiet`, `balanced`, `performance` | selects the EC fan curve, which is the noise-versus-temperature dial |
+| `pl1_w` | watts, 1–45 | RAPL long-term limit; the most effective control under sustained load |
+| `pl2_w` | watts, `pl1_w`–65 | RAPL short-term limit |
+| `max_perf_pct` | percent, 8–100 | `intel_pstate` frequency ceiling |
+| `turbo` | `on`, `off` | |
+| `epp` | `performance`, `balance_performance`, `balance_power`, `power` | energy preference; with `hwp_dynamic_boost` this is what suppresses the short bursts that heat the package while the machine is nominally idle |
+| `hwp_dynamic_boost` | `0`, `1` | |
+| `gt_max_mhz` | MHz, 800–2350 | iGPU ceiling. 800 is `gt_RPn_freq_mhz`, below which the driver refuses the write outright |
+| `fan` | `auto`, `max` | `auto` leaves the curve named by `platform_profile` in charge; `max` is roughly 6100 RPM |
+
+The ceilings on `pl1_w` and `pl2_w` are the highest values confirmed on this
+machine. Nothing raises a limit past them, and a larger number is clamped and
+reported rather than accepted. The kernel also lists `default` for `epp`, which
+this daemon refuses: the node takes it and then reports the preference it
+actually chose, so it reads back as something else and looks like another
+process writing the control.
+
+Full speed is loud enough that nothing chooses it quietly: a mode has to say
+`fan=max`, or somebody has to type `ombra fan max` or pick it in the console.
+The emergency thermal guard is the exception, and it is a safety interlock
+rather than automatic control.
+
+There are exactly three modes and they are edited in place, because the desktop
+panel has three slots and a fourth definition would live where the panel cannot
+reach it.
+
+The console's *Settings* tab holds what is about the program rather than the
+machine: whether it starts with the session, what it looks like, and one button
+that puts every mode definition and every backlight setting back to the values
+compiled into the daemon.
+
+Starting with the session is an XDG autostart entry and nothing else —
+installing the package adds no process to your session, and the entry is the
+whole state, so something switched off stays off. It takes effect at the next
+login. The appearance is light, dark, or whatever the desktop says; it is the
+console's own setting and does not reach the panel icon, which the desktop draws
+from its own icon theme.
+
+Started with the session, the tray waits up to a minute for a panel to appear
+before deciding there is none: the tray host registers over the session bus and
+is routinely a second or two behind an autostarted process. Until an icon
+exists, closing the console ends the process — otherwise it would live on with
+no window and no icon, killable only by name.
 
 ## Brightness that follows the room
 
-A separate function from the thermal mode, with its own profile and its own
-switch. Selecting a mode never moves the backlight, and nothing about the
-backlight reaches the thermal side.
+A separate function from the thermal mode, with its own switch. Selecting a mode
+never moves the backlight, and nothing about the backlight reaches the thermal
+side.
 
 ```bash
 ombra brightness on
-ombra brightness off           # remembered across a reboot
-ombra brightness profile indoors
-ombra brightness set span_pct=30 floor_pct=20   # live, immediate, never persisted
-ombra brightness reset                          # back to the profile's own numbers
+ombra brightness off             # remembered across a reboot
+ombra brightness level 80        # the same as moving the control yourself
+ombra brightness set response_pct=35 floor_pct=20
+ombra config set brightness response_pct=35 floor_pct=20   # written down
 ```
 
-The model is short:
+The model in one line: **the light adds to or subtracts from the level you
+set.**
 
-- **The level you set is the baseline.** Moving the brightness is a statement
-  about what you want in this light, so it becomes the new baseline and the
-  automation's window moves with it. It is never overridden.
-- **The profile says how far the automation may wander from that baseline**, as
-  a span measured in both directions: a span of 10 around a baseline of 80 %
-  means 70–90 %. A floor and a ceiling then bound it absolutely, cutting the
-  window rather than moving it — a baseline of 90 % with a span of 10 and a
-  ceiling of 95 gives 80–95 %. They constrain the automation, never you: a level
-  you set outside them is accepted.
-- **The light curve chooses a point inside that window**, not an absolute level,
-  so narrowing the span makes the automation move less rather than pinning the
-  backlight to an edge.
+- **The level you set is the baseline.** Moving the brightness says what you
+  want in this light. The daemon takes the room's contribution of that moment
+  back out of it, and what is left is the baseline — which is what makes
+  returning to the same light return to the same brightness, exactly.
+- **The reaction says how far the room may move it**, in percentage points and
+  the same amount either way. A reaction of 30 around a baseline of 80 % means
+  a dark room can pull it to 50 % and a bright one push it to 100 %.
+- **The floor is the level nothing goes below** — not the automation, and not a
+  slip of the hand either. There is no ceiling, because that is 100 %.
 - **It does not hunt.** The target is snapped to coarse steps, each boundary
   carries a hysteresis margin, a new step has to hold for several seconds before
   anything happens, and the move itself is a fade rather than a jump. Steady
@@ -237,18 +323,18 @@ The model is short:
 - **Off is off.** Switched off, the daemon does not write the backlight at all,
   and neither switching it on nor off moves the backlight by itself.
 
-The span, the floor and the ceiling are also three sliders in the tray, because
-"is this range right" is a judgement made by eye in the room it is meant for,
-and a file plus a reload cannot answer it while the light is still the same.
-Like the thermal sliders they apply at once and are never written back; the tray
-offers the result as a configuration snippet to paste.
+The level, the reaction and the floor are three sliders in the console, all in
+per cent, because "is this right" is a judgement made by eye in the room it is
+meant for. The sensor reading is not on screen: what the room measures is the
+daemon's business.
 
-The curve is defined in `/etc/ombra/modes.conf` in the sensor's own
-units, which are not lux — see `HARDWARE.md`. It is not on a slider: its shape
-is calibrated from recorded telemetry rather than judged on the spot. The
-`light` column of an exported session is what to calibrate it against, and
-`brightness_span`, `brightness_floor` and `brightness_ceiling` say what the
-automation was allowed to do at the time of each sample.
+The fourth number is the curve, which maps a light reading in lux to a position
+from 0 to 100 — 0 subtracts the whole reaction, 50 contributes nothing, 100 adds
+the whole reaction. It is not on a slider, because its shape is calibrated from
+recorded telemetry rather than judged on the spot, and 50 is not a free choice:
+it belongs at the light the room usually has. The `light_lux`, `brightness` and
+`brightness_base` columns of an exported session are what to calibrate it
+against.
 
 ## What survives a reboot
 
@@ -256,18 +342,20 @@ automation was allowed to do at the time of each sample.
 |---|---|
 | the selected mode | choosing one is a deliberate act |
 | the brightness automation on/off | something you switched off must not come back on its own |
-| the brightness profile and your baseline level | otherwise it would have to be set again after every boot |
+| your baseline brightness | otherwise it would have to be set again after every boot |
 | the charge threshold | it lives in sysfs, is lost on reboot, and nothing else re-applies it |
 | whether the tray starts with the session | the autostart entry is the state, so switched off stays off |
+| the mode and backlight settings | they are what tuning produces, and losing them would mean tuning again |
 
-Deliberately not kept: live tuning of the setpoints and of the backlight window,
-which applies immediately and is never written back anywhere, and the forced
-maximum fan speed — 6100 RPM surviving a reboot is a surprise, not restored
-state.
+Deliberately not kept: live tuning, which applies immediately and is saved only
+when told to. Full fan speed is part of that — 6100 RPM surviving a reboot is a
+surprise, not restored state.
 
-All but the last live in a state file separate from the configuration, so the
-maintainer's comments in the configuration survive and the daemon never rewrites
-it. The autostart entry is the tray's own and the daemon knows nothing about it.
+The definitions and the runtime choices are two files, `settings.conf` and
+`state`, and they are separate because they have different lifetimes: one is
+edited when numbers are tuned, the other is rewritten whenever somebody picks
+something. The autostart entry is the tray's own and the daemon knows nothing
+about it.
 
 ## Rolling back
 
@@ -300,10 +388,10 @@ to automatic rather than assuming it.
   measured values, and which controls are absent on this platform.
 - `SCREENSHOTS.md` — what the tray menu and the console look like, and the one
   command that makes the pictures again.
-- `AGENTS.md` (= `CLAUDE.md`) — repository conventions, frozen design
-  decisions and quality gates.
-- `config/modes.conf` — the mode definitions, commented in place. This is the
-  reference for what each setting means.
+- `DESIGN.md` — how the project is built and why: the decisions about its
+  shape, with the reasoning that produced them.
+- `AGENTS.md` (= `CLAUDE.md`) — repository conventions, the goal the project is
+  answerable to, and the quality gates.
 
 Each document has a Russian copy beside it (`<NAME>.ru.md`). English is
 canonical; where the two disagree, the English file is correct.

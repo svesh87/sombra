@@ -73,17 +73,25 @@ int runControl(const QStringList &arguments)
             "  status                     current readings and setpoints as JSON\n"
             "  mode <id>                  select a mode; cancels live tuning\n"
             "  set <key>=<value> ...      live tuning: pl1, pl2, max_perf_pct, turbo,\n"
-            "                             epp, hwp_boost, gt_max_mhz, profile\n"
+            "                             epp, hwp_boost, gt_max_mhz, profile, fan\n"
             "  reset                      drop live tuning, return to the mode\n"
             "  mark good|too-loud|too-slow  stamp a verdict onto the current sample\n"
-            "  fan max|auto               full speed is explicit only\n"
-            "  brightness on|off|profile <id>  follow the ambient light sensor\n"
-            "  brightness set <key>=<value> ...  live window: span_pct, floor_pct,\n"
-            "                             ceiling_pct\n"
-            "  brightness reset           drop the live window, return to the profile\n"
+            "  fan max|auto               shorthand for set fan=<value>\n"
+            "  brightness on|off          follow the ambient light sensor, or do not\n"
+            "  brightness level <percent>  set the backlight, as the person would\n"
+            "  brightness set <key>=<value> ...  response_pct, floor_pct, curve\n"
             "  charge <percent>           battery charge threshold\n"
-            "  snippet [id]               live setpoints as a base64 config snippet\n"
-            "  reload                     re-read the configuration file\n"
+            "  config show                what the daemon has saved, as JSON\n"
+            "  config set mode <id> <key>=<value> ...   durable mode definition:\n"
+            "                             label, platform_profile, pl1_w, pl2_w,\n"
+            "                             max_perf_pct, turbo, epp, hwp_dynamic_boost,\n"
+            "                             gt_max_mhz, fan\n"
+            "  config set brightness <key>=<value> ...  write the backlight settings:\n"
+            "                             response_pct, floor_pct, curve\n"
+            "  config save live to <id>   keep the current live tuning as a mode\n"
+            "  config default_mode <id>   the mode applied at boot\n"
+            "  config reset modes|brightness|all        back to the built-in values\n"
+            "  reload                     re-read the settings file\n"
             "  export [--format csv|json] [--from ts] [--to ts] [--ring file]\n"
             "                             read the telemetry ring; see `export --help`"));
     parser.addHelpOption();
@@ -124,18 +132,14 @@ int runControl(const QStringList &arguments)
     const QString reply = QString::fromUtf8(socket.readLine()).trimmed();
     const bool accepted = reply.startsWith(QLatin1String("ok"));
 
-    // The "ok" is protocol framing, and two commands answer with a payload
-    // behind it. Printing the payload alone is what makes `ombra status | jq`
-    // and `ombra snippet >> modes.conf` work without a caller stripping a word
-    // off the front of the answer.
+    // The "ok" is protocol framing, and the two reading commands answer with a
+    // payload behind it. Printing the payload alone is what makes
+    // `ombra status | jq` and `ombra config show | jq` work without a caller
+    // stripping a word off the front of the answer.
     if (accepted && reply.size() > 3) {
-        // The protocol is one line per exchange, so a multi-line configuration
-        // snippet travels base64-encoded.
-        if (words.first() == QLatin1String("snippet")) {
-            out << QString::fromUtf8(QByteArray::fromBase64(reply.mid(3).toUtf8()));
-            return 0;
-        }
-        if (words.first() == QLatin1String("status")) {
+        if (words.first() == QLatin1String("status")
+            || (words.first() == QLatin1String("config") && words.size() > 1
+                && words.at(1) == QLatin1String("show"))) {
             out << reply.mid(3) << '\n';
             return 0;
         }

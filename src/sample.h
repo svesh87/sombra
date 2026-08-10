@@ -16,7 +16,7 @@
 //   frequency     megahertz
 //   load          hundredths           (61 = 0.61)
 //   brightness    percent of the panel's own scale
-//   light         the ambient sensor's own units, see light_sensor.h
+//   light         millilux
 //
 // A missing reading is stored as kAbsentTemp, kAbsentValue or kAbsentPercent,
 // never as zero: zero is a legal fan speed, a legal power draw and a legal
@@ -25,6 +25,7 @@
 inline constexpr int16_t kAbsentTemp = INT16_MIN;
 inline constexpr uint16_t kAbsentValue = UINT16_MAX;
 inline constexpr uint8_t kAbsentPercent = UINT8_MAX;
+inline constexpr uint32_t kAbsentLight = UINT32_MAX;
 
 // Values of energy_performance_preference. Stored as a small enum rather than
 // a string so that the record stays fixed-size.
@@ -103,6 +104,22 @@ struct Sample {
     uint16_t pkgThrottle;
     uint16_t coreThrottle; // same, summed over the cores
 
+    // Connected display connectors, counted from /sys/class/drm/*/status. The
+    // internal panel is normally one of them, so this is not "external
+    // monitors"; the difference is taken when the data is read, because with a
+    // closed lid the panel may be absent from the count as well.
+    //
+    // Recorded because driving an external monitor is work that cannot be
+    // deferred, and its cost is invisible in a log that does not say whether
+    // one was attached. Nothing controls anything by this number.
+    //
+    // What it does not know: a connector reads "connected" while a cable is in
+    // it, whether or not the output is lit, and a DP-MST hub appears
+    // differently than expected. Resolution and scaling are deliberately not
+    // recorded: sysfs does not have them, and the graphics work they would
+    // stand for is already measured directly by uncorePower and gpuMhz.
+    uint8_t displays; // kAbsentPercent when the DRM tree could not be read
+
     // The setpoints in force at the moment of the sample. A log that does not
     // say what was applied cannot be analysed, and mode and setpoint
     // transitions are derived by diffing consecutive samples rather than from
@@ -125,19 +142,20 @@ struct Sample {
     // setpoints are: the four anti-hunting constants are only observable in
     // the data, so a trace that does not carry the light reading, the level
     // and the baseline it was measured against cannot be used to judge them.
-    uint16_t light;             // ambient sensor, its own units
-    uint8_t brightness;         // panel level, percent
-    uint8_t brightnessBase;     // the level the person asked for, percent
-    uint8_t brightnessProfile;  // index into the configured profile table
-    // The window the automation was allowed to work in, in percentage points
-    // of the panel scale. Recorded rather than looked up from the profile
-    // index, because live tuning can override these three and a record that
-    // needs the configuration file to be read is not self-contained.
-    uint8_t brightnessSpan;
+    //
+    // Millilux, in four bytes because the sensor reaches roughly 20 855 lux and
+    // a room with the ceiling light on already reads 103. Sixteen bits would
+    // stop at 65 lux and report every brighter room as the same number.
+    uint32_t light;
+    uint8_t brightness;     // panel level, percent
+    uint8_t brightnessBase; // the level with the light's contribution removed
+    // What the automation was allowed to do at the moment of the sample.
+    // Recorded rather than looked up from the settings file, because a record
+    // that needs another file to be read is not self-contained.
+    uint8_t brightnessResponse;
     uint8_t brightnessFloor;
-    uint8_t brightnessCeiling;
 
-    uint8_t reserved[14];
+    uint8_t reserved[13];
 };
 #pragma pack(pop)
 

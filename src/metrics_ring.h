@@ -3,6 +3,7 @@
 
 #include "sample.h"
 
+#include <QList>
 #include <QString>
 
 #include <cstdint>
@@ -13,10 +14,14 @@
 inline constexpr uint64_t kRingCapacity = 604800;
 
 inline constexpr uint32_t kRingMagic = 0x52424d4f;  // "OMBR" little-endian
-// Raised whenever the meaning of the record changes. There is no migration
-// path: an existing ring with a different version is reinitialised, because a
-// telemetry ring has no history worth converting.
-inline constexpr uint16_t kRingVersion = 2;
+// Raised whenever the meaning of the record changes. An existing ring in an
+// older released layout is converted rather than discarded — see
+// ring_migrate.h — and one this build cannot read is moved aside with its
+// bytes intact.
+//
+// Version 3 is not in the chain and never will be: it existed in a working
+// tree and was never released, so a file claiming it is not a known layout.
+inline constexpr uint16_t kRingVersion = 4;
 
 #pragma pack(push, 1)
 struct RingHeader {
@@ -55,11 +60,14 @@ public:
     MetricsRing(const MetricsRing &) = delete;
     MetricsRing &operator=(const MetricsRing &) = delete;
 
-    // Creates the file if absent. An existing file whose header does not match
-    // this build's geometry is reinitialised: the format carries no migration
-    // path, because a telemetry ring has no history worth migrating.
+    // Creates the file if absent. An existing file in an older released layout
+    // has its samples converted into this one; a file this build cannot read is
+    // moved aside with its bytes intact, and a fresh ring takes its place.
+    // Either way note() then says what happened.
+    //
     // A file shorter than its header claims is extended, and the records that
-    // were lost read back as never-written.
+    // were lost read back as never-written. A change of capacity keeps the
+    // newest records that still fit.
     bool open(const QString &path, uint64_t capacity, QString *error = nullptr);
 
     // Maps an existing ring read-only, adopting whatever geometry its header
@@ -91,11 +99,21 @@ public:
 
     const QString &path() const { return m_path; }
 
+    // What open() did with an existing file, when that is worth saying out
+    // loud: samples carried over, or a file set aside. Empty otherwise.
+    const QString &note() const { return m_note; }
+
 private:
     RingHeader *header() const;
     Sample *records() const;
+    // Converts or sets aside whatever is already at the path, and returns the
+    // samples to carry into the new ring. False means the file is in the way
+    // and could not be moved, which is the one case where opening fails rather
+    // than starting fresh.
+    bool prepareExisting(const QString &path, uint64_t capacity, QList<Sample> *carried);
 
     QString m_path;
+    QString m_note;
     void *m_map = nullptr;
     size_t m_mapSize = 0;
     // Record slots physically present in the mapping. Equal to the capacity

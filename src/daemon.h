@@ -11,6 +11,7 @@
 #include "modes.h"
 #include "power_source.h"
 #include "sensors.h"
+#include "settings_file.h"
 #include "sysfs.h"
 
 #include <QElapsedTimer>
@@ -22,11 +23,13 @@
 #include <optional>
 
 struct DaemonOptions {
-    // Only the kernel control surface is rooted. Configuration, state, the
-    // ring and the socket are ordinary paths, given in full so that a test run
-    // and a service run differ only in their arguments.
+    // Only the kernel control surface is rooted. Settings, state, the ring and
+    // the socket are ordinary paths, given in full so that a test run and a
+    // service run differ only in their arguments.
     QString sysfsRoot = QStringLiteral("/");
-    QString configPath = QStringLiteral("/etc/ombra/modes.conf");
+    // Written by the daemon, not shipped by the package: the defaults are
+    // compiled in, and this file appears the first time something is changed.
+    QString configPath = QStringLiteral("/var/lib/ombra/settings.conf");
     QString statePath = QStringLiteral("/var/lib/ombra/state");
     QString ringPath = QStringLiteral("/var/lib/ombra/metrics.ring");
     QString socketPath = QStringLiteral("/run/ombra/control.sock");
@@ -97,16 +100,34 @@ private:
     QString applyMode(const QString &id);
     QString applyLiveSetting(const QStringList &assignments);
     QString applyBrightnessCommand(const QStringList &parts);
+
+    // The settings side of the protocol. Everything here writes the file, and
+    // everything here validates exactly as the file's own parser does: a value
+    // that could not be read back from the file must not be reachable through
+    // the socket either.
+    QString applyConfigCommand(const QStringList &parts);
+    QString configModeCommand(const QStringList &parts);
+    QString configBrightnessCommand(const QStringList &parts);
+    QString configSaveCommand(const QStringList &parts);
+    QString configResetCommand(const QStringList &parts);
+    // Writes the edited tables out and, only if that worked, installs them.
+    // The order matters: a failed write must leave what the daemon is running
+    // and what is on disk agreeing with each other, and a caller must never be
+    // told a change is durable when it is not.
+    QString commitTables(const ModeTable &modes, const BrightnessSettings &brightness,
+                         const QStringList &clamped);
+    QString configJson() const;
+
     QString statusJson() const;
 
     // The backlight path. Kept apart from the setpoint path on purpose: the
     // thermal mode must not be able to reach the backlight, and the backlight
     // must not be able to reach the thermal controls, not even by accident.
     void updateBrightness(Sample &sample);
-    // The profile the backlight is actually working to: the selected one, or
-    // the live overlay on top of it. Absent when the configuration defines no
-    // usable profile at all.
-    std::optional<BrightnessProfile> effectiveBrightnessProfile() const;
+    // Writes a level, clamps it by the floor, and re-derives the base from it.
+    // One path for the slider, for the brightness keys and for anything else
+    // that moves the backlight: a level is a level whoever set it.
+    QString applyBrightnessLevel(int percent);
     // A hand correction is an instruction, and it is read before anything is
     // computed: our own write would otherwise overwrite it before it was seen.
     void noticeManualBrightness();
@@ -122,7 +143,7 @@ private:
     Backlight m_backlight;
     MetricsRing m_ring;
     ModeTable m_modes;
-    BrightnessProfileTable m_brightnessProfiles;
+    BrightnessSettings m_brightnessSettings;
     std::unique_ptr<ControlSocket> m_socket;
     QFileSystemWatcher m_watcher;
     QTimer m_timer;
@@ -136,15 +157,6 @@ private:
     int m_fadeStepRaw = 1;
 
     std::optional<Setpoints> m_live;
-    // The live brightness overlay: span, floor and ceiling judged by eye while
-    // the room is what it is. Like the thermal overlay it applies immediately
-    // and is never written back. It is dropped when the profile changes or the
-    // configuration is reread, because it was an overlay on that profile.
-    std::optional<BrightnessProfile> m_liveBrightness;
-    // Held apart from live tuning because it is a different kind of thing: no
-    // mode may ask for the fan, so an explicit fan command is not a setpoint
-    // the mode could have carried.
-    std::optional<int> m_fanOverride;
     GuardState m_guard;
     Mark m_pendingMark = Mark::None;
     Sample m_lastSample {};

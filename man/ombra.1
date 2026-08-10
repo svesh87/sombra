@@ -1,0 +1,200 @@
+.TH OMBRA 1 "2026-08-09" "ombra" "User Commands"
+.SH NAME
+ombra \- control and read the ombra thermal daemon
+.SH SYNOPSIS
+.B ombra
+.RI [ --socket " " path ]
+.I command
+.RI [ arguments ]
+.br
+.B ombra export
+.RI [ --format " " csv|json ]
+.RI [ --from " " ts ]
+.RI [ --to " " ts ]
+.RI [ --ring " " file ]
+.SH DESCRIPTION
+The scriptable face of
+.BR ombrad (8).
+Every command travels over the daemon's control socket except
+.BR export ,
+which reads the telemetry ring straight off disk: the daemon keeps no history,
+the ring is a file, and a week of samples has no business going through a line
+protocol.
+.PP
+The socket is owned by the group
+.BR ombra ,
+so a member of that group drives the daemon without
+.BR sudo .
+.SH COMMANDS
+.SS Reading
+.TP
+.B status
+Current readings and setpoints as JSON. The payload alone is printed, without
+the protocol's framing, so it goes straight into a parser.
+.TP
+.B config show
+What the daemon has saved, as JSON: where the settings file is, whether it
+exists yet, the mode applied at boot, and every definition.
+.TP
+.BI "export [--format csv|json] [--from " ts "] [--to " ts "] [--ring " file ]
+The recorded samples. Nothing is averaged: the peaks are what the mode
+parameters are tuned against. See
+.B ombra export --help
+for the defaults.
+.SS Acting now
+.TP
+.BI "mode " id
+Select a mode. Cancels live tuning and any fan command.
+.TP
+.BI "set " key = value " ..."
+Live tuning, applied at once and saved only when told to. Keys:
+.BR pl1 ,
+.BR pl2 ,
+.BR max_perf_pct ,
+.BR turbo ,
+.BR epp ,
+.BR hwp_boost ,
+.BR gt_max_mhz ,
+.BR profile ,
+.BR fan .
+.B profile
+picks one of the three fan curves the firmware carries
+.RB ( quiet ,
+.BR balanced ,
+.BR performance );
+.B fan
+is
+.B auto
+for that curve or
+.B max
+for full speed.
+.TP
+.B reset
+Drop live tuning and return to the selected mode.
+.TP
+.B mark good|too-loud|too-slow
+Stamp a judgement onto the current sample, so an opinion made by ear stays
+traceable to the numbers that produced it.
+.TP
+.B fan max|auto
+Shorthand for
+.BI "set fan=" value .
+Full speed is roughly 6100 RPM; nothing reaches it without being told to.
+.TP
+.BI "charge " percent
+The battery charge threshold. Remembered across a reboot, because the node
+itself is not.
+.SS The backlight
+.TP
+.B brightness on|off
+Whether the backlight follows the ambient light sensor. Remembered across a
+reboot; neither switching it on nor off moves the backlight by itself.
+.TP
+.BI "brightness level " percent
+Set the backlight, 0 to 100, exactly as moving the control would: the level
+becomes the baseline the automation works around, and the floor binds it.
+.TP
+.BI "brightness set " key = value " ..."
+The backlight settings, applied at once and written only by
+.BR "config set brightness" :
+.B response_pct
+is how far the room may move the backlight either way from that baseline,
+.B floor_pct
+is the level nothing goes below, and
+.B curve
+is the
+.IR lux : percent
+table the room is read through.
+.SS The saved definitions
+.TP
+.BI "config set mode " id " " key = value " ..."
+A durable mode definition. Keys:
+.BR label ,
+.BR platform_profile ,
+.BR pl1_w ,
+.BR pl2_w ,
+.BR max_perf_pct ,
+.BR turbo ,
+.BR epp ,
+.BR hwp_dynamic_boost ,
+.BR gt_max_mhz ,
+.BR fan .
+There are exactly three modes and they are edited in place: the desktop panel
+has three slots, and a fourth definition would live where the panel cannot
+reach it.
+.TP
+.BI "config set brightness " key = value " ..."
+The backlight settings, written down:
+.BR response_pct ,
+.BR floor_pct ,
+.BR curve .
+There are no brightness profiles: the room is one room, and what varies in it
+is the light rather than the preference.
+.TP
+.BI "config save live to " id
+Keep the current live tuning as that mode's definition.
+.TP
+.BI "config default_mode " id
+The mode applied at boot.
+.TP
+.B config reset modes|brightness|all
+Back to the values compiled into the daemon. This is the way out of a mess and
+the state of a fresh install, not a routine operation.
+.TP
+.B reload
+Re-read the settings file. Not normally needed: a file changed from outside is
+picked up on its own.
+.SH OPTIONS
+.TP
+.BI --socket " path"
+The control socket. Default
+.IR /run/ombra/control.sock .
+.SH EXIT STATUS
+.TP
+.B 0
+The daemon accepted the command.
+.TP
+.B 1
+The daemon refused it, or could not be reached.
+.TP
+.B 2
+The command line itself was wrong.
+.SH FILES
+.TP
+.I /run/ombra/control.sock
+The control socket, owned by the group
+.BR ombra .
+.TP
+.I /var/lib/ombra/settings.conf
+The saved definitions. Written by the daemon; it appears at the first change.
+.TP
+.I /var/lib/ombra/state
+What the daemon remembers across a reboot: the selected mode, whether the
+backlight follows the room, and the charge threshold.
+.TP
+.I /var/lib/ombra/metrics.ring
+The telemetry ring. A ring written in an older layout is converted when the
+daemon next opens it; one it cannot read is kept as
+.I metrics.ring.bak
+and replaced by a fresh ring.
+.SH EXAMPLES
+Tune by ear, then keep what was found:
+.PP
+.RS
+.nf
+ombra set pl1=15 max_perf_pct=40
+ombra mark good
+ombra config save live to quiet
+.fi
+.RE
+.PP
+Read an hour of samples into a spreadsheet:
+.PP
+.RS
+.nf
+ombra export --format csv --from $(date -d '1 hour ago' +%s) > session.csv
+.fi
+.RE
+.SH SEE ALSO
+.BR ombrad (8),
+.BR ombra-tray (1)

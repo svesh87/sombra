@@ -1,7 +1,10 @@
 // Copyright (c) 2026 Sergei Sveshnikov. MIT licensed, see LICENSE.
 #include "metrics_ring.h"
 
+#include "ring_migrate.h"
+
 #include <QDir>
+#include <QFile>
 #include <QFileInfo>
 
 #include <algorithm>
@@ -57,6 +60,14 @@ bool MetricsRing::open(const QString &path, uint64_t capacity, QString *error)
     // turns every later append into an out-of-bounds write.
     if (capacity > (SIZE_MAX - sizeof(RingHeader)) / sizeof(Sample))
         return fail(QStringLiteral("ring capacity %1 does not fit in memory").arg(capacity));
+
+    // Settled before the file is touched: reading the old records needs the old
+    // bytes, and setting a file aside renames the very file the call below
+    // would otherwise create.
+    QList<Sample> carried;
+    m_note.clear();
+    if (!prepareExisting(path, capacity, &carried))
+        return fail(m_note);
 
     QDir().mkpath(QFileInfo(path).absolutePath());
 
@@ -122,6 +133,60 @@ bool MetricsRing::open(const QString &path, uint64_t capacity, QString *error)
         head->seq = 0;
     }
 
+    // Converted records go in oldest first, so the sequence number ends up
+    // where it would have been had they always been in this layout. More of
+    // them than the ring holds means the oldest are dropped, which is what the
+    // ring does with them anyway.
+    if (!carried.isEmpty()) {
+        const qsizetype first =
+                std::max<qsizetype>(0, carried.size() - static_cast<qsizetype>(capacity));
+        for (qsizetype i = first; i < carried.size(); ++i)
+            append(carried.at(i));
+    }
+
+    return true;
+}
+
+bool MetricsRing::prepareExisting(const QString &path, uint64_t capacity, QList<Sample> *carried)
+{
+    QFile file(path);
+    if (!file.exists() || file.size() == 0)
+        return true;
+
+    RingHeader head {};
+    const bool readable = file.open(QIODevice::ReadOnly)
+            && file.read(reinterpret_cast<char *>(&head), sizeof(head)) == sizeof(head);
+    file.close();
+
+    const bool isRing = readable && head.magic == kRingMagic && head.recordSize == sizeof(Sample);
+    // Nothing to do for a ring this build wrote at this size: it is mapped as
+    // it stands, and reading it out only to write it back would be work for
+    // the sake of it.
+    if (isRing && head.version == kRingVersion && head.capacity == capacity)
+        return true;
+
+    // A different capacity is the same operation as a different layout — the
+    // file is rebuilt either way, and the records may as well come along.
+    if (isRing && (head.version == kRingVersion || canMigrateRing(head.version))) {
+        *carried = migratedSamples(path, &m_note);
+        return true;
+    }
+
+    // Everything else keeps its bytes. A version from a newer build after a
+    // rollback, a layout that was never released, and a file whose header is
+    // damaged are the same case here: this build cannot read it, deleting what
+    // it cannot read is not its decision to make, and a ring it cannot read is
+    // no reason to stop managing the machine.
+    const QString kept = setRingAside(path);
+    if (kept.isEmpty()) {
+        m_note = QStringLiteral("%1 is not a ring this build can read, and it could not be "
+                                "moved out of the way")
+                         .arg(path);
+        return false;
+    }
+    m_note = QStringLiteral("%1 was not a ring this build can read; kept as %2, starting a "
+                            "fresh one")
+                     .arg(path, kept);
     return true;
 }
 

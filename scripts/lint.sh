@@ -36,13 +36,28 @@ for file in $sources; do
 done
 
 # Nothing tracked may point at the working directory, which is not in the
-# repository and does not travel with a clone. AGENTS.md is the exception: it
-# is where the convention itself is written down.
-if grep -rn --exclude-dir=.git --exclude=lint.sh -e 'tmp/' \
-        src tests scripts config systemd desktop debian README.md README.ru.md \
-        HARDWARE.md HARDWARE.ru.md >/dev/null 2>&1; then
-    report "a tracked file references tmp/"
-fi
+# repository and does not travel with a clone. AGENTS.md is the exception: it is
+# where the convention itself is written down.
+#
+# The paths are listed rather than swept, so that a directory disappearing takes
+# its entry with it — grep exits non-zero on a path that is not there, and this
+# check quietly passed for exactly that reason once already.
+#
+# The system's own /tmp is a different thing and is not what this forbids, which
+# is why a leading slash disqualifies a match.
+tracked_tmp=$(grep -rn --exclude-dir=.git --exclude=lint.sh -e 'tmp/' \
+    src tests scripts systemd desktop debian man completions \
+    README.md README.ru.md HARDWARE.md HARDWARE.ru.md \
+    DESIGN.md DESIGN.ru.md SCREENSHOTS.md SCREENSHOTS.ru.md 2>&1 \
+    | grep -v '/tmp/' || true)
+case "$tracked_tmp" in
+*"No such file or directory"*)
+    report "the tmp/ check names a path that is gone: $tracked_tmp"
+    ;;
+?*)
+    report "a tracked file references tmp/: $(printf '%s' "$tracked_tmp" | head -n 3)"
+    ;;
+esac
 
 # A placeholder that survives into a commit is a silent gap in the build.
 if grep -rln 'PLACEHOLDER' src tests >/dev/null 2>&1; then

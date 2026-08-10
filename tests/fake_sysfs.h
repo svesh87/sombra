@@ -59,6 +59,12 @@ public:
     static QString raplCore() { return QStringLiteral("sys/class/powercap/intel-rapl:0:0"); }
     static QString raplUncore() { return QStringLiteral("sys/class/powercap/intel-rapl:0:1"); }
     static QString card() { return QStringLiteral("sys/class/drm/card1"); }
+    // The `status` node of one display connector, named as the kernel names
+    // them: "card<N>-<connector>".
+    static QString connector(const QString &name)
+    {
+        return QStringLiteral("sys/class/drm/card1-%1/status").arg(name);
+    }
     static QString pstate() { return QStringLiteral("sys/devices/system/cpu/intel_pstate"); }
     static QString platformProfile()
     {
@@ -122,6 +128,12 @@ private:
         write(card() + QStringLiteral("/gt_act_freq_mhz"), QStringLiteral("300"));
         write(card() + QStringLiteral("/gt_max_freq_mhz"), QStringLiteral("2350"));
         write(card() + QStringLiteral("/gt_min_freq_mhz"), QStringLiteral("100"));
+
+        // Display connectors: the internal panel plus two empty sockets, which
+        // is the machine with nothing plugged in.
+        write(connector(QStringLiteral("eDP-1")), QStringLiteral("connected"));
+        write(connector(QStringLiteral("DP-1")), QStringLiteral("disconnected"));
+        write(connector(QStringLiteral("HDMI-A-1")), QStringLiteral("disconnected"));
 
         write(pstate() + QStringLiteral("/no_turbo"), QStringLiteral("0"));
         write(pstate() + QStringLiteral("/max_perf_pct"), QStringLiteral("100"));

@@ -107,6 +107,43 @@ void TrayClient::poll()
     emit statusChanged(m_status);
 }
 
+TrayClient::Configuration TrayClient::fetchConfiguration()
+{
+    const QString reply = send(QStringLiteral("config show"));
+    if (!reply.startsWith(QLatin1String("ok ")))
+        return {};
+    return parseConfiguration(QJsonDocument::fromJson(reply.mid(3).toUtf8()).object());
+}
+
+TrayClient::Configuration TrayClient::parseConfiguration(const QJsonObject &object)
+{
+    Configuration configuration;
+    configuration.valid = object.contains(QLatin1String("modes"));
+    configuration.path = object.value(QLatin1String("path")).toString();
+    configuration.stored = object.value(QLatin1String("stored")).toBool();
+    configuration.defaultModeId = object.value(QLatin1String("default_mode")).toString();
+
+    for (const QJsonValue &entry : object.value(QLatin1String("modes")).toArray()) {
+        const QJsonObject mode = entry.toObject();
+        ModeDefinition definition;
+        definition.id = mode.value(QLatin1String("id")).toString();
+        definition.label = mode.value(QLatin1String("label")).toString(definition.id);
+        // The saved side speaks the settings vocabulary — `pl1_w`, not the
+        // `pl1` of live tuning — because that is the file's own language.
+        definition.setpoints.profile =
+                profileFromString(mode.value(QLatin1String("platform_profile")).toString());
+        definition.setpoints.pl1W = mode.value(QLatin1String("pl1_w")).toInt();
+        definition.setpoints.pl2W = mode.value(QLatin1String("pl2_w")).toInt();
+        definition.setpoints.maxPerfPct = mode.value(QLatin1String("max_perf_pct")).toInt();
+        definition.setpoints.noTurbo = !mode.value(QLatin1String("turbo")).toBool();
+        definition.setpoints.epp = eppFromString(mode.value(QLatin1String("epp")).toString());
+        definition.setpoints.hwpBoost = mode.value(QLatin1String("hwp_dynamic_boost")).toBool();
+        definition.setpoints.gtMaxMhz = mode.value(QLatin1String("gt_max_mhz")).toInt();
+        configuration.modes.append(definition);
+    }
+    return configuration;
+}
+
 TrayClient::Status TrayClient::parseStatus(const QJsonObject &object)
 {
     Status status;
@@ -146,24 +183,17 @@ TrayClient::Status TrayClient::parseStatus(const QJsonObject &object)
     const QJsonObject brightness = object.value(QLatin1String("brightness")).toObject();
     status.brightnessAvailable = brightness.value(QLatin1String("available")).toBool();
     status.autoBrightness = brightness.value(QLatin1String("auto")).toBool();
-    status.brightnessProfileId = brightness.value(QLatin1String("profile")).toString();
-    const QJsonArray profiles = brightness.value(QLatin1String("profiles")).toArray();
-    for (const QJsonValue &entry : profiles) {
-        const QJsonObject profile = entry.toObject();
-        const QString id = profile.value(QLatin1String("id")).toString();
-        status.brightnessProfileIds.append(id);
-        status.brightnessProfileLabels.append(profile.value(QLatin1String("label")).toString(id));
-    }
     status.brightness = reading(brightness, QLatin1String("level"));
     status.brightnessBase = reading(brightness, QLatin1String("base"));
-    status.light = reading(brightness, QLatin1String("light"));
-    status.brightnessSpanPct = brightness.value(QLatin1String("span_pct"))
-                                       .toInt(status.brightnessSpanPct);
+    // The sensor reading is deliberately not carried into the window. What the
+    // room measures is the daemon's business; the person is shown per cent.
+    status.brightnessResponsePct = brightness.value(QLatin1String("response_pct"))
+                                           .toInt(status.brightnessResponsePct);
     status.brightnessFloorPct = brightness.value(QLatin1String("floor_pct"))
                                         .toInt(status.brightnessFloorPct);
-    status.brightnessCeilingPct = brightness.value(QLatin1String("ceiling_pct"))
-                                          .toInt(status.brightnessCeilingPct);
-    status.brightnessLive = brightness.value(QLatin1String("live")).toBool();
+    status.brightnessWindowLow = brightness.value(QLatin1String("window_low"))
+                                         .toInt(status.brightnessFloorPct);
+    status.brightnessWindowHigh = brightness.value(QLatin1String("window_high")).toInt(100);
     return status;
 }
 

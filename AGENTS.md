@@ -54,21 +54,28 @@ Each root document has a Russian copy beside it, named `<NAME>.ru.md`.
   than a term, and where no short equivalent exists, describe it instead.
 - The final consistency pass checks the pairs against each other.
 
-## Frozen decisions
+## The goal, which is frozen
 
-Change only on an explicit request from the maintainer.
+Change only on an explicit request from the maintainer. Everything else about
+how the project is built is a decision rather than a rule, and those live in
+`DESIGN.md` with the reasoning that produced them: they change by an ordinary
+edit, in the same change as the code and the documents.
 
-### Goal
-
+- **What is convenient for the person using it wins.** This is the goal every
+  other line here serves, and the one to reach for when two of them appear to
+  disagree. A rule that makes the machine correct and the person's day worse has
+  been read wrongly.
 - **A cool chassis outweighs performance.** This machine has far more headroom
   than the workload requires. When temperature and speed conflict, throttle
   harder.
 - **Noise is a constraint, not the goal.** The calibrated scale, measured by
   ear on this machine: up to 3000 RPM is effectively inaudible and is the
   working target at idle; 4000 RPM is audible; 4000–4500 RPM is noticeably
-  loud but tolerable, and is the ceiling for automatic control under load;
-  5000–6000 RPM is excessive and is reachable only on explicit demand.
-  Automatic control never exceeds 4500 RPM.
+  loud but tolerable, and is the working ceiling under load; 5000–6000 RPM is
+  excessive. Nothing reaches full speed without a person having asked for it —
+  by the command, by the console, or by putting it in a mode they then select.
+  What is forbidden is the machine arriving there on its own, with the
+  emergency guard as the single exception.
 - **The fan curve is the noise-versus-temperature dial, and it is chosen per
   mode rather than globally.** At identical power settings under sustained load
   the curves separate cleanly: `performance` 74 °C at 5000 RPM, `balanced` 80 °C
@@ -78,138 +85,8 @@ Change only on an explicit request from the maintainer.
   the curve from each mode's noise budget; there is no globally correct answer
   and no curve is forbidden.
 
-### Architecture
-
-- **Exactly one owner of the thermal controls: this daemon.** Two processes
-  writing the same sysfs nodes produce race-dependent behaviour, not
-  redundancy. The vendor daemon is masked with
-  `systemctl mask com.system76.PowerDaemon.service` — its real unit name, not
-  the `system76-power.service` alias, because masking an alias leaves the real
-  unit enabled and it returns at the next boot. Layering on top of it, and
-  forking its source, are both rejected.
-- **Installing the package does not take ownership.** It creates the group the
-  tray needs, prints the two commands that hand the controls over, and stops
-  there — it enables nothing, starts nothing and masks nothing. Transferring
-  ownership of the thermal controls is a deliberate act with a rollback
-  procedure, not a side effect of `dpkg -i`, and the packaging test asserts it.
-- The daemon answers on `net.hadess.PowerProfiles` and
-  `org.freedesktop.UPower.PowerProfiles` (the standard public interface, and the
-  primary one) and on `com.system76.PowerDaemon` (vendor-specific, for the
-  COSMIC panel applet). The stock D-Bus policy already permits a root process to
-  own all three; it does not need editing.
-- **Display brightness is never coupled to the thermal mode.** Altering the
-  backlight on a profile switch is `system76-power` behaviour that this project
-  treats as a defect, and restoring parity with the original on that point is
-  not an improvement. Selecting a mode must leave the backlight exactly where
-  it was.
-- **Brightness that follows the ambient light sensor is a separate function
-  with its own profile and its own selector.** It reacts to the room, not to
-  the power profile, which is why it does not contradict the rule above.
-  Nothing about the thermal mode may reach it, in either direction.
-- **The level the person set is the baseline, and the automation works in a
-  window around it.** A hand correction is an instruction, not an
-  interruption: moving the brightness states what level is wanted in this
-  light, and the window moves with it. The brightness profile says how far the
-  automation may wander from that baseline, and a floor and a ceiling bound it
-  absolutely. Those bounds constrain the automation, never the person.
-- **A backlight that visibly hunts is a defect, not a tuning problem.** The
-  automation is watched by the person it serves, all day, and one wrong step
-  costs more attention than the whole feature saves. It moves in coarse steps
-  with hysteresis at their boundaries, waits before acting on a change, and
-  fades rather than jumps. Steady light must produce no writes at all.
-- **The automation is off by default, switches off in one action, and stays
-  off across a reboot.** Something the person turned off must not come back on
-  its own. Switching it on or off does not move the backlight — a jump in
-  brightness in answer to a toggle is the same defect as one in answer to a
-  profile switch.
-- The panel's three slots are redefined as this project's modes. **The middle
-  mode is the working one — the machine spends the overwhelming majority of its
-  time there.** It is applied at boot and it is the mode that telemetry tuning
-  targets. The other two are edge cases.
-- Maximum fan speed (`pwm1_enable=0`) is reachable only by explicit command and
-  is never engaged by automatic control.
-- Responsibilities inherited along with ownership, and therefore mandatory:
-  reacting to AC/battery transitions, and the charge threshold at
-  `/sys/class/power_supply/BAT0/charge_control_end_threshold`.
-
-### No automatic regulation
-
-The daemon applies **static setpoints per mode**. It does not run a feedback
-loop that continuously adjusts the power limit, and it does not switch modes by
-itself.
-
-- **No feedback controller.** Measurement so far shows that static setpoints
-  handle both the idle case and, apparently, sustained load. Build a controller
-  only if a measurement demonstrates that static setpoints are simultaneously
-  too restrictive and too loud in some real situation. Until then, a controller
-  is unjustified machinery with coefficients to tune and failure modes — hunting
-  and sticking — that static setpoints cannot have.
-- **No automatic mode switching by context.** Selecting a mode from the panel or
-  the tray is a deliberate act. Switching on microphone or camera activity is a
-  reasonable idea that stays deferred until the manual workflow has produced
-  data.
-- **This does not remove the emergency thermal guard.** A hard clamp that cuts
-  power when the package approaches the hardware cutout is a safety interlock,
-  not regulation, and it is always active regardless of mode. Given this
-  platform's history of hardware thermal shutdowns, removing it is never a
-  simplification.
-- **Reproducing the vendor's stock behaviour is not a mode.** That behaviour is
-  the problem this project exists to fix. The escape hatch, if the modes here
-  turn out worse, is `systemctl unmask com.system76.PowerDaemon.service` — no
-  code required.
-
-### Mode configuration
-
-- **The daemon's text configuration file is the single source of truth.** The
-  reason is not convenience: mode parameters are tuned by automated analysis of
-  recorded telemetry, and tooling can edit a text file but cannot operate a
-  dialog.
-- **The daemon reads the configuration and never writes it**, so that comments
-  survive. The selected mode lives in a separate state file. Reloading is driven
-  by inotify, without a restart.
-- **The tray is an experimentation console, not a settings editor.** Two
-  different things must not be confused:
-  - *durable mode definitions* live in the configuration file and survive a
-    reboot;
-  - *live tuning* happens in the tray — sliders for the power limit and the CPU
-    parameters that apply immediately and are never written back anywhere.
-
-  Live tuning exists because choosing a setpoint is a subjective judgement made
-  by ear: the useful question is "does this sound acceptable right now", which
-  cannot be answered by editing a file and restarting a daemon. A conventional
-  settings dialog that merely edits the config is still forbidden — that would
-  be a second way to do what the config already does.
-- **The tray never writes the configuration.** When a live setting is worth
-  keeping, the tray offers it as a configuration snippet to copy; promoting it
-  is a deliberate edit by the maintainer.
-- **The one exception is the tray's own autostart entry, and it is not
-  configuration.** Whether the tray starts with the session is what the console
-  knows about itself; the daemon's file has no way to describe it, and no mode
-  definition or brightness profile is reachable from that switch. The tray owns
-  `$XDG_CONFIG_HOME/autostart/ombra-tray.desktop` and nothing else. The entry is
-  the state — there is no settings file behind the switch — which is what makes
-  "switched off and it stayed off" a property of the arrangement rather than of
-  a mechanism. The package writes nothing into autostart: `dpkg -i` must not add
-  a process to a session, for the same reason it does not take the thermal
-  controls.
-- **Every live setpoint is recorded in every telemetry sample** — active mode,
-  power limits, frequency ceiling, turbo, EPP, HWP dynamic boost, platform
-  profile. A log that does not say what was applied cannot be analysed. Mode and
-  setpoint transitions are derived by diffing consecutive samples; do not add a
-  separate event log for them.
-- **Subjective verdicts are data too.** The tray can stamp the current sample
-  with a user mark ("good", "too loud", "too slow"), so that a judgement made by
-  ear is later recoverable together with the settings that produced it. Without
-  this, live tuning produces an opinion that cannot be traced back to numbers.
-
-### Metrics storage
-
-- **Held in memory, flushed to disk infrequently.** Conserving NVMe endurance is
-  deliberate; proposals to write every sample straight to disk are rejected.
-- Retention limits are hard: the store does not grow, and eviction is a property
-  of the format rather than of a background cleanup task.
-- The format is chosen so that mode parameters can be tuned from it and charts
-  drawn from it. Averaging that hides peaks is unacceptable.
+Read `DESIGN.md` before proposing anything structural. A proposal that argues
+with a decision recorded there is welcome; one that has not noticed it is not.
 
 ## Hardware safety (non-negotiable)
 
@@ -279,7 +156,7 @@ marking tests as expected failures to satisfy the gates are all prohibited.
 - **A change to the interface is not finished until the screenshots are
   regenerated.** Same reason as the comments: a picture of controls that are no
   longer there goes stale silently and no test catches it. Regenerating is one
-  command, `ombra-tray --screenshot screenshots`; what each picture shows and
+  command, `./scripts/screenshots.sh`; what each picture shows and
   what to check before committing it live in `SCREENSHOTS.md`. Give it its own
   plan step, naming the pictures, not a line saying "update screenshots".
 - The **last** step of any plan is a consistency pass across code, comments and

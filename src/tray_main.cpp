@@ -1,5 +1,7 @@
 // Copyright (c) 2026 Sergei Sveshnikov. MIT licensed, see LICENSE.
+#include "theme.h"
 #include "tray_client.h"
+#include "tray_icon.h"
 #include "tray_window.h"
 
 #include <QAction>
@@ -10,7 +12,6 @@
 #include <QDir>
 #include <QIcon>
 #include <QMenu>
-#include <QPainter>
 #include <QPixmap>
 #include <QScrollArea>
 #include <QSystemTrayIcon>
@@ -19,29 +20,12 @@
 
 namespace {
 
-// Three states, because those are the three a glance at the panel has to
-// distinguish: no daemon, running, and the emergency guard clamping.
-QIcon trayIcon(bool connected, bool guardEngaged)
-{
-    QPixmap pixmap(64, 64);
-    pixmap.fill(Qt::transparent);
-    QPainter painter(&pixmap);
-    painter.setRenderHint(QPainter::Antialiasing);
-    const QColor colour = !connected ? QColor(140, 140, 140)
-                        : guardEngaged ? QColor(220, 70, 55)
-                                       : QColor(90, 175, 230);
-    painter.setPen(QPen(colour, 5, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
-    painter.drawRoundedRect(QRectF(18, 18, 28, 28), 4, 4);
-    for (const int offset : { 25, 32, 39 }) {
-        painter.drawLine(QPointF(offset, 8), QPointF(offset, 18));
-        painter.drawLine(QPointF(offset, 46), QPointF(offset, 56));
-        painter.drawLine(QPointF(8, offset), QPointF(18, offset));
-        painter.drawLine(QPointF(46, offset), QPointF(56, offset));
-    }
-    if (!connected)
-        painter.drawLine(QPointF(14, 14), QPointF(50, 50));
-    return QIcon(pixmap);
-}
+// How long to wait for a tray host at startup, and how often to ask. The host
+// registers over the session bus and is routinely a second or two behind the
+// processes an autostart entry launches; a minute covers a slow login without
+// leaving a process waiting for a panel that is never coming.
+constexpr int kTrayWaitMs = 60000;
+constexpr int kTrayPollMs = 500;
 
 QString summaryText(const TrayClient::Status &status)
 {
@@ -116,17 +100,10 @@ bool saveScreenshots(const QString &directory, TrayWindow &window, QMenu &menu, 
     for (int i = 0; i < tabs->count(); ++i) {
         tabs->setCurrentIndex(i);
         QApplication::processEvents();
-        // Fitted to this tab exactly, in both directions. In use the window
-        // caps its height at the display and the tab scrolls, which is right
-        // there and wrong here, where the part outside the viewport would
-        // simply be missing; and a tab shorter than the window would otherwise
-        // be photographed with a field of empty space under it.
-        if (auto *area = qobject_cast<QScrollArea *>(tabs->widget(i))) {
-            const QSize hint = area->widget()->sizeHint();
-            window.resize(window.width() + hint.width() - area->viewport()->width(),
-                          window.height() + hint.height() - area->viewport()->height());
-            QApplication::processEvents();
-        }
+        // Fitted to this tab exactly, which is the window's own business — it
+        // is the one that knows why it normally keeps a single fixed size.
+        window.fitToCurrentTab();
+        QApplication::processEvents();
         if (!write(QStringLiteral("console-%1.png").arg(tabs->tabText(i).toLower()),
                    window.grab())) {
             return false;
@@ -142,7 +119,10 @@ int main(int argc, char **argv)
     QApplication app(argc, argv);
     QApplication::setApplicationName(QStringLiteral("ombra-tray"));
     QApplication::setApplicationVersion(QStringLiteral("0.1.0"));
-    QApplication::setQuitOnLastWindowClosed(false);
+    // Governed by waitForTray() below: while there is no icon in a panel, a
+    // closed console has to end the process, because nothing else could bring
+    // it back.
+    QApplication::setQuitOnLastWindowClosed(true);
 
     QCommandLineParser parser;
     parser.setApplicationDescription(QStringLiteral(
@@ -189,10 +169,16 @@ int main(int argc, char **argv)
     QActionGroup modeGroup(&menu);
     modeGroup.setExclusive(true);
 
+    // Kept so the icon can be redrawn when the desktop changes its icon theme,
+    // which is not a moment the daemon says anything.
+    TrayClient::Status lastStatus;
+
     tray.setToolTip(QStringLiteral("Ombra"));
-    tray.setIcon(trayIcon(false, false));
+    tray.setIcon(trayIcon(false, false, -1, 0));
     tray.setContextMenu(&menu);
-    tray.show();
+    // Not shown yet: the tray host registers over the session bus and may not
+    // be up at login. Showing into a watcher that does not exist is how an icon
+    // ends up missing for the whole session.
 
     const auto toggleConsole = [&window]() {
         if (window.isVisible()) {
@@ -221,21 +207,37 @@ int main(int argc, char **argv)
                          for (QAction *action : modeGroup.actions())
                              action->setChecked(action->data().toString() == status.modeId);
                          summary->setText(summaryText(status));
-                         tray.setIcon(trayIcon(true, status.guardEngaged));
+                         lastStatus = status;
+                         // The same line the menu shows: hovering the panel is
+                         // the cheapest way to ask what is running, and a
+                         // picture cannot spell out a mode's name.
+                         tray.setToolTip(QStringLiteral("Ombra — ") + summaryText(status));
+                         tray.setIcon(trayIcon(true, status.guardEngaged,
+                                               status.modeIds.indexOf(status.modeId),
+                                               status.modeIds.size()));
                      });
     QObject::connect(&client, &TrayClient::connectionChanged, &app, [&](bool connected) {
         if (!connected) {
             summary->setText(QStringLiteral("The daemon is not answering"));
-            tray.setIcon(trayIcon(false, false));
+            tray.setToolTip(QStringLiteral("Ombra — the daemon is not answering"));
+            tray.setIcon(trayIcon(false, false, -1, 0));
         }
     });
 
-    // Without a system tray the window is the only way in, so it opens
-    // straight away instead of hiding behind an icon that does not exist.
-    if (!QSystemTrayIcon::isSystemTrayAvailable()) {
-        qWarning() << "no system tray available; showing the console instead";
-        toggleConsole();
-    }
+    // Appearance, applied at startup and followed afterwards. Two separate
+    // things: the console's palette, which the person may override on the
+    // settings tab, and the icon theme, which they may not — the panel icon is
+    // the desktop's to draw. The icon theme matters twice over, because whether
+    // a name exists at all is a question only the theme in force can answer.
+    const auto followTheme = [&]() {
+        theme::applyPreference();
+        theme::applyDesktopIconTheme();
+        tray.setIcon(trayIcon(client.connected(), lastStatus.guardEngaged,
+                              lastStatus.modeIds.indexOf(lastStatus.modeId),
+                              lastStatus.modeIds.size()));
+    };
+    followTheme();
+    theme::watch(&app, followTheme);
 
     if (parser.isSet(screenshotOption)) {
         // With real readings if the daemon is there: a console shown full of
@@ -250,6 +252,50 @@ int main(int argc, char **argv)
         }
         return 0;
     }
+
+    // The tray host is not there the moment a session starts. It comes up over
+    // the session bus, asynchronously, and usually a second or two after the
+    // processes an autostart entry launches — so asking once, at startup, gets
+    // the answer "no tray" for a tray that is merely late, and the console then
+    // opens by itself at every login.
+    //
+    // Until an icon exists, closing the console ends the process. Otherwise it
+    // would live on with no window and no icon: invisible, unreachable, and
+    // killable only by name.
+    const int absentMs = qEnvironmentVariableIntValue("OMBRA_TEST_TRAY_ABSENT_MS");
+    const int trayTimeoutMs = qEnvironmentVariableIsSet("OMBRA_TEST_TRAY_TIMEOUT_MS")
+            ? qEnvironmentVariableIntValue("OMBRA_TEST_TRAY_TIMEOUT_MS")
+            : kTrayWaitMs;
+    auto *trayWait = new QTimer(&app);
+    trayWait->setInterval(kTrayPollMs);
+    // `waited` is captured by value into a mutable lambda rather than kept
+    // beside the timer: it belongs to the timer, which outlives every scope
+    // here except the application's own.
+    QObject::connect(trayWait, &QTimer::timeout, &app,
+                     [&app, &tray, &window, toggleConsole, trayWait, absentMs,
+                      trayTimeoutMs, waited = 0]() mutable {
+                         waited += kTrayPollMs;
+                         // The first hook pretends the tray is missing for a
+                         // while. Without it the "appeared late" branch cannot
+                         // be reached at all: on the offscreen platform the
+                         // availability check answers true from the first tick.
+                         if (waited >= absentMs && QSystemTrayIcon::isSystemTrayAvailable()) {
+                             trayWait->stop();
+                             tray.show();
+                             // There is somewhere to go back to now.
+                             app.setQuitOnLastWindowClosed(false);
+                             return;
+                         }
+                         if (waited < trayTimeoutMs)
+                             return;
+                         trayWait->stop();
+                         qWarning().noquote()
+                                 << "no system tray after" << trayTimeoutMs / 1000
+                                 << "seconds; showing the console instead";
+                         if (!window.isVisible())
+                             toggleConsole();
+                     });
+    trayWait->start();
 
     const int quitAfterMs = parser.value(quitAfterOption).toInt();
     if (quitAfterMs > 0)

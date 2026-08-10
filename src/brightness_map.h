@@ -4,29 +4,37 @@
 #include <QList>
 #include <QString>
 #include <QStringList>
+#include <QtGlobal>
 
 #include <optional>
 
 // Deciding where the backlight should be, as a pure function.
 //
-// The model, in the order the numbers are used:
+// The model in one line: **the light adds or subtracts from the level you set.**
 //
-//   base      the level the person set, in percent. Not a level the daemon
-//             computed: moving the brightness is a statement about what is
-//             wanted in this light, so a hand correction becomes the new base
-//             and the window moves with it.
-//   window    [base - span, base + span], then cut by the floor and the
-//             ceiling. Cut, not shifted: base 90 with a span of 10 and a
-//             ceiling of 95 gives 80..95, not 85..95.
-//   curve     ambient reading -> a position inside that window, 0 at its
-//             bottom and 100 at its top. The curve chooses a point in the
-//             window rather than an absolute level, so narrowing the span
-//             makes the automation move less instead of pinning it to an edge
-//             and ignoring the light.
-//   floor,
-//   ceiling   absolute bounds. They constrain the automation and never the
-//             person: a level set by hand outside them is accepted and becomes
-//             the base; the next automatic move lands inside them again.
+//   contribution  what the room is worth right now, in percentage points, from
+//                 minus the response to plus it. Dark rooms subtract, bright
+//                 ones add, and the light at which it is zero is the light the
+//                 curve calls neutral.
+//   base          the level you asked for, with the contribution of the moment
+//                 taken back out. Derived rather than stored as typed: that is
+//                 what makes returning to the same light return to the same
+//                 level.
+//   response      how far the automation may move. One number, symmetric
+//                 around the base until an end of the scale cuts it.
+//   floor         the level nothing goes below — not the automation, and not a
+//                 slip of the hand either. There is no ceiling: that is 100.
+//
+// Worked through, with a response of 30 and the neutral light at 25 lux:
+//
+//   you set 80 % in a room the curve scores at −3   base = 83
+//   the room brightens and the curve scores +21     target = 100 (capped)
+//   the room returns to what it was                 target = 80, exactly
+//
+// The obvious alternative — keep the level as the base and let the curve pick a
+// point inside a window around it — loses the choice at the first change of
+// light: coming back to the same room gives a different number, because the
+// curve's answer inside the window has nothing to do with what was picked.
 //
 // A backlight that visibly hunts is a defect rather than a tuning problem, and
 // four separate mechanisms keep it from happening. Each answers a different
@@ -67,46 +75,82 @@ inline constexpr int kBrightnessDwellTicks = 5;
 inline constexpr int kBrightnessFadeSteps = 25;
 inline constexpr int kBrightnessFadeIntervalMs = 40;
 
-// Percentage points either side of the level the person set. Twenty rather than
-// ten because the narrower window was measured saturating: over a recorded
-// evening the automation spent 13% of its time pinned to the top of a ±10
-// window and none at the bottom, which is the automation asking for more room.
-inline constexpr int kBrightnessDefaultSpanPct = 20;
+// How far the automation may move from the level you set, in percentage points.
+// Taken from recorded sessions rather than by eye: a narrower response spends
+// its time pinned at an end of the band, which the telemetry shows plainly.
+inline constexpr int kBrightnessDefaultResponsePct = 30;
+// Nothing goes below this, including a person who drags a slider too far. The
+// point of the floor is that a screen driven into unreadable is a failure and
+// not a saving.
 inline constexpr int kBrightnessDefaultFloorPct = 5;
-inline constexpr int kBrightnessDefaultCeilingPct = 100;
 
-// One point of the response curve: an ambient reading in the sensor's own
-// units (see light_sensor.h — they are not lux) and where in the window it
-// puts the backlight, 0 for the bottom of the window and 100 for the top.
+// One point of the response curve.
 struct BrightnessPoint {
-    int light = 0;
+    // Millilux, so the dark end keeps its resolution: a room at 0.3 lux and one
+    // at 3 lux are different rooms, and whole lux cannot tell them apart.
+    quint32 light = 0;
+    // 0 subtracts the whole response, 50 contributes nothing, 100 adds the
+    // whole response. **50 is therefore not a free choice**: it is the light at
+    // which the screen sits exactly on the level you set, and it belongs on the
+    // light your room usually has. Calibrated from recorded telemetry, never by
+    // eye.
     int position = 0;
 };
 
-struct BrightnessProfile {
-    QString id;
-    QString label;
-    // How far the automation may wander from the base, in percentage points,
-    // symmetrically.
-    int spanPct = kBrightnessDefaultSpanPct;
+// Everything the backlight automation is configured with. One of these, not a
+// list: a profile would be a name for a set of these numbers, and with one room
+// there is never a second set to switch to.
+struct BrightnessSettings {
+    int responsePct = kBrightnessDefaultResponsePct;
     int floorPct = kBrightnessDefaultFloorPct;
-    int ceilingPct = kBrightnessDefaultCeilingPct;
     QList<BrightnessPoint> curve;
 };
 
+// Applies one "key=value" of the settings vocabulary, on the same terms as
+// applyModeSetting(): one function for the file and for the socket, an unknown
+// key or unusable value refused through `error`, a number outside its range
+// clamped with a line in `clamped`.
+bool applyBrightnessSetting(BrightnessSettings &settings, const QString &key,
+                            const QString &value, QString *error, QStringList *clamped);
+
+// Reads the "[brightness]" section of the settings file. False leaves the
+// argument untouched, which is how a missing or unusable file falls back to the
+// built-in values.
+bool loadBrightnessSettings(const QString &path, BrightnessSettings *settings,
+                            QStringList *problems = nullptr);
+
+// The section as it appears in the settings file. The writing half of
+// loadBrightnessSettings(), and what the round-trip test asserts.
+QString brightnessSettingsSection(const BrightnessSettings &settings);
+
+BrightnessSettings builtinBrightnessSettings();
+
+// What the room is worth right now, in percentage points: negative in the dark,
+// positive in the bright, zero at the light the curve calls neutral. An empty
+// curve or a missing reading contributes nothing.
+int brightnessContribution(const BrightnessSettings &settings, std::optional<quint32> light);
+
+// The level you asked for with the contribution of the moment taken back out,
+// so that the same light later reproduces the same level. A level below the
+// floor never becomes a base: the floor is what actually got applied, and a
+// base derived from a level nobody can see is a state with no home on screen.
+int brightnessBaseFor(const BrightnessSettings &settings, int level,
+                      std::optional<quint32> light);
+
+// Where the automation may put the backlight, for display. Cut by the floor and
+// by the end of the scale, so it is what will happen rather than what the
+// arithmetic wanted.
 struct BrightnessWindow {
     int low = 0;
     int high = 0;
 };
+BrightnessWindow brightnessWindow(const BrightnessSettings &settings, int base);
 
-BrightnessWindow brightnessWindow(const BrightnessProfile &profile, int base);
-
-// Linear between points, flat outside the first and the last. An empty curve
-// has no answer and yields the bottom of the window.
-int brightnessCurvePosition(const QList<BrightnessPoint> &curve, int light);
+// Linear between points, flat outside the first and the last.
+int brightnessCurvePosition(const QList<BrightnessPoint> &curve, quint32 light);
 
 struct BrightnessState {
-    // Percent, or kBrightnessUnset before the panel has been read.
+    // Percent, or kUnset before the panel has been read.
     static constexpr int kUnset = -1;
 
     int base = kUnset;
@@ -128,32 +172,5 @@ struct BrightnessDecision {
 // Advances the state by one tick and says whether to move. Absent light means
 // no reading was available, and the answer is then to hold: darkness and a
 // missing sensor are not the same thing.
-BrightnessDecision decideBrightness(const BrightnessProfile &profile, std::optional<int> light,
-                                    BrightnessState &state);
-
-// The brightness profiles, read from the same configuration file as the modes
-// but kept as a separate list with a separate selection. Nothing about the
-// thermal mode may reach this side, in either direction.
-class BrightnessProfileTable {
-public:
-    static BrightnessProfileTable builtinDefaults();
-
-    // Returns false and leaves the table untouched when the file defines no
-    // usable profile, exactly like the mode table.
-    bool load(const QString &path, QStringList *problems = nullptr);
-
-    const QList<BrightnessProfile> &profiles() const { return m_profiles; }
-    const BrightnessProfile *find(const QString &id) const;
-    int indexOf(const QString &id) const;
-    const QString &defaultProfileId() const { return m_defaultProfileId; }
-
-    // The configuration text that would reproduce a profile, for the tray's
-    // "copy as a configuration snippet". The curve is written out unchanged:
-    // it is not tunable from the tray, and a section missing it would not be
-    // a section that could be pasted into the file.
-    static QString toConfigSnippet(const BrightnessProfile &profile);
-
-private:
-    QList<BrightnessProfile> m_profiles;
-    QString m_defaultProfileId;
-};
+BrightnessDecision decideBrightness(const BrightnessSettings &settings,
+                                    std::optional<quint32> light, BrightnessState &state);

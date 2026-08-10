@@ -1,0 +1,107 @@
+.TH OMBRAD 8 "2026-08-09" "ombra" "System Administration"
+.SH NAME
+ombrad \- thermal, noise and backlight daemon for the ASUS Zenbook 14 UX3405MA
+.SH SYNOPSIS
+.B ombrad
+.RI [ --root " " path ]
+.RI [ --config " " file ]
+.RI [ --state " " file ]
+.RI [ --ring " " file ]
+.RI [ --socket " " path ]
+.RI [ --capacity " " records ]
+.RI [ --interval-ms " " ms ]
+.RI [ --max-ticks " " n ]
+.RI [ --no-dbus ]
+.SH DESCRIPTION
+Keeps the machine inside a chosen thermal envelope, follows the ambient light
+sensor, and records one telemetry sample per second so that the envelopes can
+be tuned from data rather than from guesswork.
+.PP
+It is the sole owner of the thermal controls. Two processes writing the same
+sysfs nodes produce race-dependent behaviour rather than redundancy, which is
+why the vendor daemon is masked rather than layered on top of, and why this one
+refuses to start when another is already answering on the socket.
+.PP
+Setpoints are static per mode. There is no feedback controller: measurement
+showed static values handle both idle and sustained load. The emergency thermal
+guard is not regulation but a safety interlock — it is active regardless of
+mode, it only ever lowers, and it is the one thing that will drive the fan by
+itself.
+.PP
+Normally run by systemd as
+.BR ombrad.service .
+The options exist so that a test run and a service run differ only in their
+arguments.
+.SH OPTIONS
+.TP
+.BI --root " path"
+The root of the kernel control surface. Default
+.IR / .
+Pointing it at a directory of ordinary files is how the daemon is exercised
+without hardware.
+.TP
+.BI --config " file"
+The settings file. Default
+.IR /var/lib/ombra/settings.conf .
+Written by the daemon, and absent until the first change.
+.TP
+.BI --state " file"
+What survives a reboot. Default
+.IR /var/lib/ombra/state .
+.TP
+.BI --ring " file"
+The telemetry ring. Default
+.IR /var/lib/ombra/metrics.ring .
+.TP
+.BI --socket " path"
+The control socket. Default
+.IR /run/ombra/control.sock ,
+handed to the group
+.BR ombra .
+.TP
+.BI --capacity " records"
+Ring capacity in samples. Default is seven days at 1 Hz. Retention is a
+property of the geometry: the blocks are reserved once and the oldest record is
+overwritten in place, so there is no growth and no cleanup task to fail.
+.TP
+.BI --interval-ms " ms"
+The sampling interval. Default 1000.
+.TP
+.BI --max-ticks " n"
+Stop after this many ticks. Zero runs until signalled.
+.TP
+.B --no-dbus
+Do not claim the D-Bus names. For running a second instance beside the real one
+without disturbing the desktop.
+.SH SIGNALS
+.TP
+.B SIGTERM, SIGINT
+Restore the hardware and exit. Automatic fan control is restored on every exit
+path the daemon controls, and the unit's
+.B ExecStopPost
+covers the one it does not: a fan left behind by a dead daemon is a defect, and
+nothing else will pick up after it.
+.SH D-BUS
+Answers on
+.BR net.hadess.PowerProfiles " and " org.freedesktop.UPower.PowerProfiles
+— the standard interface, and the primary one — and on
+.B com.system76.PowerDaemon
+for the COSMIC panel applet. The vendor interface spells its profile names with
+a capital letter and the standard one does not; the applet compares the answer
+against a hard list and panics on anything else.
+.SH FILES
+.TP
+.I /var/lib/ombra/settings.conf
+.TP
+.I /var/lib/ombra/state
+.TP
+.I /var/lib/ombra/metrics.ring
+.TP
+.I /var/lib/ombra/metrics.ring.bak
+A ring this build cannot read, kept rather than deleted. One slot, replaced
+whenever another such ring is found.
+.TP
+.I /run/ombra/control.sock
+.SH SEE ALSO
+.BR ombra (1),
+.BR ombra-tray (1)

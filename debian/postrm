@@ -15,6 +15,10 @@ purge)
     ;;
 esac
 
+# Announced here as well as in preinst and postinst: dpkg looks for all three,
+# and a conffile removed from only some of them comes back on a failed upgrade.
+dpkg-maintscript-helper rm_conffile /etc/ombra/modes.conf 0.1.0 ombra -- "$@"
+
 #DEBHELPER#
 
 exit 0

@@ -161,13 +161,28 @@ void CliTest::ctlDrivesTheRunningDaemon()
                                 QStringLiteral("good") })
                      .code,
              0);
-    // A snippet is multi-line, so it travels base64-encoded and is unpacked
-    // by the client rather than by every caller.
-    const Run snippet = run(ctlBinary(), { QStringLiteral("--socket"), socket,
-                                           QStringLiteral("snippet"), QStringLiteral("tuned") });
-    QCOMPARE(snippet.code, 0);
-    QVERIFY(snippet.out.contains(QStringLiteral("[mode tuned]")));
-    QVERIFY(snippet.out.contains(QStringLiteral("pl1_w=14")));
+    // Keeping a live value is a named command with a named destination, and
+    // what it wrote is readable back through the same tool.
+    QCOMPARE(run(ctlBinary(), { QStringLiteral("--socket"), socket, QStringLiteral("config"),
+                                QStringLiteral("save"), QStringLiteral("live"),
+                                QStringLiteral("to"), QStringLiteral("quiet") })
+                     .code,
+             0);
+    // `config show` prints the payload alone, so it goes through jq without a
+    // caller stripping the protocol's "ok" off the front.
+    const Run shown = run(ctlBinary(), { QStringLiteral("--socket"), socket,
+                                         QStringLiteral("config"), QStringLiteral("show") });
+    QCOMPARE(shown.code, 0);
+    const QJsonObject config = QJsonDocument::fromJson(shown.out.trimmed().toUtf8()).object();
+    QVERIFY(!config.isEmpty());
+    QVERIFY(config.value(QStringLiteral("stored")).toBool());
+    const QJsonArray savedModes = config.value(QStringLiteral("modes")).toArray();
+    bool sawTheSavedValue = false;
+    for (const QJsonValue &entry : savedModes) {
+        if (entry.toObject().value(QStringLiteral("id")).toString() == QLatin1String("quiet"))
+            sawTheSavedValue = entry.toObject().value(QStringLiteral("pl1_w")).toInt() == 14;
+    }
+    QVERIFY(sawTheSavedValue);
 
     // A rejected command is a non-zero exit, so a script can branch on it.
     QCOMPARE(run(ctlBinary(), { QStringLiteral("--socket"), socket, QStringLiteral("levitate") })

@@ -34,7 +34,6 @@ struct DaemonState {
 
     QString mode;
     bool autoBrightness = false;
-    QString brightnessProfile;
     int brightnessBase = kBrightnessBaseUnset;
     int chargeLimit = kChargeLimitUnset;
 

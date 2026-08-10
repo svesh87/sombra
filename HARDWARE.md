@@ -58,12 +58,40 @@ Measured behaviour, 12-minute sample at 0.2 Hz with load average around 0.6:
 |---|---|
 | Idle speed | 1900 RPM in 109 of 144 samples |
 | Range observed | 1900–2500 RPM idle; 3200 under light load; 6100 maximum |
-| Apparent floor | **1900 RPM** — never observed lower, never observed stopped |
 | Ramp threshold | above the floor at a package temperature around 62 °C |
 
-The floor matters: at idle there is no fan speed left to give up, so idle
-temperature cannot be improved by making the fan quieter — only by producing
-less heat or by forcing more airflow.
+### 1900 RPM is not a floor
+
+The short sample above never saw the fan stopped, which made 1900 RPM look like
+a hardware minimum. Two recorded sessions at 1 Hz say otherwise — 6019 samples
+and 20 204 samples, taken a day apart:
+
+| Package, °C | Samples with `fan1_input` = 0 | Fan p50 / p90, RPM |
+|---|---|---|
+| below 45 | 100 % | 0 / 0 |
+| 45–48 | 29 % | 1700 / 1700 |
+| 48–50 | 16 % | 1700 / 1900 |
+| 50–52 | 3 % | 1900 / 2100 |
+| 52–55 | 0.4 % | 2000 / 2000 |
+| 55–60 | 0 % | 2000 / 2800 |
+| above 60 | 0 % | 3000 / 3700 |
+
+Below roughly 45 °C the EC stops the fan outright; between 45 and 52 °C it
+holds it on the edge; above 55 °C it never stops. A zero here is a reading and
+not a gap — a missing reading is recorded as absent, which the export writes as
+an empty field.
+
+This is better for the noise target than a floor would be, and it changes what
+idle tuning can achieve: there is fan speed left to give up after all, but only
+by producing less heat, which is the same control as before.
+
+### Chassis and package track each other
+
+Across both sessions the `acpitz` reading and the package temperature agree to
+within a degree at every load band, so in a sitting-at-the-desk scenario the
+package temperature is an honest proxy for the chassis. This does not carry
+over to a laptop resting on a person: the heat path is different, and a
+scenario judged on skin is judged by `acpitz`.
 
 ## CPU power and frequency
 
@@ -140,6 +168,25 @@ decode and encode are available at the system level. Whether an individual
 application uses them is a separate question: software decoding of many
 simultaneous video streams is expensive and entirely avoidable.
 
+### Display connectors
+
+`/sys/class/drm/card1-<connector>/status` reads `connected` or `disconnected`
+per socket, without a session and without a graphics server, which is why the
+daemon can count them. Observed here: `eDP-1` for the internal panel, `DP-1`,
+`DP-2` and `HDMI-A-1` for the sockets.
+
+The count is recorded in every sample because driving an external monitor is
+work that cannot be deferred — an iGPU ceiling does not postpone it, it only
+makes it late — and its cost is invisible in a log that does not say whether a
+monitor was attached.
+
+What the node does not say: a connector reads `connected` while a cable is in
+it, whether or not the output is lit, and a DP-MST hub appears differently than
+expected. Resolution and scaling are not there at all — the connector lists the
+modes it supports, and which one is in use is known to the compositor. Both are
+in any case a proxy for how much graphics work is being done, and that is
+already measured directly by the uncore RAPL domain and `gt_act_freq_mhz`.
+
 ### Hardware throttle counters
 
 `/sys/devices/system/cpu/cpu*/thermal_throttle/` — `core_throttle_count`,
@@ -177,20 +224,34 @@ with heat: selecting a thermal mode never moves the backlight.
 |---|---|
 | `/sys/bus/iio/devices/iio:device0/name` | `als` — for identification only, see below |
 | `.../in_illuminance_raw` | rises with light; readable without root |
-| `.../in_illuminance_scale` | `0.001` |
+| `.../in_illuminance_scale` | `0.001000000` — the raw counts are thousandths of a lux; a driver need not provide this node, and the daemon then treats the scale as 1 |
+| `.../in_illuminance_offset` | `0` — added to the raw count before the scale |
 | `.../in_illuminance_sampling_frequency` | `10.0` |
 | `/sys/class/backlight/intel_backlight/max_brightness` | 400 |
 | `/sys/class/backlight/intel_backlight/brightness` | `root:root 0644` |
 
 Two properties decide how the daemon uses them.
 
-**The illuminance is not calibrated lux.** `in_illuminance_raw` multiplied by
-the scale lands roughly two orders of magnitude below what a light meter reports
-for the same room — the sensor sits behind dark bezel glass and nothing corrects
-for it. The reading is therefore used, recorded and configured in the sensor's
-own units, and the response curve is calibrated against them from recorded
-telemetry. Calling the number lux would be a claim of accuracy that is not
-there.
+**The reading is lux, and the driver says so.** `(raw + offset) × scale` is the
+IIO contract for `in_illuminance`, and the numbers it produces here match what
+the room looks like. Measured on this machine, in one evening:
+
+| Room | Lux |
+|---|---|
+| dark, screen off | 0.3 |
+| two desk lamps and a backlight strip, ceiling light off | 25.9 |
+| the same, ceiling light on — four 1000 lm lamps, laptop in a corner facing them | 65.5 to 103.5 |
+| a 1800 lm bicycle lamp about 7 cm from the sensor | 20 855 |
+
+The daemon stores the reading in millilux, because the bottom of that range is
+where a dark room lives and whole lux cannot tell 0.3 from 3. The response curve
+is configured in lux, in the settings file and on the command line, and is
+calibrated from recorded telemetry.
+
+The top of the sensor's range is not established. Nothing brighter than the
+bicycle lamp was available, and there is no recorded daylight session, so the
+curve's last point rests on the range observed rather than on a measured
+ceiling.
 
 **The backlight is writable only by root.** So the daemon owns it and the tray
 cannot touch it: everything the tray does to the backlight goes through the

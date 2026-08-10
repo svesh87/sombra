@@ -98,7 +98,10 @@ void SysfsTest::globIsEmptyForMissingDirectory()
     FakeSysfs tree;
     Sysfs sysfs(tree.root());
     QVERIFY(sysfs.glob(QStringLiteral("sys/class/nothing"), QStringLiteral("*")).isEmpty());
-    QCOMPARE(sysfs.glob(QStringLiteral("sys/class/drm"), QStringLiteral("card*")).size(), 1);
+    // The card and its three connectors share a directory and are told apart by
+    // the dash, which is what the display count relies on.
+    QCOMPARE(sysfs.glob(QStringLiteral("sys/class/drm"), QStringLiteral("card*")).size(), 4);
+    QCOMPARE(sysfs.glob(QStringLiteral("sys/class/drm"), QStringLiteral("card*-*")).size(), 3);
 }
 
 void SysfsTest::rootIsNormalised()

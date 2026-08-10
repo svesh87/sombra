@@ -12,6 +12,8 @@ private slots:
     void firstTickHasNoPowerAndNoThrottleRate();
     void derivesPowerFromEnergyDeltas();
     void energyCounterWraparound();
+    void aCounterRestartIsRecordedAsNoReading();
+    void countsConnectedDisplays();
     void separatesCoreFromUncore();
     void missingSensorDegradesInsteadOfFailing();
     void malformedValueIsTreatedAsAbsent();
@@ -94,6 +96,64 @@ void SensorsTest::energyCounterWraparound()
     tree.write(FakeSysfs::raplPackage() + QStringLiteral("/energy_uj"), QStringLiteral("2000000"));
     const Sample s = reader.read(1001, 1000);
     QCOMPARE(s.pkgPower, uint16_t(300));
+}
+
+void SensorsTest::aCounterRestartIsRecordedAsNoReading()
+{
+    // What a resume from suspend does: the counter starts again from near zero,
+    // the backwards step is read as a wrap, and one tick's worth of energy
+    // becomes almost the whole range. Four samples of a recorded session
+    // claimed 655.34 W — the top of the field — while the cores drew 0.7 W.
+    // Absent is the honest answer; a saturated peak and a tidy zero are both
+    // inventions.
+    FakeSysfs tree;
+    Sysfs sysfs(tree.root());
+    SensorReader reader(sysfs);
+    reader.resolve();
+    reader.read(1000, 0);
+
+    tree.write(FakeSysfs::raplPackage() + QStringLiteral("/energy_uj"), QStringLiteral("40000"));
+    const Sample s = reader.read(1001, 1000);
+    QCOMPARE(s.pkgPower, kAbsentValue);
+    // The same tick's other readings are untouched: one artefact does not make
+    // the whole sample unusable.
+    QVERIFY(s.pkgTemp != kAbsentTemp);
+}
+
+void SensorsTest::countsConnectedDisplays()
+{
+    FakeSysfs tree;
+    Sysfs sysfs(tree.root());
+    SensorReader reader(sysfs);
+    reader.resolve();
+    QCOMPARE(reader.read(1000, 0).displays, 1);
+
+    tree.write(FakeSysfs::connector(QStringLiteral("DP-1")), QStringLiteral("connected"));
+    tree.write(FakeSysfs::connector(QStringLiteral("HDMI-A-1")), QStringLiteral("connected"));
+    QCOMPARE(reader.read(1001, 1000).displays, 3);
+
+    // Everything unplugged, lid closed: zero is a legal answer and differs from
+    // having nothing to ask.
+    tree.write(FakeSysfs::connector(QStringLiteral("eDP-1")), QStringLiteral("disconnected"));
+    tree.write(FakeSysfs::connector(QStringLiteral("DP-1")), QStringLiteral("disconnected"));
+    tree.write(FakeSysfs::connector(QStringLiteral("HDMI-A-1")), QStringLiteral("disconnected"));
+    QCOMPARE(reader.read(1002, 2000).displays, 0);
+
+    // A connector whose status cannot be read is skipped rather than counted.
+    tree.write(FakeSysfs::connector(QStringLiteral("eDP-1")), QStringLiteral("connected"));
+    tree.remove(FakeSysfs::connector(QStringLiteral("DP-1")));
+    SensorReader again(sysfs);
+    again.resolve();
+    QCOMPARE(again.read(1003, 3000).displays, 1);
+
+    FakeSysfs bare;
+    bare.remove(FakeSysfs::connector(QStringLiteral("eDP-1")));
+    bare.remove(FakeSysfs::connector(QStringLiteral("DP-1")));
+    bare.remove(FakeSysfs::connector(QStringLiteral("HDMI-A-1")));
+    Sysfs bareSysfs(bare.root());
+    SensorReader without(bareSysfs);
+    without.resolve();
+    QCOMPARE(without.read(1000, 0).displays, kAbsentPercent);
 }
 
 void SensorsTest::separatesCoreFromUncore()

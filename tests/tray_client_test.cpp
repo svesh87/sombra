@@ -31,7 +31,7 @@ public:
                           QStringLiteral("--ring"), m_work + QStringLiteral("/metrics.ring"),
                           QStringLiteral("--socket"), socketPath(), QStringLiteral("--state"),
                           m_work + QStringLiteral("/state"), QStringLiteral("--config"),
-                          m_work + QStringLiteral("/modes.conf"), QStringLiteral("--capacity"),
+                          m_work + QStringLiteral("/settings.conf"), QStringLiteral("--capacity"),
                           QStringLiteral("64"), QStringLiteral("--interval-ms"),
                           QStringLiteral("20") });
     }
@@ -131,11 +131,10 @@ void TrayClientTest::parsesAFullStatus()
         "sensors": {"pkg_c": 61.0, "board_c": 45.0, "nvme_c": 38.8, "fan_rpm": 1900,
                     "pkg_w": 7.25, "core_w": 4.5, "uncore_w": 1.25, "cpu_mhz": 2400,
                     "gpu_mhz": 300, "load1": 0.61},
-        "brightness": {"available": true, "auto": true, "profile": "indoors",
-                       "profiles": [{"id": "indoors", "label": "Indoors"}],
-                       "level": 60, "base": 55, "light": 1500, "live": true,
-                       "span_pct": 30, "floor_pct": 35, "ceiling_pct": 70,
-                       "window_low": 35, "window_high": 70}
+        "brightness": {"available": true, "auto": true,
+                       "level": 60, "base": 55, "light_lux": 1.5,
+                       "response_pct": 30, "floor_pct": 35,
+                       "window_low": 35, "window_high": 85}
     })"));
 
     QVERIFY(status.valid);
@@ -188,18 +187,17 @@ void TrayClientTest::parsesAFullStatus()
     QCOMPARE(status.load1, 0.61);
 
     // The backlight side, reported alongside the thermal state and never mixed
-    // with it. The three window numbers are what the sliders sit on, and they
-    // are the effective ones rather than the file's while an overlay is live.
+    // with it. The sensor reading is deliberately not carried across: the
+    // console shows per cent and nothing else.
     QVERIFY(status.brightnessAvailable);
     QVERIFY(status.autoBrightness);
-    QCOMPARE(status.brightnessProfileId, QStringLiteral("indoors"));
     QCOMPARE(status.brightness, 60.0);
     QCOMPARE(status.brightnessBase, 55.0);
-    QCOMPARE(status.light, 1500.0);
-    QVERIFY(status.brightnessLive);
-    QCOMPARE(status.brightnessSpanPct, 30);
+    QCOMPARE(status.brightnessResponsePct, 30);
     QCOMPARE(status.brightnessFloorPct, 35);
-    QCOMPARE(status.brightnessCeilingPct, 70);
+    // The band, which is what the window says out loud.
+    QCOMPARE(status.brightnessWindowLow, 35);
+    QCOMPARE(status.brightnessWindowHigh, 85);
 }
 
 void TrayClientTest::parsesAbsentReadingsAsTheSentinel()
@@ -250,9 +248,8 @@ void TrayClientTest::parsesMalformedRepliesWithoutCrashing()
     QCOMPARE(garbage.applied.pl1W, Setpoints().pl1W);
     QCOMPARE(garbage.packageC, TrayClient::kNoReading);
     // Without a brightness object the sliders still have somewhere to sit.
-    QCOMPARE(garbage.brightnessSpanPct, kBrightnessDefaultSpanPct);
-    QCOMPARE(garbage.brightnessCeilingPct, kBrightnessDefaultCeilingPct);
-    QVERIFY(!garbage.brightnessLive);
+    QCOMPARE(garbage.brightnessResponsePct, kBrightnessDefaultResponsePct);
+    QCOMPARE(garbage.brightnessFloorPct, kBrightnessDefaultFloorPct);
 }
 
 void TrayClientTest::pollsARunningDaemonAndReconnectsToANewOne()

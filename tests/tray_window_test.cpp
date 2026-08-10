@@ -2,7 +2,9 @@
 #include "autostart.h"
 #include "control_socket.h"
 #include "fake_sysfs.h"
+#include "brightness_map.h"
 #include "modes.h"
+#include "theme.h"
 #include "tray_window.h"
 
 #include <QCheckBox>
@@ -11,6 +13,7 @@
 #include <QCoreApplication>
 #include <QDeadlineTimer>
 #include <QDir>
+#include <QStandardPaths>
 #include <QFile>
 #include <QGuiApplication>
 #include <QJsonDocument>
@@ -22,6 +25,7 @@
 #include <QPushButton>
 #include <QSignalSpy>
 #include <QSlider>
+#include <QSpinBox>
 #include <QTabWidget>
 #include <QTemporaryDir>
 #include <QTest>
@@ -44,7 +48,7 @@ public:
                           QStringLiteral("--ring"), m_work + QStringLiteral("/metrics.ring"),
                           QStringLiteral("--socket"), socketPath(), QStringLiteral("--state"),
                           m_work + QStringLiteral("/state"), QStringLiteral("--config"),
-                          m_work + QStringLiteral("/modes.conf"), QStringLiteral("--capacity"),
+                          m_work + QStringLiteral("/settings.conf"), QStringLiteral("--capacity"),
                           QStringLiteral("64"), QStringLiteral("--interval-ms"),
                           QStringLiteral("20") });
     }
@@ -143,19 +147,25 @@ private slots:
     void theOtherLiveControlsReachTheDaemon();
     void selectingAModeSendsTheModeCommand();
     void theMarkButtonsStampTheCurrentSample();
-    void copiesTheLiveSetpointsAsAConfigurationSnippet();
-    void maximumFanSpeedIsAControlOfItsOwn();
+    void movingAControlEmptiesTheModeSelector();
+    void savesTheChangedNumbersIntoTheModeThatIsNamed();
+    void theFanIsOneControlWithFourAnswers();
     void theBacklightSwitchIsOneAction();
-    void theBacklightWindowIsTunedFromTheWindow();
+    void theBacklightIsThreeControlsInPerCent();
     void theAutostartSwitchOwnsItsOwnEntry();
+    void theConsoleAppearanceIsAChoiceOfThree();
+    void oneResetCoversEverySettingThereIs();
     void repaintingFromAStatusSendsNothing();
     void saysSoWhenTheDaemonIsUnreachable();
+    void theWindowKeepsOneSizeForEveryTab();
+    void theReplyLineTakesNoRoomUntilThereIsAReply();
     void theTrayBinaryRunsAgainstADaemon();
+    void theTrayWaitsForALateTrayHost();
     void theTrayBinaryWritesTheDocumentationScreenshots();
 
 private:
     QString socketPath() const { return m_work.path() + QStringLiteral("/control.sock"); }
-    QString configPath() const { return m_work.path() + QStringLiteral("/modes.conf"); }
+    QString configPath() const { return m_work.path() + QStringLiteral("/settings.conf"); }
 
     QTemporaryDir m_work;
     // Rebuilt before every test: a shared tree would carry one case's writes
@@ -168,6 +178,10 @@ void TrayWindowTest::init()
     m_tree = std::make_unique<FakeSysfs>();
     QFile::remove(m_work.path() + QStringLiteral("/state"));
     QFile::remove(m_work.path() + QStringLiteral("/metrics.ring"));
+    // The settings file too: cases that save a definition would otherwise hand
+    // it to every case after them, and a daemon booting into somebody else's
+    // mode is a confusing way to fail.
+    QFile::remove(configPath());
 }
 
 void TrayWindowTest::showsTheReadingsIncludingTheCorePowerSplit()
@@ -214,14 +228,15 @@ void TrayWindowTest::showsTheReadingsIncludingTheCorePowerSplit()
 
     // The sliders follow what was asked for; what actually reached the
     // hardware is stated separately, because the guard can differ from it.
-    QCOMPARE(window.findChild<QSlider *>(QStringLiteral("pl1"))->value(), 17);
-    QCOMPARE(window.findChild<QSlider *>(QStringLiteral("pl2"))->value(), 26);
-    QCOMPARE(window.findChild<QSlider *>(QStringLiteral("max_perf_pct"))->value(), 40);
-    QCOMPARE(window.findChild<QSlider *>(QStringLiteral("gt_max_mhz"))->value(), 1200);
-    QCOMPARE(window.findChild<QLabel *>(QStringLiteral("pl1_value"))->text(),
-             QStringLiteral("17 W"));
-    QCOMPARE(window.findChild<QLabel *>(QStringLiteral("gt_max_mhz_value"))->text(),
-             QStringLiteral("1200 MHz"));
+    QCOMPARE(window.findChild<QSlider *>(QStringLiteral("pl1_slider"))->value(), 17);
+    QCOMPARE(window.findChild<QSlider *>(QStringLiteral("pl2_slider"))->value(), 26);
+    QCOMPARE(window.findChild<QSlider *>(QStringLiteral("max_perf_pct_slider"))->value(), 40);
+    QCOMPARE(window.findChild<QSlider *>(QStringLiteral("gt_max_mhz_slider"))->value(), 1200);
+    // The field beside each slider carries the same value and its unit: a
+    // slider cannot be landed on a number, and these numbers are typed.
+    QCOMPARE(window.findChild<QSpinBox *>(QStringLiteral("pl1_box"))->value(), 17);
+    QCOMPARE(window.findChild<QSpinBox *>(QStringLiteral("gt_max_mhz_box"))->suffix(),
+             QStringLiteral(" MHz"));
     QCOMPARE(window.findChild<QComboBox *>(QStringLiteral("epp"))->currentText(),
              QStringLiteral("performance"));
     QCOMPARE(window.findChild<QComboBox *>(QStringLiteral("profile"))->currentText(),
@@ -231,14 +246,15 @@ void TrayWindowTest::showsTheReadingsIncludingTheCorePowerSplit()
     QVERIFY(window.findChild<QLabel *>(QStringLiteral("applied"))->text()
                     .contains(QStringLiteral("PL1 20 W")));
     QCOMPARE(window.findChild<QLabel *>(QStringLiteral("power_source"))->text(),
-             QStringLiteral("On mains power"));
+             QStringLiteral("On mains"));
     // Live tuning is announced, because those values survive nothing.
     QVERIFY(!window.findChild<QLabel *>(QStringLiteral("live_tuning"))->isHidden());
 
+    // Empty, because this status says the controls have been moved: what is
+    // running is not any of the saved modes.
     auto *mode = window.findChild<QComboBox *>(QStringLiteral("mode"));
     QCOMPARE(mode->count(), 2);
-    QCOMPARE(mode->currentText(), QStringLiteral("Work"));
-    QCOMPARE(mode->currentData().toString(), QStringLiteral("work"));
+    QCOMPARE(mode->currentIndex(), -1);
 }
 
 void TrayWindowTest::showsAbsentReadingsAsADash()
@@ -296,11 +312,9 @@ void TrayWindowTest::showsTheGuardAndTheWriteMismatch()
     QVERIFY(live->isHidden());
     QVERIFY(window.findChild<QLabel *>(QStringLiteral("applied"))->text()
                     .contains(QStringLiteral("PL1 10 W")));
-    QCOMPARE(window.findChild<QSlider *>(QStringLiteral("pl1"))->value(), 45);
+    QCOMPARE(window.findChild<QSlider *>(QStringLiteral("pl1_slider"))->value(), 45);
     // The window reports the fan that is actually running, and the guard is
     // the one part of automatic operation that forces it.
-    QCOMPARE(window.findChild<QLabel *>(QStringLiteral("fan_state"))->text(),
-             QStringLiteral("Fan: full speed"));
 
     window.applyStatus(statusFrom(R"({
         "mode": "full", "modes": [{"id": "full", "label": "Full"}],
@@ -320,7 +334,7 @@ void TrayWindowTest::movingASliderTunesTheDaemonImmediately()
     TrayWindow window(client);
     client.poll();
 
-    auto *pl1 = window.findChild<QSlider *>(QStringLiteral("pl1"));
+    auto *pl1 = window.findChild<QSlider *>(QStringLiteral("pl1_slider"));
     QCOMPARE(pl1->value(), 20);
     // Nothing, not a slider either, raises a limit past what the maintainer
     // has confirmed on this machine.
@@ -333,15 +347,14 @@ void TrayWindowTest::movingASliderTunesTheDaemonImmediately()
     QCOMPARE(client.status().requested.pl2W, 30);
     QCOMPARE(client.status().requested.maxPerfPct, 50);
     QCOMPARE(client.status().requested.profile, Profile::Balanced);
-    QCOMPARE(window.findChild<QLabel *>(QStringLiteral("pl1_value"))->text(),
-             QStringLiteral("15 W"));
+    QCOMPARE(window.findChild<QSpinBox *>(QStringLiteral("pl1_box"))->value(), 15);
     QVERIFY(window.findChild<QLabel *>(QStringLiteral("notice"))->text()
                     .contains(QStringLiteral("pl1=15")));
-    // Applied at once and never written back: the configuration file is the
-    // single source of truth and the tray does not touch it.
+    // Applied at once and not written down: keeping it is a separate act with
+    // a named destination.
     QVERIFY(!QFile::exists(configPath()));
 
-    window.findChild<QPushButton *>(QStringLiteral("reset"))->click();
+    window.findChild<QPushButton *>(QStringLiteral("revert"))->click();
     QVERIFY(!client.status().liveTuning);
     QCOMPARE(client.status().requested.pl1W, 20);
     QCOMPARE(pl1->value(), 20);
@@ -355,13 +368,13 @@ void TrayWindowTest::theOtherLiveControlsReachTheDaemon()
     TrayWindow window(client);
     client.poll();
 
-    window.findChild<QSlider *>(QStringLiteral("pl2"))->setValue(40);
+    window.findChild<QSlider *>(QStringLiteral("pl2_slider"))->setValue(40);
     QCOMPARE(client.status().requested.pl2W, 40);
-    window.findChild<QSlider *>(QStringLiteral("max_perf_pct"))->setValue(35);
+    window.findChild<QSlider *>(QStringLiteral("max_perf_pct_slider"))->setValue(35);
     QCOMPARE(client.status().requested.maxPerfPct, 35);
     // The iGPU ceiling exists because none of the CPU-side controls touch the
     // graphics engine, and a video call loads it as heavily as the cores.
-    window.findChild<QSlider *>(QStringLiteral("gt_max_mhz"))->setValue(1200);
+    window.findChild<QSlider *>(QStringLiteral("gt_max_mhz_slider"))->setValue(1200);
     QCOMPARE(client.status().requested.gtMaxMhz, 1200);
     window.findChild<QCheckBox *>(QStringLiteral("turbo"))->setChecked(true);
     QVERIFY(!client.status().requested.noTurbo);
@@ -403,7 +416,7 @@ void TrayWindowTest::selectingAModeSendsTheModeCommand()
     QCOMPARE(mode->currentIndex(), 0);
 
     // Selecting a mode is the deliberate act that drops live tuning.
-    window.findChild<QSlider *>(QStringLiteral("pl1"))->setValue(11);
+    window.findChild<QSlider *>(QStringLiteral("pl1_slider"))->setValue(11);
     QVERIFY(client.status().liveTuning);
     mode->setCurrentIndex(2);
     QVERIFY(!client.status().liveTuning);
@@ -431,41 +444,70 @@ void TrayWindowTest::theMarkButtonsStampTheCurrentSample()
     QCOMPARE(notice->text(), QStringLiteral("mark too-slow → ok"));
 }
 
-void TrayWindowTest::copiesTheLiveSetpointsAsAConfigurationSnippet()
+void TrayWindowTest::movingAControlEmptiesTheModeSelector()
 {
     TestDaemon daemon(m_tree->root(), m_work.path());
     QVERIFY(daemon.waitUntilListening());
     TrayClient client(socketPath());
     TrayWindow window(client);
     client.poll();
-    window.findChild<QSlider *>(QStringLiteral("pl1"))->setValue(17);
 
-    QGuiApplication::clipboard()->clear();
-    window.findChild<QPushButton *>(QStringLiteral("copy_snippet"))->click();
+    auto *mode = window.findChild<QComboBox *>(QStringLiteral("mode"));
+    QCOMPARE(mode->count(), 3);
+    QCOMPARE(mode->currentData().toString(), QStringLiteral("work"));
 
-    // The tray never writes the configuration; promoting a live value into it
-    // stays a deliberate edit by the maintainer.
-    const QString snippet = QGuiApplication::clipboard()->text();
-    QVERIFY(snippet.contains(QStringLiteral("[mode work]")));
-    QVERIFY(snippet.contains(QStringLiteral("pl1_w=17")));
-    QVERIFY(snippet.contains(QStringLiteral("platform_profile=balanced")));
-    QVERIFY(!QFile::exists(configPath()));
-    QVERIFY(window.findChild<QLabel *>(QStringLiteral("notice"))->text()
-                    .contains(QStringLiteral("clipboard")));
+    // Moving a control is what makes the running numbers stop being any of the
+    // three, and the empty selector is the whole signal for that.
+    window.findChild<QSpinBox *>(QStringLiteral("pl1_box"))->setValue(17);
+    QTRY_VERIFY(client.status().liveTuning);
+    QCOMPARE(mode->currentIndex(), -1);
+    QVERIFY(window.findChild<QLabel *>(QStringLiteral("mode_state"))
+                    ->text()
+                    .contains(QStringLiteral("Changed from the saved Work")));
+    // Which mode comes back at boot is a statement about a mode, and there is
+    // no mode to make it about.
+    QVERIFY(!window.findChild<QCheckBox *>(QStringLiteral("mode_at_boot"))->isEnabled());
 
-    // The snippet is the configuration parser's own input, so it reads back.
-    QFile file(m_work.path() + QStringLiteral("/snippet.conf"));
-    QVERIFY(file.open(QIODevice::WriteOnly | QIODevice::Truncate));
-    file.write(snippet.toUtf8());
-    file.close();
-    ModeTable table;
-    QVERIFY(table.load(file.fileName()));
-    QCOMPARE(table.modes().size(), 1);
-    QCOMPARE(table.modes().first().setpoints.pl1W, 17);
-    QVERIFY(file.remove());
+    // Reverting puts the selector back.
+    window.findChild<QPushButton *>(QStringLiteral("revert"))->click();
+    QTRY_VERIFY(!client.status().liveTuning);
+    QCOMPARE(mode->currentData().toString(), QStringLiteral("work"));
 }
 
-void TrayWindowTest::maximumFanSpeedIsAControlOfItsOwn()
+void TrayWindowTest::savesTheChangedNumbersIntoTheModeThatIsNamed()
+{
+    TestDaemon daemon(m_tree->root(), m_work.path());
+    QVERIFY(daemon.waitUntilListening());
+    TrayClient client(socketPath());
+    TrayWindow window(client);
+    client.poll();
+    QTest::qWait(20);
+
+    window.findChild<QSpinBox *>(QStringLiteral("pl1_box"))->setValue(17);
+    QTRY_VERIFY(client.status().liveTuning);
+
+    // The destination starts on the mode it was changed from, because that is
+    // what the person is thinking about — and it is a choice, not an
+    // assumption.
+    auto *target = window.findChild<QComboBox *>(QStringLiteral("save_target"));
+    QCOMPARE(target->currentData().toString(), QStringLiteral("work"));
+    target->setCurrentIndex(target->findData(QStringLiteral("quiet")));
+
+    QVERIFY(!QFile::exists(configPath()));
+    window.findChild<QPushButton *>(QStringLiteral("save"))->click();
+
+    // The daemon does the writing, and what lands on disk is what its own
+    // parser reads back.
+    QVERIFY(QFile::exists(configPath()));
+    ModeTable table;
+    QVERIFY(table.load(configPath()));
+    QCOMPARE(table.find(QStringLiteral("quiet"))->setpoints.pl1W, 17);
+    // The mode in force was not the destination, so its definition is
+    // untouched.
+    QCOMPARE(table.find(QStringLiteral("work"))->setpoints.pl1W, 20);
+}
+
+void TrayWindowTest::theFanIsOneControlWithFourAnswers()
 {
     TestDaemon daemon(m_tree->root(), m_work.path());
     QVERIFY(daemon.waitUntilListening());
@@ -473,24 +515,29 @@ void TrayWindowTest::maximumFanSpeedIsAControlOfItsOwn()
     TrayWindow window(client);
     client.poll();
 
-    QCOMPARE(window.findChild<QLabel *>(QStringLiteral("fan_state"))->text(),
-             QStringLiteral("Fan: automatic, EC controlled"));
+    // Three of them are the firmware's curves and the fourth bypasses them,
+    // but the machine has one fan and so the window has one control. Two
+    // groups doing fan-shaped things would read as a duplicate, whatever the
+    // difference between them.
+    auto *fan = window.findChild<QComboBox *>(QStringLiteral("profile"));
+    QCOMPARE(fan->count(), 4);
+    QCOMPARE(fan->currentText(), QStringLiteral("balanced"));
     QCOMPARE(m_tree->read(FakeSysfs::asus() + QStringLiteral("/pwm1_enable")),
              QStringLiteral("2"));
 
-    // Full speed is reachable only on explicit demand and is independent of
-    // the mode; automatic control never engages it.
-    window.findChild<QPushButton *>(QStringLiteral("fan_max"))->click();
+    fan->setCurrentIndex(fan->findText(QStringLiteral("maximum")));
     QTRY_COMPARE(m_tree->read(FakeSysfs::asus() + QStringLiteral("/pwm1_enable")),
                  QStringLiteral("0"));
-    QCOMPARE(client.status().modeId, QStringLiteral("work"));
+    // Full speed is a setpoint like the others now, so the machine is no
+    // longer running a saved mode and the selector says so.
+    QVERIFY(client.status().liveTuning);
     client.poll();
-    QCOMPARE(window.findChild<QLabel *>(QStringLiteral("fan_state"))->text(),
-             QStringLiteral("Fan: full speed"));
+    QCOMPARE(fan->currentText(), QStringLiteral("maximum"));
 
-    window.findChild<QPushButton *>(QStringLiteral("fan_auto"))->click();
+    fan->setCurrentIndex(fan->findText(QStringLiteral("quiet")));
     QTRY_COMPARE(m_tree->read(FakeSysfs::asus() + QStringLiteral("/pwm1_enable")),
                  QStringLiteral("2"));
+    QCOMPARE(m_tree->read(FakeSysfs::platformProfile()), QStringLiteral("quiet"));
 }
 
 void TrayWindowTest::theBacklightSwitchIsOneAction()
@@ -502,28 +549,29 @@ void TrayWindowTest::theBacklightSwitchIsOneAction()
     client.poll();
 
     auto *toggle = window.findChild<QCheckBox *>(QStringLiteral("auto_brightness"));
-    auto *profile = window.findChild<QComboBox *>(QStringLiteral("brightness_profile"));
     QVERIFY(toggle->isEnabled());
     // Off by default: the automation is something the person switches on.
     QVERIFY(!toggle->isChecked());
-    QCOMPARE(profile->count(), 1);
-    QCOMPARE(profile->itemData(0).toString(), QStringLiteral("indoors"));
 
     // One click, and the daemon has it.
     toggle->setChecked(true);
     QVERIFY(client.status().autoBrightness);
+    client.poll();
+    // What it says while on is a band in per cent, because that is the whole
+    // of what a person needs to know about it.
+    QVERIFY(window.findChild<QLabel *>(QStringLiteral("backlight_state"))
+                    ->text()
+                    .contains(QStringLiteral("you set")));
+
     toggle->setChecked(false);
     QVERIFY(!client.status().autoBrightness);
-
-    // The selector is its own control, and it is not the thermal mode's.
-    profile->setCurrentIndex(0);
-    QCOMPARE(client.status().brightnessProfileId, QStringLiteral("indoors"));
-    QVERIFY(window.findChild<QLabel *>(QStringLiteral("brightness_state"))
+    client.poll();
+    QVERIFY(window.findChild<QLabel *>(QStringLiteral("backlight_state"))
                     ->text()
-                    .contains(QStringLiteral("your level")));
+                    .contains(QStringLiteral("yours alone")));
 }
 
-void TrayWindowTest::theBacklightWindowIsTunedFromTheWindow()
+void TrayWindowTest::theBacklightIsThreeControlsInPerCent()
 {
     TestDaemon daemon(m_tree->root(), m_work.path());
     QVERIFY(daemon.waitUntilListening());
@@ -531,36 +579,33 @@ void TrayWindowTest::theBacklightWindowIsTunedFromTheWindow()
     TrayWindow window(client);
     client.poll();
 
-    auto *span = window.findChild<QSlider *>(QStringLiteral("brightness_span"));
-    auto *floor = window.findChild<QSlider *>(QStringLiteral("brightness_floor"));
-    auto *ceiling = window.findChild<QSlider *>(QStringLiteral("brightness_ceiling"));
-    QVERIFY(span->isEnabled());
-    QCOMPARE(span->value(), kBrightnessDefaultSpanPct);
+    auto *response = window.findChild<QSpinBox *>(QStringLiteral("response_box"));
+    auto *floor = window.findChild<QSpinBox *>(QStringLiteral("floor_box"));
+    QVERIFY(response);
+    QCOMPARE(response->value(), kBrightnessDefaultResponsePct);
+    QCOMPARE(floor->value(), kBrightnessDefaultFloorPct);
+    // Per cent, and nothing else: no profile to choose, and nothing about the
+    // sensor on screen.
+    QCOMPARE(response->suffix(), QStringLiteral(" %"));
+    QVERIFY(!window.findChild<QComboBox *>(QStringLiteral("brightness_profile")));
 
-    // "The range is too narrow" is answered here rather than by editing the
-    // file, and the answer applies at once.
-    span->setValue(30);
-    QTRY_COMPARE(client.status().brightnessSpanPct, 30);
-    QVERIFY(client.status().brightnessLive);
-    QCOMPARE(window.findChild<QLabel *>(QStringLiteral("brightness_span_value"))->text(),
-             QStringLiteral("\u00B1 30 pp"));
+    // "It reacts too much" is answered here, and the answer applies at once.
+    response->setValue(45);
+    QTRY_COMPARE(client.status().brightnessResponsePct, 45);
 
-    // The pair cannot cross: the dragged slider pushes the other ahead of it
-    // rather than reaching a pair the daemon refuses.
-    ceiling->setValue(60);
-    QTRY_COMPARE(client.status().brightnessCeilingPct, 60);
-    floor->setValue(80);
-    QTRY_COMPARE(client.status().brightnessCeilingPct, 80);
-    QCOMPARE(client.status().brightnessFloorPct, 80);
-    floor->setValue(20);
-    ceiling->setValue(10);
-    QTRY_COMPARE(client.status().brightnessFloorPct, 10);
+    // And it is a setting rather than an experiment: typing into the field
+    // ends the gesture, so it is written down.
+    QTRY_VERIFY(QFile::exists(configPath()));
+    BrightnessSettings saved = builtinBrightnessSettings();
+    QVERIFY(loadBrightnessSettings(configPath(), &saved));
+    QCOMPARE(saved.responsePct, 45);
 
-    // Nothing was written back, so dropping the overlay returns the profile's
-    // own numbers.
-    window.findChild<QPushButton *>(QStringLiteral("brightness_reset"))->click();
-    QTRY_VERIFY(!client.status().brightnessLive);
-    QCOMPARE(client.status().brightnessSpanPct, kBrightnessDefaultSpanPct);
+    // The band is what the window says out loud, in per cent.
+    floor->setValue(25);
+    QTRY_COMPARE(client.status().brightnessFloorPct, 25);
+    client.poll();
+    const QString state = window.findChild<QLabel *>(QStringLiteral("backlight_state"))->text();
+    QVERIFY2(!state.contains(QStringLiteral("lux")), qPrintable(state));
 }
 
 void TrayWindowTest::theAutostartSwitchOwnsItsOwnEntry()
@@ -606,6 +651,72 @@ void TrayWindowTest::theAutostartSwitchOwnsItsOwnEntry()
     qputenv("XDG_CONFIG_HOME", config.path().toUtf8());
 }
 
+void TrayWindowTest::theConsoleAppearanceIsAChoiceOfThree()
+{
+    // The console's own look, not the machine's, and not the panel's either: the
+    // tray icon is the desktop's to draw whatever is chosen here.
+    QStandardPaths::setTestModeEnabled(true);
+    theme::setPreference(theme::Preference::System);
+
+    TrayClient client(socketPath());
+    TrayWindow window(client);
+    auto *appearance = window.findChild<QComboBox *>(QStringLiteral("appearance"));
+    QVERIFY(appearance);
+    QCOMPARE(appearance->count(), 3);
+    QCOMPARE(appearance->currentData().toString(), QStringLiteral("system"));
+
+    appearance->setCurrentIndex(appearance->findData(QStringLiteral("dark")));
+    QCOMPARE(theme::preference(), theme::Preference::Dark);
+    QCOMPARE(theme::schemeOf(QApplication::palette()), theme::Scheme::Dark);
+
+    appearance->setCurrentIndex(appearance->findData(QStringLiteral("light")));
+    QCOMPARE(theme::preference(), theme::Preference::Light);
+    QCOMPARE(theme::schemeOf(QApplication::palette()), theme::Scheme::Light);
+
+    // And a window opened afterwards shows the stored choice rather than the
+    // first item.
+    TrayWindow reopened(client);
+    QCOMPARE(reopened.findChild<QComboBox *>(QStringLiteral("appearance"))
+                     ->currentData()
+                     .toString(),
+             QStringLiteral("light"));
+
+    theme::setPreference(theme::Preference::System);
+}
+
+void TrayWindowTest::oneResetCoversEverySettingThereIs()
+{
+    TestDaemon daemon(m_tree->root(), m_work.path());
+    QVERIFY(daemon.waitUntilListening());
+    TrayClient client(socketPath());
+    TrayWindow window(client);
+    client.poll();
+
+    // Something saved on both sides, so a reset that covered only one of them
+    // would show.
+    QVERIFY(client.send(QStringLiteral("config set mode work pl1_w=11"))
+                    .startsWith(QLatin1String("ok")));
+    QVERIFY(client.send(QStringLiteral("config set brightness response_pct=45"))
+                    .startsWith(QLatin1String("ok")));
+
+    auto *reset = window.findChild<QPushButton *>(QStringLiteral("reset_all"));
+    QVERIFY(reset);
+    // One button, and it is not on the tab whose numbers it discards: it covers
+    // every setting there is and is used about once.
+    QCOMPARE(window.findChild<QPushButton *>(QStringLiteral("reset_modes")), nullptr);
+
+    window.resetEverything();
+    QTest::qWait(50);
+
+    ModeTable modes;
+    QVERIFY(modes.load(configPath()));
+    QCOMPARE(modes.find(QStringLiteral("work"))->setpoints.pl1W,
+             ModeTable::builtinDefaults().find(QStringLiteral("work"))->setpoints.pl1W);
+    BrightnessSettings brightness;
+    QVERIFY(loadBrightnessSettings(configPath(), &brightness));
+    QCOMPARE(brightness.responsePct, kBrightnessDefaultResponsePct);
+}
+
 void TrayWindowTest::repaintingFromAStatusSendsNothing()
 {
     TestDaemon daemon(m_tree->root(), m_work.path());
@@ -626,9 +737,7 @@ void TrayWindowTest::repaintingFromAStatusSendsNothing()
                       "hwp_boost": true, "gt_max_mhz": 1500},
         "sensors": {"pkg_c": 61.0}
     })"));
-    QCOMPARE(window.findChild<QSlider *>(QStringLiteral("pl1"))->value(), 33);
-    QCOMPARE(window.findChild<QLabel *>(QStringLiteral("fan_state"))->text(),
-             QStringLiteral("Fan: full speed"));
+    QCOMPARE(window.findChild<QSlider *>(QStringLiteral("pl1_slider"))->value(), 33);
     QCOMPARE(window.findChild<QComboBox *>(QStringLiteral("mode"))->currentIndex(), 2);
 
     client.poll();
@@ -653,7 +762,7 @@ void TrayWindowTest::saysSoWhenTheDaemonIsUnreachable()
 
     // Nothing that would send a command is usable, so a slider parked at its
     // minimum cannot be read as a setpoint the daemon is holding.
-    QVERIFY(!window.findChild<QSlider *>(QStringLiteral("pl1"))->isEnabled());
+    QVERIFY(!window.findChild<QSlider *>(QStringLiteral("pl1_slider"))->isEnabled());
     QVERIFY(!window.findChild<QComboBox *>(QStringLiteral("mode"))->isEnabled());
     QVERIFY(!window.findChild<QCheckBox *>(QStringLiteral("auto_brightness"))->isEnabled());
 
@@ -661,9 +770,11 @@ void TrayWindowTest::saysSoWhenTheDaemonIsUnreachable()
     window.markGood();
     QCOMPARE(window.findChild<QLabel *>(QStringLiteral("notice"))->text(),
              QStringLiteral("mark good → no reply"));
-    window.copyConfigSnippet();
+    // With no daemon there are no modes either, so there is nothing to save
+    // into and the window says that rather than sending into the void.
+    window.saveToMode();
     QCOMPARE(window.findChild<QLabel *>(QStringLiteral("notice"))->text(),
-             QStringLiteral("snippet → no reply"));
+             QStringLiteral("No modes to save into yet."));
 
     TestDaemon daemon(m_tree->root(), m_work.path());
     QVERIFY(daemon.waitUntilListening());
@@ -674,7 +785,31 @@ void TrayWindowTest::saysSoWhenTheDaemonIsUnreachable()
     live.poll();
     QVERIFY(connection->text().contains(QStringLiteral("Connected")));
     QVERIFY(connection->text().contains(live.socketPath()));
-    QVERIFY(second.findChild<QSlider *>(QStringLiteral("pl1"))->isEnabled());
+    QVERIFY(second.findChild<QSlider *>(QStringLiteral("pl1_slider"))->isEnabled());
+}
+
+void TrayWindowTest::theReplyLineTakesNoRoomUntilThereIsAReply()
+{
+    TestDaemon daemon(m_tree->root(), m_work.path());
+    QVERIFY(daemon.waitUntilListening());
+    TrayClient client(socketPath());
+    TrayWindow window(client);
+    client.poll();
+    window.show();
+    QTest::qWait(50);
+
+    auto *notice = window.findChild<QLabel *>(QStringLiteral("notice"));
+    QVERIFY(notice);
+    // Nothing said yet, so nothing takes room: a reply line kept visible from
+    // the start is a strip of empty space along the bottom of every tab.
+    QVERIFY(!notice->isVisible());
+    const int before = window.height();
+
+    window.markGood();
+    QTest::qWait(50);
+    QVERIFY(notice->isVisible());
+    QVERIFY2(window.height() > before, "the frame is fixed, so it has to make the room");
+    QVERIFY(notice->text().contains(QStringLiteral("mark good")));
 }
 
 void TrayWindowTest::theTrayBinaryRunsAgainstADaemon()
@@ -722,6 +857,85 @@ void TrayWindowTest::theTrayBinaryRunsAgainstADaemon()
     nonsense.start(binary, { QStringLiteral("--nonsense") });
     QVERIFY(nonsense.waitForFinished(10000));
     QCOMPARE(nonsense.exitCode(), 1);
+}
+
+void TrayWindowTest::theTrayWaitsForALateTrayHost()
+{
+    const QString binary = QDir::cleanPath(QCoreApplication::applicationDirPath()
+                                           + QStringLiteral("/../ombra-tray"));
+    QVERIFY2(QFile::exists(binary), qPrintable(binary));
+    TestDaemon daemon(m_tree->root(), m_work.path());
+    QVERIFY(daemon.waitUntilListening());
+
+    // A tray host that turns up late, which is the ordinary case at login: the
+    // panel registers over the session bus a second or two after an autostarted
+    // process. Without the first hook this branch cannot be reached at all —
+    // on the offscreen platform the availability check answers true at once.
+    QProcessEnvironment late = isolatedEnvironment();
+    late.insert(QStringLiteral("OMBRA_TEST_TRAY_ABSENT_MS"), QStringLiteral("1000"));
+    late.insert(QStringLiteral("OMBRA_TEST_TRAY_TIMEOUT_MS"), QStringLiteral("5000"));
+
+    QProcess appears;
+    const Reaped reapedAppears(appears);
+    appears.setProcessEnvironment(late);
+    appears.start(binary, { QStringLiteral("--socket"), socketPath(),
+                            QStringLiteral("--interval-ms"), QStringLiteral("40"),
+                            QStringLiteral("--quit-after-ms"), QStringLiteral("3000") });
+    QVERIFY(appears.waitForStarted(10000));
+    QVERIFY(appears.waitForFinished(20000));
+    QCOMPARE(appears.exitCode(), 0);
+    // It waited rather than deciding at the first tick, so nothing was said
+    // about a missing tray.
+    QVERIFY(!QString::fromUtf8(appears.readAllStandardError())
+                     .contains(QStringLiteral("no system tray")));
+
+    // And the other branch: a host that never arrives. The console opens, and
+    // the process ends when it is closed — otherwise it would live on with no
+    // window and no icon, reachable only by name.
+    QProcessEnvironment never = isolatedEnvironment();
+    never.insert(QStringLiteral("OMBRA_TEST_TRAY_ABSENT_MS"), QStringLiteral("100000"));
+    never.insert(QStringLiteral("OMBRA_TEST_TRAY_TIMEOUT_MS"), QStringLiteral("1000"));
+
+    QProcess absent;
+    const Reaped reapedAbsent(absent);
+    absent.setProcessEnvironment(never);
+    absent.start(binary, { QStringLiteral("--socket"), socketPath(),
+                           QStringLiteral("--interval-ms"), QStringLiteral("40"),
+                           QStringLiteral("--quit-after-ms"), QStringLiteral("4000") });
+    QVERIFY(absent.waitForStarted(10000));
+    QVERIFY(absent.waitForFinished(20000));
+    QVERIFY(QString::fromUtf8(absent.readAllStandardError())
+                    .contains(QStringLiteral("no system tray")));
+}
+
+void TrayWindowTest::theWindowKeepsOneSizeForEveryTab()
+{
+    TestDaemon daemon(m_tree->root(), m_work.path());
+    QVERIFY(daemon.waitUntilListening());
+    TrayClient client(socketPath());
+    TrayWindow window(client);
+    client.poll();
+    window.show();
+    QTest::qWait(50);
+
+    const QSize sized = window.size();
+    auto *tabs = window.findChild<QTabWidget *>(QStringLiteral("tabs"));
+    QVERIFY(tabs);
+    // Every tab fits, so none of them opens clipped and switching moves
+    // nothing. The frame is fixed there: what dragging it could produce is
+    // either empty space or a scrollbar over content that had room.
+    for (int i = 0; i < tabs->count(); ++i) {
+        tabs->setCurrentIndex(i);
+        QTest::qWait(20);
+        QCOMPARE(window.size(), sized);
+    }
+    QCOMPARE(window.minimumSize(), sized);
+    QCOMPARE(window.maximumSize(), sized);
+
+    // Except for the documentation pictures, which need each tab photographed
+    // at its own height.
+    window.fitToCurrentTab();
+    QVERIFY(window.maximumSize() != sized);
 }
 
 void TrayWindowTest::theTrayBinaryWritesTheDocumentationScreenshots()

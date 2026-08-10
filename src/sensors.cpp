@@ -40,14 +40,25 @@ uint16_t clampToU16(qint64 value)
     return static_cast<uint16_t>(value);
 }
 
+// Power gets its own conversion because clamping it is worse than admitting
+// ignorance. A figure this large is an artefact of the energy counter, not a
+// reading, and stored as a number it becomes a peak in every chart and a lie in
+// every percentile. Recorded as absent it is simply one tick nobody measured.
+uint16_t powerOrAbsent(qint64 centiwatts)
+{
+    if (centiwatts < 0 || centiwatts > kMaxPlausiblePowerCw)
+        return kAbsentValue;
+    return static_cast<uint16_t>(centiwatts);
+}
+
 } // namespace
 
 uint64_t energyDelta(uint64_t current, uint64_t previous, uint64_t range)
 {
     if (current >= previous)
         return current - previous;
-    // The counter wrapped. Without a known range there is no way to tell how
-    // much was missed, so the tick contributes nothing rather than a spike.
+    // Without a known range there is no way to tell how much was missed, so the
+    // tick contributes nothing rather than a spike.
     if (range == 0 || range < previous)
         return 0;
     return (range - previous) + current;
@@ -71,6 +82,7 @@ void SensorReader::resolve()
     m_cpuFreqPaths.clear();
     m_coreThrottlePaths.clear();
     m_packageThrottlePath.clear();
+    m_displayStatusPaths.clear();
 
     if (const auto coretemp = m_sysfs.hwmonByName(QStringLiteral("coretemp"))) {
         m_pkgTempPath = labelledTempInput(m_sysfs, *coretemp, QStringLiteral("Package id 0"));
@@ -101,6 +113,16 @@ void SensorReader::resolve()
             m_gpuFreqPath = candidate;
             break;
         }
+    }
+
+    // Display connectors are the "card<N>-<connector>" entries of the same
+    // directory, so they are matched by the dash the card itself does not have.
+    const QStringList connectors =
+            m_sysfs.glob(QStringLiteral("sys/class/drm"), QStringLiteral("card*-*"));
+    for (const QString &connector : connectors) {
+        const QString status = connector + QStringLiteral("/status");
+        if (m_sysfs.exists(status))
+            m_displayStatusPaths.append(status);
     }
 
     if (const auto package = m_sysfs.raplDomainByName(QStringLiteral("package-0")))
@@ -182,6 +204,7 @@ Sample SensorReader::read(uint32_t timestamp, qint64 monotonicMs)
     sample.cpuMhz = kAbsentValue;
     sample.gpuMhz = kAbsentValue;
     sample.load1 = kAbsentValue;
+    sample.displays = kAbsentPercent;
     sample.modeId = 0xFF;
 
     m_degraded = false;
@@ -223,15 +246,15 @@ Sample SensorReader::read(uint32_t timestamp, qint64 monotonicMs)
     const bool hadBaseline = m_haveEnergyBaseline;
     if (const auto watts =
                 readEnergyUj(m_raplPackage, QStringLiteral("package"), m_prevPackageUj, elapsedMs))
-        sample.pkgPower = clampToU16(*watts);
+        sample.pkgPower = powerOrAbsent(*watts);
     else if (hadBaseline && !m_raplPackage.isEmpty())
         note(false);
     if (const auto watts =
                 readEnergyUj(m_raplCore, QStringLiteral("core"), m_prevCoreUj, elapsedMs))
-        sample.corePower = clampToU16(*watts);
+        sample.corePower = powerOrAbsent(*watts);
     if (const auto watts =
                 readEnergyUj(m_raplUncore, QStringLiteral("uncore"), m_prevUncoreUj, elapsedMs))
-        sample.uncorePower = clampToU16(*watts);
+        sample.uncorePower = powerOrAbsent(*watts);
     if (m_raplPackage.isEmpty())
         note(false);
     m_haveEnergyBaseline = true;
@@ -268,6 +291,21 @@ Sample SensorReader::read(uint32_t timestamp, qint64 monotonicMs)
             if (ok)
                 sample.load1 = clampToU16(static_cast<qint64>(load * 100.0 + 0.5));
         }
+    }
+
+    // Absent rather than zero when there is no DRM tree at all: "no connectors
+    // to ask" and "asked, nothing plugged in" are different answers. A
+    // connector that cannot be read is skipped rather than counted, because a
+    // count that silently drops one is worse than a count that is short.
+    if (!m_displayStatusPaths.isEmpty()) {
+        int connected = 0;
+        for (const QString &path : m_displayStatusPaths) {
+            if (const auto text = m_sysfs.readText(path)) {
+                if (*text == QLatin1String("connected"))
+                    ++connected;
+            }
+        }
+        sample.displays = static_cast<uint8_t>(std::clamp(connected, 0, kAbsentPercent - 1));
     }
 
     uint64_t packageThrottle = 0;
