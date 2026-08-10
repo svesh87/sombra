@@ -32,7 +32,7 @@ class QTimer;
 // is running.
 //
 // The one thing this window writes by itself is the tray's own autostart
-// entry. Everything else goes through the daemon, on the commands `ombra`
+// entry. Everything else goes through the daemon, on the commands `sombra`
 // sends, so there is exactly one writer of the settings file.
 class TrayWindow : public QWidget {
     Q_OBJECT

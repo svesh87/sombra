@@ -47,8 +47,7 @@ done
 # is why a leading slash disqualifies a match.
 tracked_tmp=$(grep -rn --exclude-dir=.git --exclude=lint.sh -e 'tmp/' \
     src tests scripts systemd desktop debian man completions \
-    README.md README.ru.md HARDWARE.md HARDWARE.ru.md \
-    DESIGN.md DESIGN.ru.md SCREENSHOTS.md SCREENSHOTS.ru.md 2>&1 \
+    README.md docs/*.md 2>&1 \
     | grep -v '/tmp/' || true)
 case "$tracked_tmp" in
 *"No such file or directory"*)

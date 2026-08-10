@@ -29,7 +29,7 @@ int runExport(const QStringList &arguments)
     parser.addVersionOption();
     const QCommandLineOption ringOption(QStringLiteral("ring"), QStringLiteral("Telemetry ring."),
                                         QStringLiteral("file"),
-                                        QStringLiteral("/var/lib/ombra/metrics.ring"));
+                                        QStringLiteral("/var/lib/sombra/metrics.ring"));
     const QCommandLineOption formatOption(QStringLiteral("format"), QStringLiteral("csv or json."),
                                           QStringLiteral("name"), QStringLiteral("csv"));
     const QCommandLineOption fromOption(QStringLiteral("from"),
@@ -99,7 +99,7 @@ int runControl(const QStringList &arguments)
     parser.addVersionOption();
     const QCommandLineOption socketOption(
             QStringLiteral("socket"), QStringLiteral("Control socket."), QStringLiteral("path"),
-            QStringLiteral("/run/ombra/control.sock"));
+            QStringLiteral("/run/sombra/control.sock"));
     parser.addOption(socketOption);
     parser.addPositionalArgument(QStringLiteral("command"),
                                  QStringLiteral("Command and its arguments."));
@@ -135,7 +135,7 @@ int runControl(const QStringList &arguments)
 
     // The "ok" is protocol framing, and the two reading commands answer with a
     // payload behind it. Printing the payload alone is what makes
-    // `ombra status | jq` and `ombra config show | jq` work without a caller
+    // `sombra status | jq` and `sombra config show | jq` work without a caller
     // stripping a word off the front of the answer.
     if (accepted && reply.size() > 3) {
         if (words.first() == QLatin1String("status")
@@ -155,7 +155,7 @@ int runControl(const QStringList &arguments)
 int main(int argc, char **argv)
 {
     QCoreApplication app(argc, argv);
-    QCoreApplication::setApplicationName(QStringLiteral("ombra"));
+    QCoreApplication::setApplicationName(QStringLiteral("sombra"));
     QCoreApplication::setApplicationVersion(QStringLiteral("0.1.0"));
 
     QStringList arguments = QCoreApplication::arguments();

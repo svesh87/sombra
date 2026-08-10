@@ -1,10 +1,10 @@
 [Desktop Entry]
 Type=Application
-Name=Ombra
+Name=Sombra
 GenericName=Thermal envelope console
 Comment=Select a thermal mode and tune setpoints live against the current readings
-Exec=/usr/bin/ombra-tray
-Icon=applications-system
+Exec=/usr/bin/sombra-tray
+Icon=sombra
 Terminal=false
 Categories=System;Monitor;
 Keywords=cpu;thermal;fan;power;throttle;

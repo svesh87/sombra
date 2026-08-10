@@ -14,38 +14,34 @@ configure)
     # The daemon runs as root and the tray as an ordinary user; they meet on a
     # unix socket owned by this group. It has to exist before the first start,
     # because the unit's ExecStartPost hands the socket to it.
-    if ! getent group ombra >/dev/null 2>&1; then
-        addgroup --system ombra >/dev/null
+    if ! getent group sombra >/dev/null 2>&1; then
+        addgroup --system sombra >/dev/null
     fi
     ;;
 abort-upgrade | abort-remove | abort-deconfigure) ;;
 esac
 
-# Announced in preinst, postinst and postrm alike; see preinst for why the old
-# conffile goes.
-dpkg-maintscript-helper rm_conffile /etc/ombra/modes.conf 0.1.0 ombra -- "$@"
-
 #DEBHELPER#
 
 if [ "$1" = configure ]; then
     cat <<'INSTRUCTIONS'
-ombra is installed but not running. There can be exactly one owner of
+sombra is installed but not running. There can be exactly one owner of
 the thermal controls, so handing them over is a deliberate step:
 
   sudo systemctl disable --now com.system76.PowerDaemon.service
   sudo systemctl mask com.system76.PowerDaemon.service
-  sudo systemctl enable --now ombrad
+  sudo systemctl enable --now sombrad
 
 (That is the vendor unit's real name; system76-power.service is only an alias
 of it, and masking the alias leaves the real unit enabled.)
 
 To use the tray, join the group and log back in:
 
-  sudo usermod -aG ombra "$USER"
+  sudo usermod -aG sombra "$USER"
 
 To hand the controls back:
 
-  sudo systemctl disable --now ombrad
+  sudo systemctl disable --now sombrad
   sudo systemctl unmask com.system76.PowerDaemon.service
 INSTRUCTIONS
 fi

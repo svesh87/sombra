@@ -111,7 +111,7 @@ bool readColourGroup(const QSettings &scheme, const QString &key, QPalette *pale
 QString settingsPath()
 {
     return QStandardPaths::writableLocation(QStandardPaths::GenericConfigLocation)
-            + QStringLiteral("/ombra/console.conf");
+            + QStringLiteral("/sombra/console.conf");
 }
 
 } // namespace

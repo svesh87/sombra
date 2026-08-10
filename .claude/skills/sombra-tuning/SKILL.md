@@ -1,9 +1,9 @@
 ---
-name: ombra-tuning
-description: Tune ombra's mode and brightness definitions from recorded telemetry. Use when asked to analyse a recorded session, to propose new setpoints, or to apply numbers that came out of such an analysis. Covers how to read the export, which conclusions the data does and does not support, and how to apply a change through the daemon.
+name: sombra-tuning
+description: Tune sombra's mode and brightness definitions from recorded telemetry. Use when asked to analyse a recorded session, to propose new setpoints, or to apply numbers that came out of such an analysis. Covers how to read the export, which conclusions the data does and does not support, and how to apply a change through the daemon.
 ---
 
-# Tuning ombra from its own telemetry
+# Tuning sombra from its own telemetry
 
 The daemon records one sample per second and every sample carries the setpoints
 that were in force. That is the whole point of the format: a log that does not
@@ -16,18 +16,18 @@ apply. The commands below change the machine's thermal envelope.
 ## Getting the data
 
 ```bash
-ombra status | jq            # what is running right now
-ombra config show | jq       # what is saved, and where
-ombra export --format csv > session.csv
-ombra export --format csv --from $(date -d '2 hours ago' +%s) > recent.csv
+sombra status | jq            # what is running right now
+sombra config show | jq       # what is saved, and where
+sombra export --format csv > session.csv
+sombra export --format csv --from $(date -d '2 hours ago' +%s) > recent.csv
 ```
 
-Membership of the group `ombra` is all it takes; no root, no editing files by
-hand. If `ombra` is not on the path the daemon is not installed, and there is
+Membership of the group `sombra` is all it takes; no root, no editing files by
+hand. If `sombra` is not on the path the daemon is not installed, and there is
 nothing to tune.
 
 Snapshots taken by `scripts/install.sh` before an upgrade live in
-`$XDG_STATE_HOME/ombra/telemetry`. The daemon converts a ring in an older
+`$XDG_STATE_HOME/sombra/telemetry`. The daemon converts a ring in an older
 layout rather than discarding it, and a file it cannot read is kept as
 `metrics.ring.bak` — so a session that seems to be missing is worth looking for
 there before it is written off. That is one slot, replaced by the next
@@ -65,7 +65,7 @@ there is not going to be one.
   drew visibly different power in one recorded session. Do not compare modes by
   binning on `load1`; the same average queue is different work.
 - **Modes are only comparable under a controlled protocol.** The one in
-  `HARDWARE.md`: eight threads, 90 s to settle, 90 s of recording, cool to 65 °C
+  `docs/HARDWARE.md`: eight threads, 90 s to settle, 90 s of recording, cool to 65 °C
   between combinations. Anything else compares two afternoons.
 - **Numbers from one scenario are not a default.** This machine has at least two
   — with an external monitor and without — and a setting that was excellent for
@@ -127,11 +127,11 @@ State the confounders you could not remove. "The comparison held `load1` but not
 ## Applying, after the maintainer has agreed
 
 ```bash
-ombra config set mode work pl1_w=18 pl2_w=26
-ombra config set brightness response_pct=30 floor_pct=5 \
+sombra config set mode work pl1_w=18 pl2_w=26
+sombra config set brightness response_pct=30 floor_pct=5 \
     curve="0:0, 1:20, 8:38, 25:50, 60:70, 103:85, 400:100"
-ombra config default_mode work
-ombra config show | jq          # read back what was written
+sombra config default_mode work
+sombra config show | jq          # read back what was written
 ```
 
 The curve is `lux:position` pairs, lux ascending. There is no profile name in
@@ -141,17 +141,17 @@ The daemon validates with the same code that reads its file, so a value it
 refuses is a value the file would have refused. Out-of-range numbers are clamped
 rather than rejected, and the reply says what was clamped — read the reply.
 
-To undo everything: `ombra config reset modes` or `ombra config reset all`,
+To undo everything: `sombra config reset modes` or `sombra config reset all`,
 which returns to the values compiled into the daemon.
 
 Live tuning is a different thing and does not survive a reboot:
 
 ```bash
-ombra brightness base 72           # the level the automation works around
-ombra set pl1=15 max_perf_pct=40   # immediate, not saved
-ombra set fan=max                  # or `ombra fan max`, the same setpoint
-ombra config save live to quiet    # keep it
-ombra reset                        # or drop it
+sombra brightness base 72           # the level the automation works around
+sombra set pl1=15 max_perf_pct=40   # immediate, not saved
+sombra set fan=max                  # or `sombra fan max`, the same setpoint
+sombra config save live to quiet    # keep it
+sombra reset                        # or drop it
 ```
 
 ## Calibrating the light curve
@@ -211,5 +211,5 @@ a calibration; wait for the second session.
 
 Session analyses go to `tmp/TELEMETRY_<date>.md` with the raw export beside
 them. `tmp/` is not tracked and does not travel with a clone, so a conclusion
-worth keeping is promoted into `HARDWARE.md` — and only once a second session
+worth keeping is promoted into `docs/HARDWARE.md` — and only once a second session
 has confirmed it. One measurement on one machine is an observation.

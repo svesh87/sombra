@@ -510,7 +510,7 @@ bool DBusService::start(QString *error)
     if (d->options.busAddress.isEmpty()) {
         d->connection = QDBusConnection::systemBus();
     } else {
-        d->privateConnectionName = QStringLiteral("ombra-")
+        d->privateConnectionName = QStringLiteral("sombra-")
                 + QString::number(reinterpret_cast<quintptr>(this), 16);
         d->connection =
                 QDBusConnection::connectToBus(d->options.busAddress, d->privateConnectionName);

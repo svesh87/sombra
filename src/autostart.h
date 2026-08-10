@@ -21,7 +21,7 @@
 // switch.
 namespace autostart {
 
-// `$XDG_CONFIG_HOME/autostart/ombra-tray.desktop`, honouring the environment so
+// `$XDG_CONFIG_HOME/autostart/sombra-tray.desktop`, honouring the environment so
 // that a test can point it somewhere harmless.
 QString entryPath();
 

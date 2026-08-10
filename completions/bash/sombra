@@ -1,20 +1,20 @@
-# bash completion for ombra. Installed as /usr/share/bash-completion/completions/ombra.
+# bash completion for sombra. Installed as /usr/share/bash-completion/completions/sombra.
 #
 # The verbs are listed here rather than asked of the daemon: completion runs on
 # every Tab, and a Tab that opens a socket is a Tab that hangs when the daemon
 # is not there. Mode names are the exception — they are the maintainer's own
 # words, nothing else knows them, and they are only offered where one is
 # expected.
-_ombra_names() {
+_sombra_names() {
     local field=$1
-    local socket=/run/ombra/control.sock
+    local socket=/run/sombra/control.sock
     [ -S "$socket" ] || return 0
-    ombra --socket "$socket" config show 2>/dev/null \
+    sombra --socket "$socket" config show 2>/dev/null \
         | sed -n "s/.*\"$field\":\[\(.*\)/\1/p" \
         | grep -o '"id":"[^"]*"' | cut -d'"' -f4
 }
 
-_ombra() {
+_sombra() {
     local cur prev words cword
     _init_completion || return
 
@@ -46,7 +46,7 @@ _ombra() {
 
     case $verb in
     mode)
-        COMPREPLY=($(compgen -W "$(_ombra_names modes)" -- "$cur"))
+        COMPREPLY=($(compgen -W "$(_sombra_names modes)" -- "$cur"))
         ;;
     set)
         COMPREPLY=($(compgen -W "pl1= pl2= max_perf_pct= turbo= epp= hwp_boost= gt_max_mhz= \
@@ -89,10 +89,10 @@ _ombra() {
             COMPREPLY=($(compgen -W "modes brightness all" -- "$cur"))
             ;;
         default_mode | to)
-            COMPREPLY=($(compgen -W "$(_ombra_names modes)" -- "$cur"))
+            COMPREPLY=($(compgen -W "$(_sombra_names modes)" -- "$cur"))
             ;;
         mode)
-            COMPREPLY=($(compgen -W "$(_ombra_names modes)" -- "$cur"))
+            COMPREPLY=($(compgen -W "$(_sombra_names modes)" -- "$cur"))
             ;;
         *)
             COMPREPLY=($(compgen -W "label= platform_profile= pl1_w= pl2_w= max_perf_pct= \
@@ -108,4 +108,4 @@ _ombra() {
     esac
 }
 
-complete -F _ombra ombra
+complete -F _sombra sombra

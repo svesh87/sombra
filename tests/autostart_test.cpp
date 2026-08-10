@@ -55,7 +55,7 @@ void AutostartTest::theEntryIsTheState()
     QDir().mkpath(QFileInfo(autostart::entryPath()).absolutePath());
     QFile written(autostart::entryPath());
     QVERIFY(written.open(QIODevice::WriteOnly));
-    written.write("[Desktop Entry]\nType=Application\nExec=/usr/bin/ombra-tray\n");
+    written.write("[Desktop Entry]\nType=Application\nExec=/usr/bin/sombra-tray\n");
     written.close();
     QVERIFY(autostart::enabled());
 }
@@ -68,7 +68,7 @@ void AutostartTest::theEntryIsADesktopFileThatStartsThisBinary()
     QCOMPARE(entry.status(), QSettings::NoError);
     entry.beginGroup(QStringLiteral("Desktop Entry"));
     QCOMPARE(entry.value(QStringLiteral("Type")).toString(), QStringLiteral("Application"));
-    QCOMPARE(entry.value(QStringLiteral("Name")).toString(), QStringLiteral("Ombra"));
+    QCOMPARE(entry.value(QStringLiteral("Name")).toString(), QStringLiteral("Sombra"));
     // The running binary, so the entry starts the same tray the switch was
     // thrown in rather than whatever happens to be installed.
     QCOMPARE(entry.value(QStringLiteral("Exec")).toString(),

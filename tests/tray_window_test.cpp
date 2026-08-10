@@ -80,7 +80,7 @@ public:
     static QString binary()
     {
         return QDir::cleanPath(QCoreApplication::applicationDirPath()
-                               + QStringLiteral("/../ombrad"));
+                               + QStringLiteral("/../sombrad"));
     }
 
 private:
@@ -88,7 +88,7 @@ private:
     QProcess m_process;
 };
 
-// The environment a spawned ombra-tray gets.
+// The environment a spawned sombra-tray gets.
 //
 // The offscreen platform keeps its window off the display, but that is not
 // enough on its own: QSystemTrayIcon speaks StatusNotifierItem over the session
@@ -102,7 +102,7 @@ QProcessEnvironment isolatedEnvironment()
     QProcessEnvironment environment = QProcessEnvironment::systemEnvironment();
     environment.insert(QStringLiteral("QT_QPA_PLATFORM"), QStringLiteral("offscreen"));
     environment.insert(QStringLiteral("DBUS_SESSION_BUS_ADDRESS"),
-                       QStringLiteral("unix:path=/nonexistent/ombra-test-has-no-session-bus"));
+                       QStringLiteral("unix:path=/nonexistent/sombra-test-has-no-session-bus"));
     // A runtime directory of the suite's own, because the single-instance lock
     // lives in one. Sharing the session's would mean the tests answer to the
     // console the person is running, and that the person's console answers to
@@ -970,7 +970,7 @@ void TrayWindowTest::theBaselineIsAControlOfItsOwn()
 void TrayWindowTest::theTrayBinaryRunsAgainstADaemon()
 {
     const QString binary = QDir::cleanPath(QCoreApplication::applicationDirPath()
-                                           + QStringLiteral("/../ombra-tray"));
+                                           + QStringLiteral("/../sombra-tray"));
     QVERIFY2(QFile::exists(binary), qPrintable(binary));
 
     auto daemon = std::make_unique<TestDaemon>(m_tree->root(), m_work.path());
@@ -1017,7 +1017,7 @@ void TrayWindowTest::theTrayBinaryRunsAgainstADaemon()
 void TrayWindowTest::aSecondConsoleOpensTheFirstOneInstead()
 {
     const QString binary = QDir::cleanPath(QCoreApplication::applicationDirPath()
-                                           + QStringLiteral("/../ombra-tray"));
+                                           + QStringLiteral("/../sombra-tray"));
     QVERIFY2(QFile::exists(binary), qPrintable(binary));
 
     TestDaemon daemon(m_tree->root(), m_work.path());
@@ -1053,7 +1053,7 @@ void TrayWindowTest::aSecondConsoleOpensTheFirstOneInstead()
 void TrayWindowTest::theTrayWaitsForALateTrayHost()
 {
     const QString binary = QDir::cleanPath(QCoreApplication::applicationDirPath()
-                                           + QStringLiteral("/../ombra-tray"));
+                                           + QStringLiteral("/../sombra-tray"));
     QVERIFY2(QFile::exists(binary), qPrintable(binary));
     TestDaemon daemon(m_tree->root(), m_work.path());
     QVERIFY(daemon.waitUntilListening());
@@ -1063,8 +1063,8 @@ void TrayWindowTest::theTrayWaitsForALateTrayHost()
     // process. Without the first hook this branch cannot be reached at all —
     // on the offscreen platform the availability check answers true at once.
     QProcessEnvironment late = isolatedEnvironment();
-    late.insert(QStringLiteral("OMBRA_TEST_TRAY_ABSENT_MS"), QStringLiteral("1000"));
-    late.insert(QStringLiteral("OMBRA_TEST_TRAY_TIMEOUT_MS"), QStringLiteral("5000"));
+    late.insert(QStringLiteral("SOMBRA_TEST_TRAY_ABSENT_MS"), QStringLiteral("1000"));
+    late.insert(QStringLiteral("SOMBRA_TEST_TRAY_TIMEOUT_MS"), QStringLiteral("5000"));
 
     QProcess appears;
     const Reaped reapedAppears(appears);
@@ -1084,8 +1084,8 @@ void TrayWindowTest::theTrayWaitsForALateTrayHost()
     // the process ends when it is closed — otherwise it would live on with no
     // window and no icon, reachable only by name.
     QProcessEnvironment never = isolatedEnvironment();
-    never.insert(QStringLiteral("OMBRA_TEST_TRAY_ABSENT_MS"), QStringLiteral("100000"));
-    never.insert(QStringLiteral("OMBRA_TEST_TRAY_TIMEOUT_MS"), QStringLiteral("1000"));
+    never.insert(QStringLiteral("SOMBRA_TEST_TRAY_ABSENT_MS"), QStringLiteral("100000"));
+    never.insert(QStringLiteral("SOMBRA_TEST_TRAY_TIMEOUT_MS"), QStringLiteral("1000"));
 
     QProcess absent;
     const Reaped reapedAbsent(absent);
@@ -1132,7 +1132,7 @@ void TrayWindowTest::theWindowKeepsOneSizeForEveryTab()
 void TrayWindowTest::theTrayBinaryWritesTheDocumentationScreenshots()
 {
     const QString binary = QDir::cleanPath(QCoreApplication::applicationDirPath()
-                                           + QStringLiteral("/../ombra-tray"));
+                                           + QStringLiteral("/../sombra-tray"));
     QVERIFY2(QFile::exists(binary), qPrintable(binary));
 
     TestDaemon daemon(m_tree->root(), m_work.path());

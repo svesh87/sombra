@@ -1,8 +1,8 @@
-.TH OMBRAD 8 "2026-08-09" "ombra" "System Administration"
+.TH SOMBRAD 8 "2026-08-09" "sombra" "System Administration"
 .SH NAME
-ombrad \- thermal, noise and backlight daemon for the ASUS Zenbook 14 UX3405MA
+sombrad \- thermal, noise and backlight daemon for the ASUS Zenbook 14 UX3405MA
 .SH SYNOPSIS
-.B ombrad
+.B sombrad
 .RI [ --root " " path ]
 .RI [ --config " " file ]
 .RI [ --state " " file ]
@@ -29,7 +29,7 @@ mode, it only ever lowers, and it is the one thing that will drive the fan by
 itself.
 .PP
 Normally run by systemd as
-.BR ombrad.service .
+.BR sombrad.service .
 The options exist so that a test run and a service run differ only in their
 arguments.
 .SH OPTIONS
@@ -42,22 +42,22 @@ without hardware.
 .TP
 .BI --config " file"
 The settings file. Default
-.IR /var/lib/ombra/settings.conf .
+.IR /var/lib/sombra/settings.conf .
 Written by the daemon, and absent until the first change.
 .TP
 .BI --state " file"
 What survives a reboot. Default
-.IR /var/lib/ombra/state .
+.IR /var/lib/sombra/state .
 .TP
 .BI --ring " file"
 The telemetry ring. Default
-.IR /var/lib/ombra/metrics.ring .
+.IR /var/lib/sombra/metrics.ring .
 .TP
 .BI --socket " path"
 The control socket. Default
-.IR /run/ombra/control.sock ,
+.IR /run/sombra/control.sock ,
 handed to the group
-.BR ombra .
+.BR sombra .
 .TP
 .BI --capacity " records"
 Ring capacity in samples. Default is seven days at 1 Hz. Retention is a
@@ -91,17 +91,17 @@ a capital letter and the standard one does not; the applet compares the answer
 against a hard list and panics on anything else.
 .SH FILES
 .TP
-.I /var/lib/ombra/settings.conf
+.I /var/lib/sombra/settings.conf
 .TP
-.I /var/lib/ombra/state
+.I /var/lib/sombra/state
 .TP
-.I /var/lib/ombra/metrics.ring
+.I /var/lib/sombra/metrics.ring
 .TP
-.I /var/lib/ombra/metrics.ring.bak
+.I /var/lib/sombra/metrics.ring.bak
 A ring this build cannot read, kept rather than deleted. One slot, replaced
 whenever another such ring is found.
 .TP
-.I /run/ombra/control.sock
+.I /run/sombra/control.sock
 .SH SEE ALSO
-.BR ombra (1),
-.BR ombra-tray (1)
+.BR sombra (1),
+.BR sombra-tray (1)

@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
+  <defs>
+    <linearGradient id="tile" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#608cc8"/>
+      <stop offset="1" stop-color="#203460"/>
+    </linearGradient>
+  </defs>
+  <rect x="0" y="0" width="256" height="256" rx="56" ry="56" fill="url(#tile)"/>
+  <line x1="200.1" y1="157.8" x2="224.1" y2="167.8" stroke="#ffd666" stroke-width="12" stroke-linecap="round"/>
+  <line x1="157.8" y1="200.1" x2="167.8" y2="224.1" stroke="#ffd666" stroke-width="12" stroke-linecap="round"/>
+  <line x1="98.2" y1="200.1" x2="88.2" y2="224.1" stroke="#ffd666" stroke-width="12" stroke-linecap="round"/>
+  <line x1="55.9" y1="157.8" x2="31.9" y2="167.8" stroke="#ffd666" stroke-width="12" stroke-linecap="round"/>
+  <line x1="55.9" y1="98.2" x2="31.9" y2="88.2" stroke="#ffd666" stroke-width="12" stroke-linecap="round"/>
+  <line x1="98.2" y1="55.9" x2="88.2" y2="31.9" stroke="#ffd666" stroke-width="12" stroke-linecap="round"/>
+  <line x1="157.8" y1="55.9" x2="167.8" y2="31.9" stroke="#ffd666" stroke-width="12" stroke-linecap="round"/>
+  <line x1="200.1" y1="98.2" x2="224.1" y2="88.2" stroke="#ffd666" stroke-width="12" stroke-linecap="round"/>
+  <circle cx="128" cy="128" r="66" fill="#ffd666"/>
+  <rect x="32" y="40" width="192" height="14" rx="7.0" ry="7.0" fill="#1e222a"/>
+  <rect x="32" y="80" width="192" height="14" rx="7.0" ry="7.0" fill="#1e222a"/>
+  <rect x="32" y="120" width="192" height="14" rx="7.0" ry="7.0" fill="#1e222a"/>
+  <rect x="32" y="160" width="192" height="14" rx="7.0" ry="7.0" fill="#1e222a"/>
+  <rect x="32" y="200" width="192" height="14" rx="7.0" ry="7.0" fill="#1e222a"/>
+</svg>

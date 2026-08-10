@@ -29,8 +29,8 @@ namespace translations {
 // does not change with the environment afterwards — which makes a language
 // impossible to test unless it can be named outright.
 //
-// The directory is `<prefix>/share/ombra/translations`, and
-// `OMBRA_TRANSLATIONS_DIR` overrides it — which is how the suite runs against
+// The directory is `<prefix>/share/sombra/translations`, and
+// `SOMBRA_TRANSLATIONS_DIR` overrides it — which is how the suite runs against
 // freshly built catalogues and how the documentation pictures are taken in
 // English on a machine whose language is not.
 void install(QCoreApplication *application, const QLocale &locale = QLocale::system());

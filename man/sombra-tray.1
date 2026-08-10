@@ -1,8 +1,8 @@
-.TH OMBRA-TRAY 1 "2026-08-09" "ombra" "User Commands"
+.TH SOMBRA-TRAY 1 "2026-08-09" "sombra" "User Commands"
 .SH NAME
-ombra-tray \- experimentation console for the ombra daemon
+sombra-tray \- experimentation console for the sombra daemon
 .SH SYNOPSIS
-.B ombra-tray
+.B sombra-tray
 .RI [ --socket " " path ]
 .RI [ --interval-ms " " ms ]
 .RI [ --screenshot " " directory ]
@@ -10,7 +10,7 @@ ombra-tray \- experimentation console for the ombra daemon
 .SH DESCRIPTION
 A panel icon and a window with four tabs: the status, the thermal mode, the
 backlight, and the settings of the console itself. What it adds over
-.BR ombra (1)
+.BR sombra (1)
 is controls that apply the moment they move. Pick a mode and they take its
 numbers; move one and it applies at once, and the mode selector empties, because
 what is running is then no longer any of the three. One button writes the
@@ -18,11 +18,11 @@ controls into a mode you name.
 .PP
 The window speaks the language of the system, in Russian, English or Spanish, from
 the catalogues in
-.IR /usr/share/ombra/translations .
+.IR /usr/share/sombra/translations .
 Only the window: this program's own
 .BR --help ,
 the replies of
-.BR ombrad (8)
+.BR sombrad (8)
 and these manual pages stay in English. An unknown language shows the source
 language, which is English.
 .PP
@@ -38,7 +38,7 @@ a judgement made by ear onto the sample it belongs to.
 .PP
 Nothing here writes the daemon's settings directly. When a live value is worth
 keeping, the console asks the daemon to save it, on the same commands
-.B ombra config
+.B sombra config
 sends. The one thing the console does write is its own autostart entry.
 .PP
 The panel icon shows which mode is in force: a chip whose fill rises with the
@@ -64,9 +64,9 @@ closing the console ends the process.
 .TP
 .BI --socket " path"
 The daemon's control socket. Default
-.IR /run/ombra/control.sock .
+.IR /run/sombra/control.sock .
 Reaching it requires membership of the group
-.BR ombra .
+.BR sombra .
 .TP
 .BI --interval-ms " ms"
 How often to ask the daemon for readings. Default 1000.
@@ -81,20 +81,20 @@ in the source tree, which is how they are actually taken.
 Exit after this long. A test hook.
 .SH FILES
 .TP
-.I $XDG_RUNTIME_DIR/ombra-tray.sock
+.I $XDG_RUNTIME_DIR/sombra-tray.sock
 The single-instance lock. A second start connects to it, asks the console that
 holds it to open its window, and exits.
 .TP
-.I $XDG_CONFIG_HOME/ombra/console.conf
+.I $XDG_CONFIG_HOME/sombra/console.conf
 The console's own settings: at present, whether its window is light, dark or
 whatever the desktop says. Nothing about the machine is kept here. Following the
 desktop usually means changing nothing at all, because a desktop that manages Qt
 applications gives them its own colours already.
 .TP
-.I $XDG_CONFIG_HOME/autostart/ombra-tray.desktop
+.I $XDG_CONFIG_HOME/autostart/sombra-tray.desktop
 Whether the console starts with the session. The entry is the whole state,
 which is what makes "switched off and it stayed off" a property of the
 arrangement rather than of a mechanism. The package writes nothing here.
 .SH SEE ALSO
-.BR ombra (1),
-.BR ombrad (8)
+.BR sombra (1),
+.BR sombrad (8)

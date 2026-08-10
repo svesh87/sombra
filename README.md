@@ -1,9 +1,9 @@
-*English · [Русский](README.ru.md)*
+*English · [Русский](docs/README.ru.md) · [Español](docs/README.es.md)*
 
-# ombra
+# sombra
 
-*Ombra* is Italian for shade — and in the shade a machine is both cooler and
-dimmer, which is what this daemon is for.
+*Sombra* is Spanish for shade, and in the shade a machine is both cooler and
+dimmer. That is what this daemon is for.
 
 Thermal, noise and backlight management for the ASUS Zenbook 14 UX3405MA (Intel
 Core Ultra 9 185H) on Linux: a background daemon that keeps the machine inside a
@@ -75,7 +75,7 @@ way to ask for the point in between. This project provides that point.
 
 ## Scope
 
-Built and measured on one machine. Everything in `HARDWARE.md` was verified on:
+Built and measured on one machine. Everything in `docs/HARDWARE.md` was verified on:
 
 | | |
 |---|---|
@@ -86,7 +86,7 @@ Built and measured on one machine. Everything in `HARDWARE.md` was verified on:
 
 Other ASUS laptops expose a different set of controls; other desktops own
 different D-Bus names. Porting means re-verifying the control surface first —
-`HARDWARE.md` documents which controls exist here and, just as importantly,
+`docs/HARDWARE.md` documents which controls exist here and, just as importantly,
 which ones do not.
 
 ## Modes
@@ -108,15 +108,15 @@ guard is the one exception.
 
 ## What is in here
 
-Three binaries, and the one you type is `ombra`.
+Three binaries, and the one you type is `sombra`.
 
 | Binary | Purpose |
 |---|---|
-| `ombrad` | the daemon: applies the mode, follows the light sensor, records telemetry, answers on the D-Bus names |
-| `ombra` | scriptable control: select a mode, tune live, stamp a verdict, read the telemetry ring |
-| `ombra-tray` | the experimentation console |
+| `sombrad` | the daemon: applies the mode, follows the light sensor, records telemetry, answers on the D-Bus names |
+| `sombra` | scriptable control: select a mode, tune live, stamp a verdict, read the telemetry ring |
+| `sombra-tray` | the experimentation console |
 
-`ombra export` is a subcommand rather than a program of its own, and it is the
+`sombra export` is a subcommand rather than a program of its own, and it is the
 only one that does not go through the daemon: the ring is a file, the daemon
 keeps no history, and a week of samples has no business travelling through a
 line protocol.
@@ -127,14 +127,14 @@ line protocol.
 | `scripts/rollback.sh` | gives them back to the vendor daemon |
 | `scripts/screenshots.sh` | takes the documentation pictures |
 
-The package installs manual pages — `ombra(1)`, `ombrad(8)`, `ombra-tray(1)` —
+The package installs manual pages — `sombra(1)`, `sombrad(8)`, `sombra-tray(1)` —
 and shell completion for bash, zsh and fish. Completion lists the verbs from a
 static file and asks the daemon only for mode names, because a Tab that opens a
 socket is a Tab that hangs when the daemon is not there.
 
 The mode numbers compiled into the daemon come from measurement on one machine
 and are a starting point, not a result. They are meant to be tuned from
-recorded telemetry, which is what `ombra export` and the subjective marks are
+recorded telemetry, which is what `sombra export` and the subjective marks are
 for.
 
 A release that changes the record layout converts the ring at the next start,
@@ -150,7 +150,7 @@ would otherwise leave a ring behind at every step, and the middle one is of no
 use to anybody.
 
 `scripts/install.sh` also exports the ring to CSV before it replaces anything,
-into `$XDG_STATE_HOME/ombra/telemetry` (`--dump-dir` overrides). CSV outlives
+into `$XDG_STATE_HOME/sombra/telemetry` (`--dump-dir` overrides). CSV outlives
 any layout, which the conversion above cannot promise for a format nobody has
 written yet.
 
@@ -197,11 +197,11 @@ owner of these controls, so handing them over is a separate decision, and
 hand:
 
 ```bash
-sudo dpkg -i build-package/ombra_*.deb
+sudo dpkg -i build-package/sombra_*.deb
 sudo systemctl disable --now com.system76.PowerDaemon.service
 sudo systemctl mask com.system76.PowerDaemon.service
-sudo systemctl enable --now ombrad
-sudo usermod -aG ombra "$USER"    # log out and back in, for the tray
+sudo systemctl enable --now sombrad
+sudo usermod -aG sombra "$USER"    # log out and back in, for the tray
 ```
 
 A group you were added to while logged in only takes effect after a fresh
@@ -224,29 +224,29 @@ The desktop panel's three slots select this project's modes. Everything else
 goes through the socket:
 
 ```bash
-ombra status                   # readings and setpoints as JSON
-ombra mode quiet
-ombra set pl1=15 max_perf_pct=40   # live, immediate, not yet saved
-ombra mark too-loud            # a verdict, stamped onto the sample
-ombra fan max                  # explicit demand only
-ombra export --format csv > session.csv
+sombra status                   # readings and setpoints as JSON
+sombra mode quiet
+sombra set pl1=15 max_perf_pct=40   # live, immediate, not yet saved
+sombra mark too-loud            # a verdict, stamped onto the sample
+sombra fan max                  # explicit demand only
+sombra export --format csv > session.csv
 ```
 
 Live tuning is not durable, and that is the point of it. When a value turns out
 to be worth keeping, one command writes it into a mode:
 
 ```bash
-ombra config show                              # what is saved, as JSON
-ombra config set mode quiet pl1_w=10 pl2_w=16  # a durable definition
-ombra config save live to quiet                # keep what the sliders found
-ombra config default_mode work                 # the mode applied at boot
-ombra config reset modes                       # back to the built-in values
+sombra config show                              # what is saved, as JSON
+sombra config set mode quiet pl1_w=10 pl2_w=16  # a durable definition
+sombra config save live to quiet                # keep what the sliders found
+sombra config default_mode work                 # the mode applied at boot
+sombra config reset modes                       # back to the built-in values
 ```
 
 ### Where settings live
 
 The daemon carries its defaults compiled in and writes what it is told into
-`/var/lib/ombra/settings.conf`. There is no file in `/etc`: editing goes
+`/var/lib/sombra/settings.conf`. There is no file in `/etc`: editing goes
 through the daemon, so that a script analysing telemetry can apply what it
 found without root and without a text editor, and so that the tray and the
 command line cannot drift apart. The file appears the first time something is
@@ -276,7 +276,7 @@ actually chose, so it reads back as something else and looks like another
 process writing the control.
 
 Full speed is loud enough that nothing chooses it quietly: a mode has to say
-`fan=max`, or somebody has to type `ombra fan max` or pick it in the console.
+`fan=max`, or somebody has to type `sombra fan max` or pick it in the console.
 The emergency thermal guard is the exception, and it is a safety interlock
 rather than automatic control.
 
@@ -285,12 +285,12 @@ panel has three slots and a fourth definition would live where the panel cannot
 reach it.
 
 The console speaks the language of the system, in Russian, English or Spanish.
-Only the console: `ombra --help`, the daemon's replies and the manual pages stay
+Only the console: `sombra --help`, the daemon's replies and the manual pages stay
 in English, because they are read in a terminal, quoted in documentation and
 searched for by their exact wording. That shows in one place — a reply on the
 status line is English inside a translated window — and it is the honest trade
 rather than an oversight. The catalogues are in
-`/usr/share/ombra/translations`, and an unknown language shows the source
+`/usr/share/sombra/translations`, and an unknown language shows the source
 language, which is English.
 
 The console's *Settings* tab holds what is about the program rather than the
@@ -302,8 +302,18 @@ Starting with the session is an XDG autostart entry and nothing else —
 installing the package adds no process to your session, and the entry is the
 whole state, so something switched off stays off. It takes effect at the next
 login. The appearance is light, dark, or whatever the desktop says; it is the
-console's own setting and does not reach the panel icon, which the desktop draws
-from its own icon theme.
+console's own setting and does not reach the panel icon, which is drawn from
+fixed colours: the palette belongs to the application and the panel is coloured
+by the desktop, and the two disagree exactly when the desktop is light with a
+dark bar.
+
+The icon itself is a sun behind a persiana, and it answers three things at a
+glance. The persiana says which mode is running — shut for the coolest envelope,
+open for the widest. The sun says whether the daemon is answering: warm, or grey
+with no persiana at all. The plate turns red while the emergency guard is
+clamping. The two conditions the picture cannot carry, a control overwritten by
+another process and sensors that could not be read, are named in the tooltip
+along with the mode, the package temperature and the fan speed.
 
 There is one console per session: started while another is running, it asks that
 one to open its window and exits. Two of them would mean two icons in the panel
@@ -322,12 +332,12 @@ never moves the backlight, and nothing about the backlight reaches the thermal
 side.
 
 ```bash
-ombra brightness on
-ombra brightness off             # remembered across a reboot
-ombra brightness level 80        # the same as moving the control yourself
-ombra brightness base 72         # the level the automation works around
-ombra brightness set response_pct=35 floor_pct=20
-ombra config set brightness response_pct=35 floor_pct=20   # written down
+sombra brightness on
+sombra brightness off             # remembered across a reboot
+sombra brightness level 80        # the same as moving the control yourself
+sombra brightness base 72         # the level the automation works around
+sombra brightness set response_pct=35 floor_pct=20
+sombra config set brightness response_pct=35 floor_pct=20   # written down
 ```
 
 The model in one line: **the light adds to or subtracts from the level you
@@ -357,11 +367,11 @@ console, all in per cent, because "is this right" is a judgement made by eye in
 the room it is meant for. The sensor reading is not on screen: what the room
 measures is the daemon's business.
 
-The fourth number is the curve, which maps a light reading in lux to a position
-from 0 to 100 — 0 subtracts the whole reaction, 50 contributes nothing, 100 adds
-the whole reaction. It is not on a slider, because its shape is calibrated from
-recorded telemetry rather than judged on the spot, and 50 is not a free choice:
-it belongs at the light the room usually has. The `light_lux`, `brightness` and
+The one setting that is not a slider is the curve, which maps a light reading in
+lux to a position from 0 to 100: 0 subtracts the whole reaction, 50 contributes
+nothing, 100 adds the whole reaction. Its shape is calibrated from recorded
+telemetry rather than judged on the spot, and 50 is not a free choice — it
+belongs at the light the room usually has. The `light_lux`, `brightness` and
 `brightness_base` columns of an exported session are what to calibrate it
 against.
 
@@ -401,7 +411,7 @@ telemetry alone: the telemetry is the material the modes are tuned from, and a
 bad afternoon is not a reason to throw it away. By hand, that is:
 
 ```bash
-sudo systemctl disable --now ombrad
+sudo systemctl disable --now sombrad
 sudo systemctl unmask com.system76.PowerDaemon.service
 sudo systemctl enable --now com.system76.PowerDaemon.service
 ```
@@ -413,11 +423,11 @@ to automatic rather than assuming it.
 
 ## Documents
 
-- `HARDWARE.md` — the control surface: which sysfs knobs exist, what they do,
+- `docs/HARDWARE.md` — the control surface: which sysfs knobs exist, what they do,
   measured values, and which controls are absent on this platform.
-- `SCREENSHOTS.md` — what the tray menu and the console look like, and the one
+- `docs/SCREENSHOTS.md` — what the tray menu and the console look like, and the one
   command that makes the pictures again.
-- `DESIGN.md` — how the project is built and why: the decisions about its
+- `docs/DESIGN.md` — how the project is built and why: the decisions about its
   shape, with the reasoning that produced them.
 - `AGENTS.md` (= `CLAUDE.md`) — repository conventions, the goal the project is
   answerable to, and the quality gates.

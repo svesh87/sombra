@@ -1,0 +1,276 @@
+*[English](DESIGN.md) · [Русский](DESIGN.ru.md) · Español*
+
+# Cómo está hecho esto y por qué
+
+Decisiones sobre la forma del proyecto, junto con el razonamiento que las
+produjo. No están congeladas. Cada una está aquí para que cambiarla sea una
+discusión con argumentos y no el descubrimiento de que alguien lo pensó una vez,
+y para que una modificación en una se pueda contrastar con las demás.
+
+Lo que está congelado es el objetivo, y está en `AGENTS.md`: un chasis frío
+importa más que el rendimiento, el ruido tiene un techo calibrado y las reglas
+de seguridad del hardware no se discuten. Todo lo que sigue sirve a ese objetivo
+y responde ante él.
+
+De ahí se siguen dos cosas. Una decisión de aquí se cambia con una edición
+ordinaria, junto con el código, los documentos y sus traducciones. Y una
+decisión que resultó equivocada se reescribe, no se anota al margen: este
+archivo dice cómo es el proyecto, no cómo fue.
+
+## Arquitectura
+
+- **Los controles térmicos tienen exactamente un propietario: este demonio.**
+  Dos procesos que escriben en los mismos nodos de sysfs dan un comportamiento
+  que depende de quién gane la carrera, y no redundancia. El demonio del
+  fabricante se enmascara con `systemctl mask com.system76.PowerDaemon.service`,
+  por su nombre de unidad real y no por el alias `system76-power.service`:
+  enmascarar un alias deja activada la unidad real, y vuelve en el siguiente
+  arranque. Montar una capa encima de él y bifurcar su código quedan ambos
+  descartados.
+- **Instalar el paquete no toma posesión.** Crea el grupo que necesita la
+  bandeja, imprime las dos órdenes que ceden los controles y ahí se detiene: no
+  activa nada, no arranca nada, no enmascara nada. Ceder los controles térmicos
+  es un acto deliberado con procedimiento de vuelta atrás, no un efecto
+  secundario de `dpkg -i`, y el test de empaquetado lo comprueba.
+- El demonio responde en `net.hadess.PowerProfiles` y
+  `org.freedesktop.UPower.PowerProfiles` (la interfaz pública estándar, y la
+  principal) y en `com.system76.PowerDaemon` (propia del fabricante, para el
+  applet del panel de COSMIC). La política de D-Bus de serie ya permite que un
+  proceso de root sea propietario de los tres nombres; no hace falta tocarla.
+- **El brillo de la pantalla nunca está ligado al modo térmico.** Cambiar la
+  retroiluminación al cambiar de perfil es un comportamiento de `system76-power`
+  que este proyecto considera un defecto, y recuperar la paridad con el original
+  en ese punto no es una mejora. Elegir un modo tiene que dejar la
+  retroiluminación exactamente donde estaba.
+- **El brillo que sigue al sensor de luz ambiental es una función aparte, con su
+  propio interruptor.** Reacciona a la habitación y no al perfil de energía, y
+  por eso no contradice la regla anterior. Nada del modo térmico llega hasta
+  esta función, en ninguna de las dos direcciones.
+- **La luz suma o resta al nivel que fijó la persona.** Una corrección a mano es
+  una indicación y no una interrupción: al mover el brillo, la persona dice qué
+  quiere con esta luz, y el demonio le resta la aportación de la habitación en
+  ese momento para obtener la base. Eso es lo que hace que la misma luz devuelva
+  el mismo nivel. Un número fija cuánto puede moverlo la habitación en cada
+  sentido, un mínimo fija el nivel por debajo del cual no baja nadie, y techo no
+  hay: es el 100 %. El mínimo obliga también a la persona, porque una pantalla
+  llevada hasta lo ilegible es un fallo y no un ahorro.
+- **La base se puede fijar directamente, y no solo deducirse.** Al mover el
+  brillo, la persona dice qué quiere con la luz del momento, y la base sale de
+  ahí; esa es la dirección natural y falla en una sola cosa: ajustar para una
+  luz que la habitación no tiene ahora mismo. Por eso la base tiene su propia
+  orden y su propio control, y entonces el nivel sale de ella. La base vive en
+  el archivo de estado y no en los ajustes: es lo último que la persona estuvo
+  mirando, no un número que configuró.
+- **No hay perfiles de brillo.** Una habitación, un juego de ajustes: una
+  reacción, un mínimo y una curva. Un perfil sería un nombre para un juego de
+  esos números, y nunca hubo un segundo juego al que cambiar.
+- **La curva se calibra con la telemetría, no se elige a ojo.** Traduce los lux
+  a una posición de 0 a 100, y la posición en la que no aporta nada corresponde
+  a la luz que la habitación tiene normalmente. De ella no se saca nada a un
+  deslizador.
+- **Una retroiluminación que se ve oscilar es un defecto, no una cuestión de
+  ajuste.** A la automatización la mira quien se sirve de ella, y la mira todo
+  el día: un solo paso en falso cuesta más atención de la que ahorra toda la
+  función. Se mueve a pasos gruesos, con histéresis en sus límites, espera antes
+  de actuar sobre un cambio y hace una transición en lugar de saltar. Con luz
+  estable no debe haber escritura alguna.
+- **La automatización viene apagada, se apaga con una sola acción y sigue
+  apagada tras un reinicio.** Lo que la persona apagó no debe volver a
+  encenderse por su cuenta. Encenderla o apagarla no mueve la retroiluminación:
+  un salto de brillo en respuesta a un interruptor es el mismo defecto que un
+  salto en respuesta a un cambio de perfil.
+- Las tres ranuras del panel se redefinen como los modos de este proyecto. **El
+  modo del medio es el de trabajo: la máquina pasa en él la inmensa mayoría del
+  tiempo.** Se aplica al arrancar y es el que se ajusta con la telemetría. Los
+  otros dos son casos extremos.
+- **El ventilador es un valor de consigna como los demás.** Un modo nombra una
+  de las tres curvas del firmware y puede pedir la velocidad máxima
+  (`pwm1_enable=0`), y la consola ofrece las cuatro en una sola lista, para que
+  «ahora hace demasiado calor» sea un clic. Lo prohibido es otra cosa: que la
+  máquina llegue ahí sin que nadie se lo pida, con la protección de emergencia
+  como única excepción.
+- Funciones que se heredan junto con la propiedad y por eso son obligatorias:
+  reaccionar al paso entre red y batería, y el umbral de carga en
+  `/sys/class/power_supply/BAT0/charge_control_end_threshold`.
+
+## Sin regulación automática
+
+El demonio aplica **valores de consigna estáticos por modo**. No mantiene un
+lazo de realimentación que ajuste el límite de potencia de forma continua, y no
+cambia de modo por su cuenta.
+
+- **No hay regulador con realimentación.** Lo medido hasta ahora indica que los
+  valores de consigna estáticos bastan tanto en reposo como, por lo que se ve,
+  bajo carga sostenida. Construir un regulador solo si una medición demuestra
+  que los valores estáticos son a la vez demasiado restrictivos y demasiado
+  ruidosos en alguna situación real. Hasta entonces, un regulador es maquinaria
+  injustificada, con coeficientes que hay que ajustar y con modos de fallo, la
+  oscilación y el atasco, que los valores estáticos no pueden tener.
+- **No hay cambio automático de modo según el contexto.** Elegir un modo desde
+  el panel o desde la bandeja es un acto deliberado. Cambiar según la actividad
+  del micrófono o de la cámara es una idea razonable, y queda aplazada hasta que
+  el uso manual dé datos.
+- **Esto no anula la protección térmica de emergencia.** Un tope duro que
+  recorta la potencia cuando el paquete se acerca al corte por hardware es un
+  seguro y no regulación, y está activo siempre, sea cual sea el modo. Con el
+  historial de apagados térmicos por hardware que tiene esta plataforma,
+  quitarlo no es nunca una simplificación.
+- **Reproducir el comportamiento de serie del fabricante no es un modo.** Ese
+  comportamiento es precisamente el problema que este proyecto viene a arreglar.
+  La salida de emergencia, si los modos de aquí resultan peores, es
+  `systemctl unmask com.system76.PowerDaemon.service`, sin necesidad de código.
+
+## Ajustes
+
+- **Los ajustes pertenecen al demonio.** Los valores por omisión van compilados
+  en el código; lo que se ha cambiado vive en un archivo de texto que escribe el
+  demonio, `/var/lib/sombra/settings.conf`, y no se instala ningún archivo en
+  `/etc`. La razón no es la comodidad: los parámetros de los modos se afinan con
+  un análisis automático de la telemetría grabada, y quien hace ese análisis
+  tiene que poder aplicar lo que encontró, sin root y sin manejar un diálogo.
+- **La edición pasa por el demonio y por ningún otro sitio.** `sombra config` y
+  la bandeja envían las mismas órdenes, los valores los valida el mismo código
+  que lee el archivo, y hay exactamente un escritor. El archivo lo escribe la
+  máquina: los comentarios puestos a mano no sobreviven a un cambio, y por eso
+  el vocabulario del archivo está documentado en `../README.md`. El modo elegido y
+  las demás decisiones de ejecución quedan en un archivo de estado aparte,
+  porque tienen otro ciclo de vida. Volver a leer un archivo modificado desde
+  fuera sigue haciéndose por inotify, sin reiniciar.
+- **Los modos son exactamente tres y se editan en su sitio.** El panel del
+  escritorio tiene tres ranuras; una cuarta definición existiría solo allí donde
+  el panel no llega. Crear y borrar modos no es, por tanto, una función.
+- **Un restablecimiento devuelve los valores incorporados**, por grupos y cuando
+  se pide. Es la salida de un enredo y el estado de una instalación nueva, no
+  una operación de todos los días.
+- **Lo aplicado y lo escrito son dos propiedades de una misma cosa.** Mover un
+  control lo aplica al instante y no escribe nada, y el selector de modo se
+  queda vacío, porque lo que está funcionando ya no es uno de los tres. Guardar
+  es un acto aparte que nombra el modo donde caen los números. Por eso es una
+  sola pestaña y no dos: una distribución que separa «se aplica ahora» de «está
+  escrito» muestra los mismos números dos veces y obliga a la persona a llevar
+  esa diferencia en la cabeza.
+- **La bandeja nunca escribe el archivo de ajustes por su cuenta.** Se lo pide
+  al demonio, con las mismas órdenes que envía la línea de órdenes. Dos
+  escritores de un archivo es el mismo error que dos propietarios de una
+  superficie de control.
+- **El icono del panel se dibuja, no se pide por su nombre.** Publicar un nombre
+  estándar del tema dejaría que el panel lo dibujara y le cambiase el color, y
+  no funciona: un host de StatusNotifierItem prefiere el nombre a la imagen que
+  va con él y dibuja un sustituto cuando su propio tema no resuelve ese nombre,
+  mientras que este proceso solo puede preguntar a su tema de iconos, que sigue
+  otra herencia y responde que sí donde el panel responde que no. Tampoco hay
+  ningún glifo que tomar prestado: los temas de aquí traen tríos sobre volumen,
+  brillo, micrófono y seguridad, y ninguno sobre energía. Los colores están
+  fijados y no se toman de la paleta, porque la paleta es de la aplicación y el
+  panel es del escritorio.
+- **El icono del panel lleva su propia placa.** Es la imagen del icono de la
+  aplicación, un sol detrás de una persiana, y un sol cálido no puede ser un glifo
+  plano: contra un panel claro se queda en 1.5:1 cuando el mínimo es 3.5, y el
+  único tono uniforme que lo supera en los dos paneles es un ocre oscuro que ya no
+  se lee como un sol. Con una placa, el sol se ve contra ella, y lo único que se
+  compara con el escritorio es la placa misma, que supera 3.5:1 en ambos casos. La
+  placa es lisa donde la del icono de la aplicación es un degradado, cuyo extremo
+  oscuro mide 1.3:1 contra una barra oscura y se disuelve en ella.
+- **Tres canales, y la protección de emergencia es la placa.** La persiana dice qué
+  modo está en marcha, el color del sol dice si el demonio responde, y la placa se
+  pone roja bajo la protección de emergencia. Si en su lugar se pusiera rojo el
+  sol, lo separaría de la placa azul solo el tono, a 1.2:1, la única señal que no
+  sobrevive ni a un tamaño pequeño ni a un ojo daltónico. El icono del panel
+  muestra tres lamas donde el de la aplicación muestra cinco: a 22 píxeles, cinco
+  lamas dan un paso de menos de dos píxeles y el extremo cerrado del recorrido se
+  funde en un solo bloque oscuro, y ahí el modo deja de ser legible en el único
+  tamaño que importa.
+- **Una condición que la imagen no puede llevar va en la ayuda emergente.** Tanto
+  un control sobrescrito por otro proceso como sensores que no se pudieron leer
+  llegan desde el demonio, y la ventana los muestra como avisos, pero primero hay
+  que abrir la ventana, y conviene saber de ellos sin abrir nada. No hay un cuarto
+  canal que sobreviva a 22 píxeles, y un segundo color de alarma se confundiría con
+  la protección de emergencia, que es el único estado que cambia lo que hace la
+  máquina sin que nadie lo pida. Así que se nombran con palabras en la ayuda
+  emergente, donde hay sitio.
+- **La consola se traduce; la línea de órdenes no.** La ventana sigue el idioma
+  del sistema, con los catálogos instalados junto a los binarios. La línea de
+  órdenes, las respuestas del demonio y las páginas de manual siguen en inglés:
+  se leen en un terminal, se citan en documentos y se buscan por su formulación
+  exacta, y una línea `err` traducida no la encuentra nadie. El precio se ve en
+  un solo sitio, una respuesta en inglés dentro de una ventana traducida, y se
+  asume en lugar de esquivarlo.
+- **La explicación va en el control que explica.** Los párrafos en la ventana
+  quitaban a los controles la altura que necesitaban y duplicaban el texto a
+  traducir, así que lo que hace cada control se dice en su ayuda emergente. Un
+  test recorre todos los controles que envían una orden y falla si alguno no
+  tiene nada que decir.
+- **Una sola línea para el estado del demonio y para sus respuestas.** Dos
+  suponían una franja de vacío bajo cada pestaña hasta la primera orden. Una
+  respuesta aceptada devuelve la línea a los cinco segundos; una negativa la
+  retiene hasta la orden siguiente, porque responde a algo que hizo la persona y
+  unos pocos segundos no bastan para dar por seguro que se ha leído.
+- **Los colores de la consola vienen del escritorio y lo siguen mientras la
+  ventana está abierta.** Un escritorio que se ocupa de las aplicaciones Qt les
+  escribe un esquema de color; la consola lee ese archivo y lo vuelve a leer
+  cada vez que el portal de apariencia avisa de que algo se ha movido. Esto no
+  es un lujo innecesario: el escritorio cambia de tema por su cuenta, al
+  amanecer y al atardecer; un tema de plataforma no actualiza la paleta de una
+  aplicación en marcha, y volver a abrir la ventana no reinicia el proceso. Sin
+  volver a leer el archivo, una consola que lleva todo el día abierta se queda
+  con los colores de ayer. Donde no hay esquema escrito, la respuesta del portal
+  elige entre dos paletas propias, y la pestaña de ajustes puede anular esa
+  elección por completo.
+- **Lo que no se intenta es imitar los widgets del escritorio**, sus esquinas
+  redondeadas ni el tinte de sus contenedores. Eso es una hoja de estilos
+  persiguiendo un blanco en movimiento, y lo que desentona en una ventana son
+  precisamente los colores.
+- **La única excepción es la propia entrada de arranque automático de la
+  bandeja, y no es configuración.** Que la bandeja arranque con la sesión es
+  algo que la consola sabe de sí misma; el archivo del demonio no tiene forma de
+  describirlo, y desde esa casilla no se llega ni a la definición de un modo ni
+  a los ajustes de la retroiluminación. La bandeja es propietaria de
+  `$XDG_CONFIG_HOME/autostart/sombra-tray.desktop` y de nada más. La entrada es
+  el estado, detrás de la casilla no hay archivo de ajustes, y eso es lo que
+  hace que «lo apagué y siguió apagado» sea una propiedad de cómo está montado y
+  no de un mecanismo. El paquete no escribe nada en el arranque automático:
+  `dpkg -i` no debe añadir un proceso a una sesión, por la misma razón por la
+  que no se queda con los controles térmicos. La elección de apariencia está al
+  lado, en el archivo de ajustes propio de la consola, y por la misma razón: es
+  cosa de la ventana y no de la máquina, y el demonio no tiene nada que hacer
+  guardándola.
+- **Cada valor de consigna en vigor se escribe en cada muestra de telemetría**:
+  el modo activo, los límites de potencia, el techo de frecuencia, el turbo,
+  EPP, HWP dynamic boost y el perfil de plataforma. Un registro que no dice qué
+  se aplicó no se puede analizar. Los cambios de modo y de valores de consigna
+  se deducen comparando muestras consecutivas; no añadir para eso un registro de
+  eventos aparte.
+- **Los veredictos subjetivos también son datos.** La bandeja puede marcar la
+  muestra actual con una valoración («bien», «demasiado ruidoso», «demasiado
+  lento»), para que un juicio hecho de oído se recupere después junto con los
+  ajustes que lo provocaron. Sin esto, el ajuste en vivo produce una opinión que
+  no se puede atar a números.
+
+## Almacenamiento de métricas
+
+- **En memoria, con volcados poco frecuentes al disco.** Cuidar la vida útil del
+  NVMe es deliberado; las propuestas de escribir cada muestra directamente en el
+  disco se rechazan.
+- Los límites de retención son estrictos: el almacén no crece, y el desalojo es
+  una propiedad del formato y no de una tarea de limpieza en segundo plano.
+- El formato se elige de modo que con él se puedan afinar los parámetros de los
+  modos y dibujar gráficas. Un promediado que esconda los picos es inadmisible.
+- **Un cambio en la disposición del registro convierte lo ya grabado, no lo
+  tira.** En las muestras hay una semana de vida de la máquina y varias tardes
+  de ajuste, y la disposición cambia por motivos que no tienen nada que ver con
+  ellas. La conversión es una cadena de pasos que suben el formato una versión
+  cada uno; cada paso se escribe una vez y luego se congela, así que una versión
+  nueva cuesta una estructura y una función. Los campos que la disposición
+  antigua no tenía se graban como ausentes, nunca como ceros.
+- **Un anillo que esta compilación no sabe leer se guarda, no se borra, y nunca
+  detiene al demonio.** Una disposición de una compilación más nueva tras una
+  vuelta atrás, una que nunca se publicó, una cabecera estropeada por un corte
+  de luz: todas se apartan con sus bytes intactos y en su lugar entra un anillo
+  limpio. La telemetría es secundaria frente a mantener la máquina dentro de su
+  margen térmico, así que un anillo ilegible cuesta las muestras que hay en él y
+  nada más.
+- **Un solo espacio de copia de seguridad, sobrescrito cada vez.** Si no, bajar
+  de una versión a la siguiente, y luego otra vez, dejaría un anillo en cada
+  paso, en un disco cuya vida útil es la razón de ser del resto de esta sección,
+  y el del medio no le sirve a nadie. La disposición va en la cabecera,
+  así que el nombre no tiene por qué llevarla.

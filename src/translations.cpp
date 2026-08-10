@@ -14,8 +14,8 @@ namespace {
 
 // Installed beside the binary's data rather than compiled into it, so the
 // catalogues are visible in the package and can be replaced without a rebuild.
-constexpr const char *kDefaultDirectory = OMBRA_TRANSLATIONS_PATH;
-constexpr const char *kOverride = "OMBRA_TRANSLATIONS_DIR";
+constexpr const char *kDefaultDirectory = SOMBRA_TRANSLATIONS_PATH;
+constexpr const char *kOverride = "SOMBRA_TRANSLATIONS_DIR";
 
 // What this module installed last time, so that installing again replaces it
 // rather than stacking another catalogue on top. Qt keeps every translator it is
@@ -67,7 +67,7 @@ void install(QCoreApplication *application, const QLocale &locale)
     // installed, not where ours are.
     load(application, QStringLiteral("qtbase"), QLibraryInfo::path(QLibraryInfo::TranslationsPath),
          locale);
-    load(application, QStringLiteral("ombra"), directory(), locale);
+    load(application, QStringLiteral("sombra"), directory(), locale);
 }
 
 } // namespace translations

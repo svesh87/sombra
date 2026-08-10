@@ -1,4 +1,4 @@
-*[English](HARDWARE.md) · Русский*
+*[English](HARDWARE.md) · Русский · [Español](HARDWARE.es.md)*
 
 # Что доступно для управления
 

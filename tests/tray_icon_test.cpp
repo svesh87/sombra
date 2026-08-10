@@ -16,6 +16,40 @@ QImage rendered(const QIcon &icon)
     return icon.pixmap(QSize(22, 22)).toImage();
 }
 
+// The light that gets through: warm pixels, which the sun and its rays are and
+// neither the blue plate nor the dark slats can be. Not usable while the guard
+// is clamping, because the plate is warm then too.
+int sunlight(const QImage &image)
+{
+    int count = 0;
+    for (int y = 0; y < image.height(); ++y) {
+        for (int x = 0; x < image.width(); ++x) {
+            const QColor pixel = image.pixelColor(x, y);
+            if (pixel.red() > pixel.blue() + 60)
+                ++count;
+        }
+    }
+    return count;
+}
+
+// The persiana itself: opaque and dark on every channel, which nothing else in
+// the picture is. This is the measure that also works under the guard's red
+// plate. Transparency is checked first, because the corners outside the plate
+// are transparent black and would otherwise count as slat.
+int slatPixels(const QImage &image)
+{
+    int count = 0;
+    for (int y = 0; y < image.height(); ++y) {
+        for (int x = 0; x < image.width(); ++x) {
+            const QColor pixel = image.pixelColor(x, y);
+            if (pixel.alpha() > 128 && pixel.red() < 80 && pixel.green() < 80
+                && pixel.blue() < 90)
+                ++count;
+        }
+    }
+    return count;
+}
+
 } // namespace
 
 class TrayIconTest : public QObject {
@@ -57,20 +91,13 @@ void TrayIconTest::everyModeLooksDifferent()
     QVERIFY(work != full);
     QVERIFY(quiet != full);
 
-    // And the difference is a level rather than an arbitrary glyph: more power
-    // is more of the fill, so more of the picture is painted at all.
-    const auto painted = [](const QImage &image) {
-        int count = 0;
-        for (int y = 0; y < image.height(); ++y) {
-            for (int x = 0; x < image.width(); ++x) {
-                if (image.pixelColor(x, y).alpha() > 128)
-                    ++count;
-            }
-        }
-        return count;
-    };
-    QVERIFY2(painted(quiet) < painted(work), "the cooler mode has to be the emptier one");
-    QVERIFY(painted(work) < painted(full));
+    // And the difference is a position in the table rather than an arbitrary
+    // glyph: the cooler the envelope, the further the persiana is shut, so less
+    // light gets through and more of the picture is slat.
+    QVERIFY2(sunlight(quiet) < sunlight(work), "the cooler mode has to be the darker one");
+    QVERIFY(sunlight(work) < sunlight(full));
+    QVERIFY(slatPixels(quiet) > slatPixels(work));
+    QVERIFY(slatPixels(work) > slatPixels(full));
 }
 
 void TrayIconTest::theTwoStatesThatAreNotModesLookDifferentAgain()
@@ -82,6 +109,17 @@ void TrayIconTest::theTwoStatesThatAreNotModesLookDifferentAgain()
     QVERIFY(running != guard);
     QVERIFY(running != absent);
     QVERIFY(guard != absent);
+
+    // Nothing is answering, so there is no mode to show and the persiana is
+    // gone. The picture says the sun is unattended rather than shut out.
+    QCOMPARE(slatPixels(absent), 0);
+    QVERIFY(slatPixels(running) > 0);
+
+    // The channels are independent: the guard changes the plate and leaves the
+    // mode where it was, so a clamped machine still says which envelope it is in.
+    QCOMPARE(slatPixels(guard), slatPixels(running));
+    QVERIFY(slatPixels(trayIcon(true, true, 0, 3).pixmap(22, 22).toImage())
+            > slatPixels(guard));
 }
 
 void TrayIconTest::theColourSchemeChangesNothing()
@@ -109,13 +147,18 @@ void TrayIconTest::theColourSchemeChangesNothing()
 
 void TrayIconTest::anUnknownModeCountIsDrawnRatherThanGuessed()
 {
-    // Before the first status reply there is no table and no position in it.
+    // Before the first status reply there is no table and no position in it, so
+    // there is no persiana either — but the sun is warm, which is what separates
+    // "answering, mode not known yet" from "nothing is answering".
     const QImage unknown = rendered(trayIcon(true, false, -1, 0));
     QVERIFY(!unknown.isNull());
     QVERIFY(unknown != rendered(trayIcon(true, false, 0, 3)));
+    QCOMPARE(slatPixels(unknown), 0);
+    QVERIFY(unknown != rendered(trayIcon(false, false, -1, 0)));
+    QVERIFY(sunlight(unknown) > sunlight(rendered(trayIcon(false, false, -1, 0))));
 
-    // A table of another size still reads as a level, and the last mode fills
-    // it whatever the count.
+    // A table of another size still reads as a position in it, and the last mode
+    // opens the persiana fully whatever the count.
     QCOMPARE(rendered(trayIcon(true, false, 3, 4)), rendered(trayIcon(true, false, 2, 3)));
     // An index past the end is the last mode rather than an overflowing fill.
     QCOMPARE(rendered(trayIcon(true, false, 9, 3)), rendered(trayIcon(true, false, 2, 3)));

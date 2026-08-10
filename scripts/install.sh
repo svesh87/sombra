@@ -18,7 +18,7 @@
 set -eu
 
 VENDOR_UNIT=com.system76.PowerDaemon.service
-OUR_UNIT=ombrad.service
+OUR_UNIT=sombrad.service
 # The hardware this project was built and measured on. Every sysfs path it
 # writes was verified here and nowhere else.
 SUPPORTED_MODEL=UX3405
@@ -30,7 +30,7 @@ cd "$root"
 # Where the pre-install telemetry snapshot goes. Outside the repository on
 # purpose: the snapshot outlives both the package and this working copy, and
 # where it is filed for analysis is a decision for the person, not for a script.
-dump_dir=${XDG_STATE_HOME:-$HOME/.local/state}/ombra/telemetry
+dump_dir=${XDG_STATE_HOME:-$HOME/.local/state}/sombra/telemetry
 
 force=no
 while [ $# -gt 0 ]; do
@@ -68,13 +68,13 @@ if [ "$(id -u)" -ne 0 ]; then
     # Before anything is replaced, and as the invoking user: the ring is
     # world-readable, so no privilege is needed, and the file should belong to
     # the person rather than to root. It has to happen before dpkg, because the
-    # installed `ombra` is the only one that can read the record layout now on
+    # installed `sombra` is the only one that can read the record layout now on
     # disk. The daemon converts an older ring rather than discarding it, but a
     # CSV outlives every layout and costs one command.
-    if command -v ombra >/dev/null 2>&1 && [ -r /var/lib/ombra/metrics.ring ]; then
+    if command -v sombra >/dev/null 2>&1 && [ -r /var/lib/sombra/metrics.ring ]; then
         stamp=$(date +%Y-%m-%d_%H-%M-%S)
         if mkdir -p "$dump_dir" 2>/dev/null \
-            && ombra export --format csv >"$dump_dir/ring_$stamp.csv" 2>/dev/null; then
+            && sombra export --format csv >"$dump_dir/ring_$stamp.csv" 2>/dev/null; then
             echo "==> telemetry saved to $dump_dir/ring_$stamp.csv"
         else
             # Not a reason to stop: an install that refuses to run because a
@@ -98,7 +98,7 @@ if [ "$(id -u)" -ne 0 ]; then
     exec sudo "$self"
 fi
 
-deb=$(ls "$root"/build-package/ombra_*.deb 2>/dev/null | head -n 1)
+deb=$(ls "$root"/build-package/sombra_*.deb 2>/dev/null | head -n 1)
 if [ -z "$deb" ]; then
     echo "no package in build-package/ — run scripts/check_package.sh first" >&2
     exit 1
@@ -130,9 +130,9 @@ systemctl restart "$OUR_UNIT"
 # owned by this group.
 user=${SUDO_USER:-}
 if [ -n "$user" ] && [ "$user" != root ]; then
-    if ! id -nG "$user" | tr ' ' '\n' | grep -qx ombra; then
-        usermod -aG ombra "$user"
-        echo "==> added $user to the ombra group — log out and back in for the tray"
+    if ! id -nG "$user" | tr ' ' '\n' | grep -qx sombra; then
+        usermod -aG sombra "$user"
+        echo "==> added $user to the sombra group — log out and back in for the tray"
     fi
 fi
 
@@ -140,16 +140,16 @@ echo
 systemctl --no-pager --lines=0 status "$OUR_UNIT" || true
 echo
 echo "==> what the daemon says"
-ombra status || true
+sombra status || true
 echo
 
 # The tray is a separate process running as a person; a rebuild does not reach
 # it, and nothing here is going to kill somebody's window without asking.
-if pgrep -x ombra-tray >/dev/null 2>&1; then
+if pgrep -x sombra-tray >/dev/null 2>&1; then
     echo "The tray is still running the previous build — restart it to pick this one up."
 fi
 
 echo "Watch for a while, then:"
-echo "  ombra status                readings and setpoints"
-echo "  ombra export --format csv   the recorded session"
+echo "  sombra status                readings and setpoints"
+echo "  sombra export --format csv   the recorded session"
 echo "  scripts/rollback.sh         give the controls back"

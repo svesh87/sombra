@@ -1,6 +1,6 @@
 [Unit]
-Description=Ombra thermal, power and backlight daemon
-Documentation=https://github.com/svesh87/ombra
+Description=Sombra thermal, power and backlight daemon
+Documentation=https://github.com/svesh87/sombra
 # This daemon is the sole owner of the thermal control surface. Running it
 # alongside the vendor daemon produces race-dependent behaviour rather than
 # redundancy, so the vendor daemon is masked rather than ordered against.
@@ -14,7 +14,7 @@ After=multi-user.target
 
 [Service]
 Type=simple
-ExecStart=/usr/bin/ombrad
+ExecStart=/usr/bin/sombrad
 Restart=always
 RestartSec=2
 
@@ -23,13 +23,13 @@ RestartSec=2
 # the fan at full speed, and nothing else will pick up after it.
 ExecStopPost=/bin/sh -c 'for f in /sys/devices/platform/asus-nb-wmi/hwmon/hwmon*/pwm1_enable; do [ -w "$f" ] && echo 2 > "$f"; done; exit 0'
 
-# 0755 on the directory so a member of the ombra group can reach the
+# 0755 on the directory so a member of the sombra group can reach the
 # socket inside it. The socket's own ownership and mode are set by the daemon
 # right after it binds, not from here: an ExecStartPost races the bind, and a
 # chgrp that loses that race fails silently and leaves the tray locked out.
-RuntimeDirectory=ombra
+RuntimeDirectory=sombra
 RuntimeDirectoryMode=0755
-StateDirectory=ombra
+StateDirectory=sombra
 StateDirectoryMode=0755
 
 [Install]

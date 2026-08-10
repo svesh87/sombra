@@ -1,4 +1,4 @@
-*English · [Русский](HARDWARE.ru.md)*
+*English · [Русский](HARDWARE.ru.md) · [Español](HARDWARE.es.md)*
 
 # Control surface
 

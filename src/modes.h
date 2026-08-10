@@ -34,7 +34,7 @@ void normalizeMode(Mode &mode, QStringList *clamped);
 // The mode table, held in the daemon's settings file.
 //
 // The daemon owns that file: it reads it at startup and rewrites it whenever a
-// definition changes. Editing goes through the daemon — `ombra config` and the
+// definition changes. Editing goes through the daemon — `sombra config` and the
 // tray both send it the same commands — because the numbers are tuned by
 // analysing recorded telemetry and the tooling that does it must be able to
 // apply what it found without root and without a text editor.

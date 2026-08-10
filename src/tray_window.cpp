@@ -218,7 +218,7 @@ TrayWindow::TrayWindow(TrayClient &client, QWidget *parent)
     , m_ui(new Ui)
     , m_client(client)
 {
-    setWindowTitle(tr("Ombra"));
+    setWindowTitle(tr("Sombra"));
     build();
 
     connect(&m_client, &TrayClient::statusChanged, this, &TrayWindow::applyStatus);

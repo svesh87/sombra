@@ -7,17 +7,13 @@ set -e
 
 case "$1" in
 purge)
-    rm -rf /var/lib/ombra
+    rm -rf /var/lib/sombra
     # The group is ours and grants nothing but access to the daemon's socket.
-    if getent group ombra >/dev/null 2>&1; then
-        delgroup --system ombra >/dev/null 2>&1 || true
+    if getent group sombra >/dev/null 2>&1; then
+        delgroup --system sombra >/dev/null 2>&1 || true
     fi
     ;;
 esac
-
-# Announced here as well as in preinst and postinst: dpkg looks for all three,
-# and a conffile removed from only some of them comes back on a failed upgrade.
-dpkg-maintscript-helper rm_conffile /etc/ombra/modes.conf 0.1.0 ombra -- "$@"
 
 #DEBHELPER#
 

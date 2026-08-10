@@ -9,8 +9,8 @@ foreach(required
         "Restart=always"
         # The vendor unit's real name, not its alias: see the unit's own note.
         "Conflicts=com.system76.PowerDaemon.service"
-        "RuntimeDirectory=ombra"
-        "StateDirectory=ombra")
+        "RuntimeDirectory=sombra"
+        "StateDirectory=sombra")
     string(FIND "${unit}" "${required}" position)
     if(position EQUAL -1)
         message(FATAL_ERROR "systemd unit is missing '${required}'")

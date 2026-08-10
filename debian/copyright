@@ -1,7 +1,7 @@
 Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
-Upstream-Name: ombra
+Upstream-Name: sombra
 Upstream-Contact: Sergei Sveshnikov <sergei@svesh.dev>
-Source: https://github.com/svesh87/ombra
+Source: https://github.com/svesh87/sombra
 
 Files: *
 Copyright: 2026 Sergei Sveshnikov

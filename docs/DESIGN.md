@@ -1,4 +1,4 @@
-*English · [Русский](DESIGN.ru.md)*
+*English · [Русский](DESIGN.ru.md) · [Español](DESIGN.es.md)*
 
 # How this is built, and why
 
@@ -12,7 +12,7 @@ performance, noise has a calibrated ceiling, and the hardware safety rules are
 not negotiable. Everything below serves that goal and is answerable to it.
 
 Two things follow from that. A decision here changes by an ordinary edit,
-together with the code, the documents and the Russian copies. And a decision
+together with the code, the documents and their translations. And a decision
 that turned out wrong is rewritten rather than annotated: this file says what
 the project is, not what it used to be.
 
@@ -116,16 +116,16 @@ itself.
 ## Settings
 
 - **The daemon owns its settings.** Defaults are compiled in; what has been
-  changed lives in a text file the daemon writes, `/var/lib/ombra/settings.conf`,
+  changed lives in a text file the daemon writes, `/var/lib/sombra/settings.conf`,
   and nothing ships a file in `/etc`. The reason is not convenience: mode
   parameters are tuned by automated analysis of recorded telemetry, and the
   tooling that does the analysing has to be able to apply what it found —
   without root, and without operating a dialog.
-- **Editing goes through the daemon and nowhere else.** `ombra config` and the
+- **Editing goes through the daemon and nowhere else.** `sombra config` and the
   tray send the same commands, values are validated by the same code that reads
   the file, and there is exactly one writer. The file is machine-written: hand
   comments in it do not survive a change, which is why the vocabulary is
-  documented in `README.md` instead. The selected mode and the other runtime
+  documented in `../README.md` instead. The selected mode and the other runtime
   choices stay in a separate state file, because they have a different lifetime.
   Reloading a file changed from outside is still driven by inotify, without a
   restart.
@@ -152,6 +152,30 @@ itself.
   themes here carry trios about volume, brightness, microphone and security, and
   none about power. The colours are fixed rather than palette colours, because
   the palette is the application's and the panel is the desktop's.
+- **The panel icon carries its own plate.** It is the launcher icon's picture, a
+  sun behind a persiana, and a warm sun cannot be a flat glyph: measured against
+  a light panel it comes to 1.5:1 where 3.5 is the floor, and the only single
+  tone that clears both panels is a dark ochre, which does not read as a sun. On
+  a plate the sun is seen against the plate, and the one contrast that involves
+  the desktop is the plate's own, which clears 3.5:1 either way. The plate is
+  flat where the launcher's is a gradient, whose dark end measures 1.3:1 against
+  a dark bar and dissolves into it.
+- **Three channels, and the guard is the plate.** The persiana says which mode is
+  running, the sun's colour says whether the daemon answers, and the plate turns
+  red under the emergency guard. Colouring the sun red instead would separate it
+  from the blue plate by hue alone at 1.2:1 — the one cue that survives neither a
+  small size nor a colour-blind eye. The panel icon shows three slats where the
+  launcher shows five: at 22 pixels a pitch of five is under two pixels and the
+  shut end of the range merges into one dark block, which is the mode ceasing to
+  be legible at the only size that matters.
+- **A condition the picture cannot carry goes in the tooltip.** A control
+  overwritten by another process and sensors that could not be read are both on
+  the wire, and the window shows both as banners — but the window has to be opened
+  first, and these are worth knowing about without opening anything. There is no
+  fourth
+  channel that survives 22 pixels, and a second alarm colour would be confused
+  with the guard, which is the one state that changes what the machine does
+  without being asked. So they are words in the tooltip, where there is room.
 - **The console is translated; the command line is not.** The window follows the
   language of the system, from catalogues installed beside the binaries. The
   command line, the daemon's replies and the manual pages stay in English, because
@@ -184,7 +208,7 @@ itself.
   configuration.** Whether the tray starts with the session is what the console
   knows about itself; the daemon's file has no way to describe it, and no mode
   definition and none of the backlight settings are reachable from that switch. The tray owns
-  `$XDG_CONFIG_HOME/autostart/ombra-tray.desktop` and nothing else. The entry is
+  `$XDG_CONFIG_HOME/autostart/sombra-tray.desktop` and nothing else. The entry is
   the state — there is no settings file behind the switch — which is what makes
   "switched off and it stayed off" a property of the arrangement rather than of
   a mechanism. The package writes nothing into autostart: `dpkg -i` must not add

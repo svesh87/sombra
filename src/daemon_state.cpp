@@ -114,7 +114,7 @@ bool DaemonState::save(const QString &path) const
         return false;
 
     QString text;
-    text += QStringLiteral("# Written by ombrad. Durable mode definitions live in the\n"
+    text += QStringLiteral("# Written by sombrad. Durable mode definitions live in the\n"
                            "# configuration file; this holds what a person chose at runtime.\n");
     text += QStringLiteral("mode=%1\n").arg(mode);
     text += QStringLiteral("auto_brightness=%1\n")

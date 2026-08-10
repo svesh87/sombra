@@ -1,21 +1,21 @@
-#compdef ombra
-# zsh completion for ombra. Installed as /usr/share/zsh/vendor-completions/_ombra.
+#compdef sombra
+# zsh completion for sombra. Installed as /usr/share/zsh/vendor-completions/_sombra.
 #
 # Verbs are listed here rather than asked of the daemon: completion runs on every
 # Tab, and a Tab that opens a socket is a Tab that hangs when the daemon is not
 # there. Mode names are the exception — nothing else knows them.
 
-_ombra_ids() {
-    local field=$1 socket=/run/ombra/control.sock
+_sombra_ids() {
+    local field=$1 socket=/run/sombra/control.sock
     [[ -S $socket ]] || return 0
-    ombra --socket $socket config show 2>/dev/null \
+    sombra --socket $socket config show 2>/dev/null \
         | sed -n "s/.*\"$field\":\[\(.*\)/\1/p" \
         | grep -o '"id":"[^"]*"' | cut -d'"' -f4
 }
 
-_ombra_modes() { compadd ${(f)"$(_ombra_ids modes)"} }
+_sombra_modes() { compadd ${(f)"$(_sombra_ids modes)"} }
 
-_ombra() {
+_sombra() {
     local -a verbs=(
         'status:current readings and setpoints as JSON'
         'mode:select a mode'
@@ -43,7 +43,7 @@ _ombra() {
         ;;
     rest)
         case $words[1] in
-        mode) _ombra_modes ;;
+        mode) _sombra_modes ;;
         mark) compadd good too-loud too-slow ;;
         fan) compadd max auto ;;
         set)
@@ -64,7 +64,7 @@ _ombra() {
                 "") compadd mode brightness ;;
                 mode)
                     if (( CURRENT == 4 )); then
-                        _ombra_modes
+                        _sombra_modes
                     else
                         compadd -S '' label= platform_profile= pl1_w= pl2_w= max_perf_pct= \
                             turbo= epp= hwp_dynamic_boost= gt_max_mhz= fan=
@@ -76,11 +76,11 @@ _ombra() {
             save)
                 case $words[3] in
                 "") compadd live ;;
-                *) if [[ $words[4] == to ]]; then _ombra_modes; else compadd to; fi ;;
+                *) if [[ $words[4] == to ]]; then _sombra_modes; else compadd to; fi ;;
                 esac
                 ;;
             reset) compadd modes brightness all ;;
-            default_mode) _ombra_modes ;;
+            default_mode) _sombra_modes ;;
             esac
             ;;
         export)
@@ -95,4 +95,4 @@ _ombra() {
     esac
 }
 
-_ombra "$@"
+_sombra "$@"

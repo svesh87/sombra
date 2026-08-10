@@ -63,7 +63,7 @@ public:
     static QString binary()
     {
         return QDir::cleanPath(QCoreApplication::applicationDirPath()
-                               + QStringLiteral("/../ombrad"));
+                               + QStringLiteral("/../sombrad"));
     }
 
 private:

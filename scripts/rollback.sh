@@ -13,7 +13,7 @@
 set -eu
 
 VENDOR_UNIT=com.system76.PowerDaemon.service
-OUR_UNIT=ombrad.service
+OUR_UNIT=sombrad.service
 FAN_NODES='/sys/devices/platform/asus-nb-wmi/hwmon/hwmon*/pwm1_enable'
 
 self=$(cd "$(dirname "$0")" && pwd)/$(basename "$0")
@@ -63,12 +63,12 @@ fi
 
 case "$mode" in
 remove)
-    echo "==> removing the package, keeping /var/lib/ombra"
-    dpkg -r ombra || true
+    echo "==> removing the package, keeping /var/lib/sombra"
+    dpkg -r sombra || true
     ;;
 purge)
     echo "==> purging the package AND the recorded telemetry"
-    dpkg -P ombra || true
+    dpkg -P sombra || true
     ;;
 esac
 

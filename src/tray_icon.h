@@ -3,7 +3,8 @@
 
 #include <QIcon>
 
-// The panel icon, drawn here and borrowing nothing from its surroundings.
+// The panel icon: the application's own picture, a sun behind a persiana, drawn
+// here and borrowing nothing from its surroundings.
 //
 // Publishing a standard theme name would be the polite thing to do: the panel
 // would draw the glyph of the icon theme in force and recolour it to match
@@ -15,21 +16,27 @@
 // check against Qt's answer is not a check against the panel's, and the panel
 // drew an empty square.
 //
-// The icon themes on this machine carry no trio of glyphs about power at all.
-// What they have is trios about volume, screen brightness, microphone
-// sensitivity and security, and borrowing one of those would put a sun or a
-// speaker in the panel to mean a thermal envelope. A picture that means what it
-// shows is worth more than one the panel can recolour.
+// The colours are fixed rather than taken from the palette: the palette belongs
+// to the application, the panel is coloured by the desktop, and the two disagree
+// exactly when the desktop is light with a dark bar. The picture carries its own
+// plate for the same reason. A flat glyph would have to be one colour that
+// clears both a light and a dark panel, and a warm one does not — the sun this
+// icon is built on measures 1.5:1 against a light panel where 3.5 is the floor.
+// On a plate the sun is only ever seen against the plate, and the one contrast
+// that involves the desktop is the plate's own.
 //
-// The colour is fixed rather than taken from the palette, for a related reason:
-// the palette belongs to the application, the panel is coloured by the desktop,
-// and the two disagree exactly when the desktop is light with a dark bar.
+// What a glance has to answer, on three independent channels:
+//   * the plate says whether the emergency guard is clamping — blue, or red;
+//   * the sun says whether the daemon is answering — warm, or grey;
+//   * the persiana says which mode is running: shut for the coolest envelope,
+//     open for the widest, and absent when there is no mode to show.
 //
-// What a glance has to answer: which of the modes is running, and the two states
-// that are not modes — no daemon, and the guard clamping.
+// The guard is the plate rather than the sun because a red sun and a blue plate
+// measure within 1.2:1 of each other and would separate by hue alone, which is
+// the one cue that survives neither a small size nor a colour-blind eye.
 //
 // `modeIndex` is the mode's position in the table, from the coolest envelope to
-// the widest, and `modeCount` the size of that table. The fill is a fraction of
-// the two, so a table of a different size still reads as a level. A negative
-// index means the mode is not known yet.
+// the widest, and `modeCount` the size of that table. The opening is a fraction
+// of the two, so a table of a different size still reads as a position in it. A
+// negative index means the mode is not known yet.
 QIcon trayIcon(bool connected, bool guardEngaged, int modeIndex, int modeCount);

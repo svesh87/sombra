@@ -29,10 +29,10 @@ struct DaemonOptions {
     QString sysfsRoot = QStringLiteral("/");
     // Written by the daemon, not shipped by the package: the defaults are
     // compiled in, and this file appears the first time something is changed.
-    QString configPath = QStringLiteral("/var/lib/ombra/settings.conf");
-    QString statePath = QStringLiteral("/var/lib/ombra/state");
-    QString ringPath = QStringLiteral("/var/lib/ombra/metrics.ring");
-    QString socketPath = QStringLiteral("/run/ombra/control.sock");
+    QString configPath = QStringLiteral("/var/lib/sombra/settings.conf");
+    QString statePath = QStringLiteral("/var/lib/sombra/state");
+    QString ringPath = QStringLiteral("/var/lib/sombra/metrics.ring");
+    QString socketPath = QStringLiteral("/run/sombra/control.sock");
     quint64 ringCapacity = kRingCapacity;
     int intervalMs = 1000;
     // The backlight fade runs far faster than the sampling loop, because a

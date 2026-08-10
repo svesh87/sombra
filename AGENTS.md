@@ -13,7 +13,7 @@ A daemon that manages the thermal envelope of an ASUS Zenbook 14 UX3405MA
 The daemon also samples sensors once per second and retains the readings in a
 bounded ring.
 
-`HARDWARE.md` is the source of truth about the machine. Read it before touching
+`docs/HARDWARE.md` is the source of truth about the machine. Read it before touching
 anything that writes to sysfs.
 
 ## This repository is public
@@ -58,7 +58,7 @@ Each root document has a Russian copy beside it, named `<NAME>.ru.md`.
 
 Change only on an explicit request from the maintainer. Everything else about
 how the project is built is a decision rather than a rule, and those live in
-`DESIGN.md` with the reasoning that produced them: they change by an ordinary
+`docs/DESIGN.md` with the reasoning that produced them: they change by an ordinary
 edit, in the same change as the code and the documents.
 
 - **What is convenient for the person using it wins.** This is the goal every
@@ -85,7 +85,7 @@ edit, in the same change as the code and the documents.
   the curve from each mode's noise budget; there is no globally correct answer
   and no curve is forbidden.
 
-Read `DESIGN.md` before proposing anything structural. A proposal that argues
+Read `docs/DESIGN.md` before proposing anything structural. A proposal that argues
 with a decision recorded there is welcome; one that has not noticed it is not.
 
 ## Hardware safety (non-negotiable)
@@ -157,7 +157,7 @@ marking tests as expected failures to satisfy the gates are all prohibited.
   regenerated.** Same reason as the comments: a picture of controls that are no
   longer there goes stale silently and no test catches it. Regenerating is one
   command, `./scripts/screenshots.sh`; what each picture shows and
-  what to check before committing it live in `SCREENSHOTS.md`. Give it its own
+  what to check before committing it live in `docs/SCREENSHOTS.md`. Give it its own
   plan step, naming the pictures, not a line saying "update screenshots".
 - The **last** step of any plan is a consistency pass across code, comments and
   documentation, fixing what it finds in place. Minimum scope: grep for
@@ -219,7 +219,7 @@ conversation. A session that ends with its findings only in chat has lost them.
   measurements exist and where their raw data is, and the next concrete step.
   It is a snapshot, not a log — the previous version goes to `tmp/old/`.
 - Anything in `tmp/CONTEXT.md` that has become a **stable decision must be
-  promoted** into `AGENTS.md`, `README.md` or `HARDWARE.md`. Context files are
+  promoted** into `AGENTS.md`, `README.md` or `docs/HARDWARE.md`. Context files are
   a staging area; if durable facts accumulate there instead, the public
   documents stay empty and the project's real state becomes untransferable.
 - **`tmp/` is not tracked by git**, so a clone of this repository does not carry

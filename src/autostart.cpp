@@ -13,7 +13,7 @@ namespace autostart {
 QString entryPath()
 {
     return QStandardPaths::writableLocation(QStandardPaths::ConfigLocation)
-            + QStringLiteral("/autostart/ombra-tray.desktop");
+            + QStringLiteral("/autostart/sombra-tray.desktop");
 }
 
 bool enabled()
@@ -50,7 +50,7 @@ bool setEnabled(bool on, QString *error)
 
     const QString contents = QStringLiteral("[Desktop Entry]\n"
                                             "Type=Application\n"
-                                            "Name=Ombra\n"
+                                            "Name=Sombra\n"
                                             "Comment=Thermal envelope console\n"
                                             "Exec=%1\n"
                                             "Icon=applications-system\n"

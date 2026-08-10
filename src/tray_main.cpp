@@ -31,7 +31,7 @@ QString guardPath()
     QString directory = QStandardPaths::writableLocation(QStandardPaths::RuntimeLocation);
     if (directory.isEmpty())
         directory = QDir::tempPath();
-    return directory + QStringLiteral("/ombra-tray.sock");
+    return directory + QStringLiteral("/sombra-tray.sock");
 }
 
 // How long an already running console has to answer before this one decides it
@@ -46,17 +46,39 @@ constexpr int kGuardTimeoutMs = 300;
 constexpr int kTrayWaitMs = 60000;
 constexpr int kTrayPollMs = 500;
 
+// What the panel can say in words. The picture carries three things and no more,
+// so the two conditions it cannot show — a write that did not take, and missing
+// sensors — are named here. They are in the window as banners as well, but the
+// window has to be opened first, and these are the states worth knowing about
+// without opening anything.
+QString alertText(const TrayClient::Status &status)
+{
+    QStringList notes;
+    if (status.guardEngaged)
+        notes << QCoreApplication::translate("tray", "guard clamping");
+    if (status.fanForced)
+        notes << QCoreApplication::translate("tray", "fan at full speed");
+    if (status.writeMismatch)
+        notes << QCoreApplication::translate("tray", "a control was overwritten");
+    if (status.sensorsDegraded)
+        notes << QCoreApplication::translate("tray", "sensors missing");
+    return notes.join(QStringLiteral(", "));
+}
+
 QString summaryText(const TrayClient::Status &status)
 {
     const QString mode = status.modeLabels.value(status.modeIds.indexOf(status.modeId),
                                                  status.modeId);
-    if (status.packageC <= TrayClient::kNoReading)
-        return mode;
-    return QCoreApplication::translate("tray", "%1 — %2 °C, %3 RPM")
-            .arg(mode, QString::number(status.packageC, 'f', 1),
-                 status.fanRpm <= TrayClient::kNoReading
-                         ? QStringLiteral("—")
-                         : QString::number(status.fanRpm, 'f', 0));
+    QString line = mode;
+    if (status.packageC > TrayClient::kNoReading) {
+        line = QCoreApplication::translate("tray", "%1 — %2 °C, %3 RPM")
+                       .arg(mode, QString::number(status.packageC, 'f', 1),
+                            status.fanRpm <= TrayClient::kNoReading
+                                    ? QStringLiteral("—")
+                                    : QString::number(status.fanRpm, 'f', 0));
+    }
+    const QString alerts = alertText(status);
+    return alerts.isEmpty() ? line : line + QStringLiteral(" — ") + alerts;
 }
 
 // The mode list belongs to the daemon's configuration file, so the menu is
@@ -141,7 +163,7 @@ bool saveScreenshots(const QString &directory, TrayWindow &window, QMenu &menu, 
 int main(int argc, char **argv)
 {
     QApplication app(argc, argv);
-    QApplication::setApplicationName(QStringLiteral("ombra-tray"));
+    QApplication::setApplicationName(QStringLiteral("sombra-tray"));
     QApplication::setApplicationVersion(QStringLiteral("0.1.0"));
     // Before anything is built, because a widget takes its text when it is
     // constructed and nothing here retranslates itself afterwards.
@@ -153,13 +175,13 @@ int main(int argc, char **argv)
 
     QCommandLineParser parser;
     parser.setApplicationDescription(QStringLiteral(
-            "Experimentation console for ombrad. Sliders apply immediately and are never "
+            "Experimentation console for sombrad. Sliders apply immediately and are never "
             "written back; durable mode definitions live in the daemon's configuration file."));
     parser.addHelpOption();
     parser.addVersionOption();
     const QCommandLineOption socketOption(
             QStringLiteral("socket"), QStringLiteral("Control socket."), QStringLiteral("path"),
-            QStringLiteral("/run/ombra/control.sock"));
+            QStringLiteral("/run/sombra/control.sock"));
     const QCommandLineOption intervalOption(
             QStringLiteral("interval-ms"),
             QStringLiteral("How often to ask the daemon for readings."), QStringLiteral("ms"),
@@ -201,7 +223,7 @@ int main(int argc, char **argv)
     // which is not a moment the daemon says anything.
     TrayClient::Status lastStatus;
 
-    tray.setToolTip(QStringLiteral("Ombra"));
+    tray.setToolTip(QStringLiteral("Sombra"));
     tray.setIcon(trayIcon(false, false, -1, 0));
     tray.setContextMenu(&menu);
     // Not shown yet: the tray host registers over the session bus and may not
@@ -275,7 +297,7 @@ int main(int argc, char **argv)
                          // The same line the menu shows: hovering the panel is
                          // the cheapest way to ask what is running, and a
                          // picture cannot spell out a mode's name.
-                         tray.setToolTip(QStringLiteral("Ombra — ") + summaryText(status));
+                         tray.setToolTip(QStringLiteral("Sombra — ") + summaryText(status));
                          tray.setIcon(trayIcon(true, status.guardEngaged,
                                                status.modeIds.indexOf(status.modeId),
                                                status.modeIds.size()));
@@ -285,7 +307,7 @@ int main(int argc, char **argv)
             const QString absent = QCoreApplication::translate("tray",
                                                                "The daemon is not answering");
             summary->setText(absent);
-            tray.setToolTip(QStringLiteral("Ombra — ") + absent);
+            tray.setToolTip(QStringLiteral("Sombra — ") + absent);
             tray.setIcon(trayIcon(false, false, -1, 0));
         }
     });
@@ -325,9 +347,9 @@ int main(int argc, char **argv)
     // Until an icon exists, closing the console ends the process. Otherwise it
     // would live on with no window and no icon: invisible, unreachable, and
     // killable only by name.
-    const int absentMs = qEnvironmentVariableIntValue("OMBRA_TEST_TRAY_ABSENT_MS");
-    const int trayTimeoutMs = qEnvironmentVariableIsSet("OMBRA_TEST_TRAY_TIMEOUT_MS")
-            ? qEnvironmentVariableIntValue("OMBRA_TEST_TRAY_TIMEOUT_MS")
+    const int absentMs = qEnvironmentVariableIntValue("SOMBRA_TEST_TRAY_ABSENT_MS");
+    const int trayTimeoutMs = qEnvironmentVariableIsSet("SOMBRA_TEST_TRAY_TIMEOUT_MS")
+            ? qEnvironmentVariableIntValue("SOMBRA_TEST_TRAY_TIMEOUT_MS")
             : kTrayWaitMs;
     auto *trayWait = new QTimer(&app);
     trayWait->setInterval(kTrayPollMs);

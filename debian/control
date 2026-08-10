@@ -1,17 +1,24 @@
-Source: ombra
+Source: sombra
 Section: utils
 Priority: optional
 Maintainer: Sergei Sveshnikov <sergei@svesh.dev>
 Build-Depends: debhelper-compat (= 13),
                cmake (>= 3.16),
                qt6-base-dev,
-               qt6-base-dev-tools
+               qt6-base-dev-tools,
+               qt6-l10n-tools,
+               qt6-tools-dev
 Standards-Version: 4.6.2
-Homepage: https://github.com/svesh87/ombra
+Homepage: https://github.com/svesh87/sombra
 Rules-Requires-Root: no
 
-Package: ombra
+Package: sombra
 Architecture: amd64
+# The same daemon under its previous name. Two of them would own one fan, which
+# is the arrangement this project exists to prevent, so dpkg is told to refuse
+# rather than left to allow it.
+Conflicts: ombra
+Replaces: ombra
 Depends: ${shlibs:Depends}, ${misc:Depends}
 Description: thermal, noise and backlight daemon for the ASUS Zenbook 14 UX3405MA
  A daemon that keeps an ASUS Zenbook 14 UX3405MA (Intel Core Ultra 9 185H)

@@ -40,7 +40,7 @@ if ! (cd "$stage" && dpkg-buildpackage -b -us -uc) >"$log" 2>&1; then
     exit 1
 fi
 
-deb=$(ls "$builddir"/ombra_*.deb 2>/dev/null | head -n 1)
+deb=$(ls "$builddir"/sombra_*.deb 2>/dev/null | head -n 1)
 if [ -z "$deb" ]; then
     echo "package: the build produced no .deb" >&2
     exit 1
@@ -72,28 +72,39 @@ expect_file() {
     fi
 }
 
-expect_file /usr/bin/ombrad -rwxr-xr-x
-expect_file /usr/bin/ombra -rwxr-xr-x
-expect_file /usr/bin/ombra-tray -rwxr-xr-x
-expect_file /usr/lib/systemd/system/ombrad.service -rw-r--r--
-expect_file /usr/share/applications/ombra-tray.desktop -rw-r--r--
-expect_file /usr/share/bash-completion/completions/ombra -rw-r--r--
-expect_file /usr/share/zsh/vendor-completions/_ombra -rw-r--r--
-expect_file /usr/share/fish/vendor_completions.d/ombra.fish -rw-r--r--
+expect_file /usr/bin/sombrad -rwxr-xr-x
+expect_file /usr/bin/sombra -rwxr-xr-x
+expect_file /usr/bin/sombra-tray -rwxr-xr-x
+expect_file /usr/lib/systemd/system/sombrad.service -rw-r--r--
+expect_file /usr/share/applications/sombra-tray.desktop -rw-r--r--
+expect_file /usr/share/bash-completion/completions/sombra -rw-r--r--
+expect_file /usr/share/zsh/vendor-completions/_sombra -rw-r--r--
+expect_file /usr/share/fish/vendor_completions.d/sombra.fish -rw-r--r--
 # Manual pages are compressed by debhelper, which is the one place in this
 # package where that is the right trade: `man` decompresses them itself.
 # The console's catalogues. Compiled from the .ts files at build time, so their
 # absence here means the build step was dropped rather than that a translation is
 # missing.
-expect_file /usr/share/ombra/translations/ombra_ru.qm -rw-r--r--
-expect_file /usr/share/ombra/translations/ombra_es.qm -rw-r--r--
+# The icon, and that the desktop entry asks for it by that exact name. The two
+# drifting apart is invisible by eye and shows up as a launcher drawing a generic
+# cog, which is what it did before this was checked.
+expect_file /usr/share/icons/hicolor/scalable/apps/sombra.svg -rw-r--r--
+icon_name=$(dpkg-deb --fsys-tarfile "$deb" \
+    | tar -xO ./usr/share/applications/sombra-tray.desktop 2>/dev/null \
+    | sed -n 's/^Icon=//p')
+if [ "$icon_name" != "sombra" ]; then
+    report "the desktop entry asks for icon '$icon_name', not 'sombra'"
+fi
 
-expect_file /usr/share/man/man1/ombra.1.gz -rw-r--r--
-expect_file /usr/share/man/man1/ombra-tray.1.gz -rw-r--r--
-expect_file /usr/share/man/man8/ombrad.8.gz -rw-r--r--
-expect_file /usr/share/doc/ombra/README.md -rw-r--r--
-expect_file /usr/share/doc/ombra/HARDWARE.md -rw-r--r--
-expect_file /usr/share/doc/ombra/copyright -rw-r--r--
+expect_file /usr/share/sombra/translations/sombra_ru.qm -rw-r--r--
+expect_file /usr/share/sombra/translations/sombra_es.qm -rw-r--r--
+
+expect_file /usr/share/man/man1/sombra.1.gz -rw-r--r--
+expect_file /usr/share/man/man1/sombra-tray.1.gz -rw-r--r--
+expect_file /usr/share/man/man8/sombrad.8.gz -rw-r--r--
+expect_file /usr/share/doc/sombra/README.md -rw-r--r--
+expect_file /usr/share/doc/sombra/HARDWARE.md -rw-r--r--
+expect_file /usr/share/doc/sombra/copyright -rw-r--r--
 
 # Nothing may land outside /usr. A stray path is how a package quietly starts
 # owning files it has no business owning.
@@ -114,26 +125,28 @@ if [ -n "$autostarts" ]; then
 fi
 
 # The daemon carries its defaults compiled in and writes its own settings under
-# /var/lib/ombra. A conffile would be a second source of truth, and an upgrade
+# /var/lib/sombra. A conffile would be a second source of truth, and an upgrade
 # would then argue with values the daemon itself had written.
 conffiles=$(dpkg-deb -I "$deb" conffiles 2>/dev/null || true)
 if [ -n "$(printf '%s' "$conffiles" | tr -d '[:space:]')" ]; then
     report "the package registers conffiles: $(printf '%s' "$conffiles" | tr '\n' ' ')"
 fi
 
-# The old conffile has to be withdrawn on upgrade, in all three scripts dpkg
-# consults. Left behind, it looks like configuration that stopped working.
-for script in preinst postinst postrm; do
-    if ! dpkg-deb -I "$deb" "$script" 2>/dev/null | grep -q 'rm_conffile /etc/ombra/modes.conf'; then
-        report "$script does not withdraw the old /etc/ombra/modes.conf"
-    fi
-done
-
-for script in preinst postinst prerm postrm; do
+# The scripts the package is expected to carry. There is no preinst any more:
+# the only thing it did was withdraw a conffile that this package never had.
+for script in postinst prerm postrm; do
     if ! dpkg-deb -I "$deb" "$script" >/dev/null 2>&1; then
         report "$script is missing from the package"
     fi
 done
+
+# The daemon under its previous name must not be installable beside this one.
+# Two owners of one fan is the arrangement the whole project is built to
+# prevent, and this is the line that makes dpkg enforce it.
+case "$control" in
+*"Conflicts: ombra"*) ;;
+*) report "the package does not conflict with the old ombra package" ;;
+esac
 
 # Installing must not start the daemon and must not enable it. Handing over the
 # thermal controls is a deliberate act with a rollback procedure, and this is

@@ -10,7 +10,7 @@ namespace settings_file {
 QString serialize(const ModeTable &modes, const BrightnessSettings &brightness)
 {
     QString text;
-    text += QStringLiteral("# Written by ombrad. Edit through `ombra config` or the tray;\n"
+    text += QStringLiteral("# Written by sombrad. Edit through `sombra config` or the tray;\n"
                            "# anything added here by hand is lost at the next change.\n"
                            "#\n"
                            "# Units and ranges are documented in README.md. The values a reset\n"

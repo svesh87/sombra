@@ -41,10 +41,10 @@ void TranslationsTest::withLanguage(const QString &language,
 
 void TranslationsTest::theCatalogueDirectoryFollowsTheVariable()
 {
-    const QByteArray previous = qgetenv("OMBRA_TRANSLATIONS_DIR");
-    qputenv("OMBRA_TRANSLATIONS_DIR", QByteArrayLiteral("/somewhere/else"));
+    const QByteArray previous = qgetenv("SOMBRA_TRANSLATIONS_DIR");
+    qputenv("SOMBRA_TRANSLATIONS_DIR", QByteArrayLiteral("/somewhere/else"));
     QCOMPARE(translations::directory(), QStringLiteral("/somewhere/else"));
-    qputenv("OMBRA_TRANSLATIONS_DIR", previous);
+    qputenv("SOMBRA_TRANSLATIONS_DIR", previous);
     // Back to where the suite pointed it, which is the build tree.
     QVERIFY(!translations::directory().isEmpty());
 }
@@ -52,7 +52,7 @@ void TranslationsTest::theCatalogueDirectoryFollowsTheVariable()
 void TranslationsTest::aWindowInAnotherLanguageSaysSoEverywhere()
 {
     withLanguage(QStringLiteral("ru"), [] {
-        TrayClient client(QStringLiteral("/nonexistent/ombra-translations-test.sock"));
+        TrayClient client(QStringLiteral("/nonexistent/sombra-translations-test.sock"));
         TrayWindow window(client);
 
         auto *tabs = window.findChild<QTabWidget *>(QStringLiteral("tabs"));
@@ -85,7 +85,7 @@ void TranslationsTest::anUnknownLanguageIsEnglish()
     // machine set to something with no catalogue shows the strings as the code
     // has them.
     withLanguage(QStringLiteral("fi"), [] {
-        TrayClient client(QStringLiteral("/nonexistent/ombra-translations-test.sock"));
+        TrayClient client(QStringLiteral("/nonexistent/sombra-translations-test.sock"));
         TrayWindow window(client);
         auto *tabs = window.findChild<QTabWidget *>(QStringLiteral("tabs"));
         QCOMPARE(tabs->tabText(0), QStringLiteral("Status"));
@@ -97,17 +97,17 @@ void TranslationsTest::aMissingCatalogueIsNotAFailure()
 {
     QTemporaryDir empty;
     QVERIFY(empty.isValid());
-    const QByteArray previous = qgetenv("OMBRA_TRANSLATIONS_DIR");
-    qputenv("OMBRA_TRANSLATIONS_DIR", empty.path().toLocal8Bit());
+    const QByteArray previous = qgetenv("SOMBRA_TRANSLATIONS_DIR");
+    qputenv("SOMBRA_TRANSLATIONS_DIR", empty.path().toLocal8Bit());
 
     withLanguage(QStringLiteral("ru"), [] {
-        TrayClient client(QStringLiteral("/nonexistent/ombra-translations-test.sock"));
+        TrayClient client(QStringLiteral("/nonexistent/sombra-translations-test.sock"));
         TrayWindow window(client);
         QCOMPARE(window.findChild<QTabWidget *>(QStringLiteral("tabs"))->tabText(0),
                  QStringLiteral("Status"));
     });
 
-    qputenv("OMBRA_TRANSLATIONS_DIR", previous);
+    qputenv("SOMBRA_TRANSLATIONS_DIR", previous);
 }
 
 QTEST_MAIN(TranslationsTest)

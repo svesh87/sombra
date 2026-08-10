@@ -16,7 +16,7 @@
 // The file is machine-written and says so in its first line. Comments do not
 // survive a rewrite, which is the price of the daemon owning the file — and the
 // daemon owns it so that a script analysing telemetry can apply what it found
-// through `ombra config`, without root and without a text editor.
+// through `sombra config`, without root and without a text editor.
 namespace settings_file {
 
 // The text of a complete file. Separate from save() so that the round-trip is

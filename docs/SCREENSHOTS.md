@@ -1,8 +1,8 @@
-*English · [Русский](SCREENSHOTS.ru.md)*
+*English · [Русский](SCREENSHOTS.ru.md) · [Español](SCREENSHOTS.es.md)*
 
 # The interface
 
-All of it belongs to `ombra-tray`. The daemon itself has no interface: it answers
+All of it belongs to `sombra-tray`. The daemon itself has no interface: it answers
 on a socket and on three D-Bus names.
 
 ## The tray menu
@@ -14,12 +14,22 @@ speed beside it, because that is what a glance at the panel is for. Below it the
 modes as the daemon has them saved — the menu is built from a status reply, not
 compiled in — then the console and the way out.
 
-The icon says which mode is in force: a chip whose fill rises with the power
-envelope, blue while the daemon answers, red while the emergency guard is
-clamping, grey with a bar across it when nothing is answering.
+The icon is the application's own picture, a sun behind a persiana, and it
+answers three things. The persiana says which mode is in force: shut for the
+coolest envelope, open for the widest. The sun says whether the daemon is
+answering — warm, or grey with no persiana at all. The plate turns red while the
+emergency guard is clamping. Two conditions cannot be a fourth thing in a picture
+this size: a control overwritten by another process, and sensors that could not
+be read. The tooltip names those, beside the mode, the temperature and the fan
+speed.
 
-It is drawn here rather than named from the icon theme, and that is the second
-attempt. Publishing a standard name is the polite thing to do — the panel would
+The panel shows three slats where the launcher icon shows five. At 22 pixels a
+pitch of five is under two pixels, and the shut end of the range merges into one
+dark block, which is the mode ceasing to be legible at the only size that
+matters.
+
+It is drawn here rather than named from the icon theme. Publishing a standard
+name is the polite thing to do — the panel would
 draw the glyph of the theme in force and recolour it to match itself — but a
 StatusNotifierItem host prefers the name over any picture sent with it and draws
 a placeholder for a name it cannot resolve. It resolves names in its own icon
@@ -29,12 +39,16 @@ So the check said yes and the panel drew an empty square.
 
 Nor is there a glyph to borrow. The icon themes on this machine carry no trio
 about power at all; what they have is trios about volume, screen brightness,
-microphone sensitivity and security, and any of those would put a sun or a
-speaker in the panel to mean a thermal envelope.
+microphone sensitivity and security, and any of those would put a bare sun or a
+speaker in the panel to mean a thermal envelope. The sun here is behind a
+persiana, which is the whole of the difference.
 
 The colours are fixed for a related reason: the palette belongs to the
 application, the panel is coloured by the desktop, and the two disagree exactly
-when the desktop is light with a dark bar. The three used here read on both.
+when the desktop is light with a dark bar. The picture carries its own plate so
+that only one contrast involves the desktop at all. A warm sun as a flat glyph
+measures 1.5:1 against a light panel where 3.5 is the floor, and the plate clears
+it in both of its colours.
 
 The console's colours are the desktop's own, and they follow it while the window
 is open. On this machine `cosmic-settings-daemon` generates a Qt colour scheme
@@ -150,8 +164,8 @@ what a fan curve actually does at 3700 RPM, and — for each mode — its own nu
 and where it sits on the scale. A list of three names says nothing to somebody
 seeing it for the first time, and the mode descriptions are built from the saved
 definitions rather than written down, so a mode that is tuned takes its
-description with it. Those explanations used to be paragraphs in the window, which
-cost the controls height and doubled what there was to translate.
+description with it. The same explanations as paragraphs in the window would cost
+the controls height and double what there is to translate.
 
 Everything that sends a command greys out while nothing is answering, on every
 tab: a slider parked at its minimum is otherwise indistinguishable from a daemon
@@ -208,7 +222,7 @@ windows rather than of the screen, so no compositor and no screenshot tool is
 involved and nothing else that happened to be on screen can end up here.
 
 Before committing new pictures, look at them. The console names the socket path,
-and from this script that is always `/tmp/ombra-screenshots/control.sock` — the
+and from this script that is always `/tmp/sombra-screenshots/control.sock` — the
 throwaway one. No host name, no user name and no path from a developer's home
 belongs in this repository.
 
