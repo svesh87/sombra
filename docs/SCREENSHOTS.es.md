@@ -57,6 +57,11 @@ automatización como a un resbalón de la mano. La referencia está atenuada aqu
 porque la automatización está apagada, y entonces es un número sobre el que nadie
 actúa.
 
+Al final de la línea de estado hay un `?`. Abre la referencia —cada control de cada
+pestaña con sus unidades, su rango y lo que cuesta, en el idioma en que habla la
+ventana— en la sección de la pestaña desde la que se pulsó. Fuera de la ventana, porque una página no cabe en una cuya altura
+es la de su pestaña más grande.
+
 ### Ajustes — sobre el programa, no sobre la máquina
 
 ![La pestaña Ajustes](screenshots/console-settings.png)

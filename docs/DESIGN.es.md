@@ -211,6 +211,20 @@ cambia de modo por su cuenta.
   traducir, así que lo que hace cada control se dice en su ayuda emergente. Un
   test recorre todos los controles que envían una orden y falla si alguno no
   tiene nada que decir.
+- **Una ayuda emergente no puede ser una referencia, y de ahí la página fuera de
+  la ventana.** Una ayuda emergente explica un control a quien ya sabe sobre qué
+  pasar el ratón. No responde qué es este programa, y no se puede leer al lado de
+  otra igual, y comparar dos controles es la mayor parte de para qué sirve una
+  referencia. Así que la página documenta cada control de cada pestaña, con sus
+  unidades, su rango y lo que cuesta; hay un `?` al final de la línea de estado y una
+  página instalada por idioma, que abre lo que el escritorio use para abrir
+  documentos. Se abre en la sección de la pestaña desde la que se pulsó: preguntado
+  desde la pestaña de la retroiluminación, «qué hace esto» significa la
+  retroiluminación. Los anclajes son los nombres internos de las pestañas, los mismos
+  con los que se nombran las imágenes, así que un solo juego sirve para todos los
+  idiomas. Dentro de la ventana serían los párrafos que
+  se sacaron de ella, y no hay sitio: la altura es la de la pestaña más grande. Que
+  falte la página no es un fallo — el botón lo dice en lugar de no hacer nada.
 - **Una sola línea para el estado del demonio y para sus respuestas.** Dos
   suponían una franja de vacío bajo cada pestaña hasta la primera orden. Una
   respuesta aceptada devuelve la línea a los cinco segundos; una negativa la

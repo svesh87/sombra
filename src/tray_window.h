@@ -4,6 +4,7 @@
 #include "theme.h"
 #include "tray_client.h"
 
+#include <QUrl>
 #include <QWidget>
 
 class QResizeEvent;
@@ -46,6 +47,12 @@ public:
     // window said — has to look at.
     QString statusText() const;
 
+    // Where the "?" would go right now: the page for the language in force, at the
+    // section of the tab on screen. Invalid when no page is installed. Here rather
+    // than only inside the click, so that the aim can be checked without opening a
+    // browser.
+    QUrl helpTarget() const;
+
     // Resizes the window to the tab it is showing and unlocks the frame. For
     // the documentation pictures: on screen the console keeps one size, which
     // is the size of its largest tab.
@@ -78,6 +85,8 @@ public slots:
 
     // Writes or removes the tray's own autostart entry.
     void setAutostart(bool on);
+    // Opens the page behind the "?" in the status line, or says why it could not.
+    void openHelp();
 
     // Light, dark, or whatever the desktop says. Stored in the console's own
     // settings and applied at once.

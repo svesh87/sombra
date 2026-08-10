@@ -99,6 +99,13 @@ fi
 expect_file /usr/share/sombra/translations/sombra_ru.qm -rw-r--r--
 expect_file /usr/share/sombra/translations/sombra_es.qm -rw-r--r--
 
+# The page behind the console's "?" button, one per language the window speaks. A
+# missing one is not a crash — the button says there is no page — which is exactly
+# why nothing but this check would notice.
+expect_file /usr/share/sombra/help/sombra-help.en.html -rw-r--r--
+expect_file /usr/share/sombra/help/sombra-help.ru.html -rw-r--r--
+expect_file /usr/share/sombra/help/sombra-help.es.html -rw-r--r--
+
 expect_file /usr/share/man/man1/sombra.1.gz -rw-r--r--
 expect_file /usr/share/man/man1/sombra-tray.1.gz -rw-r--r--
 expect_file /usr/share/man/man8/sombrad.8.gz -rw-r--r--

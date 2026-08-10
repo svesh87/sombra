@@ -127,6 +127,11 @@ line protocol.
 | `scripts/rollback.sh` | gives them back to the vendor daemon |
 | `scripts/screenshots.sh` | takes the documentation pictures |
 
+The console has a `?` at the end of its status line. It opens the reference: every
+control of every tab with its units, its range and what it costs, plus the model the
+window is built on, in the language the window is speaking. Installed as
+`/usr/share/sombra/help/sombra-help.<language>.html`.
+
 The package installs manual pages — `sombra(1)`, `sombrad(8)`, `sombra-tray(1)` —
 and shell completion for bash, zsh and fish. Completion lists the verbs from a
 static file and asks the daemon only for mode names, because a Tab that opens a

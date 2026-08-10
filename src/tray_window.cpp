@@ -5,17 +5,20 @@
 
 #include "autostart.h"
 #include "brightness_map.h"
+#include "help.h"
 #include "control_socket.h"
 #include "setpoints.h"
 
 #include <QCheckBox>
 #include <QComboBox>
+#include <QDesktopServices>
 #include <QFormLayout>
 #include <QGroupBox>
 #include <QGuiApplication>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QMessageBox>
+#include <QProcess>
 #include <QPushButton>
 #include <QScreen>
 #include <QScrollArea>
@@ -23,6 +26,8 @@
 #include <QSpinBox>
 #include <QTabWidget>
 #include <QTimer>
+#include <QToolButton>
+#include <QUrl>
 #include <QVBoxLayout>
 
 namespace {
@@ -198,6 +203,8 @@ public:
     QLabel *modeState = nullptr;
     QComboBox *saveTarget = nullptr;
     QLabel *fanState = nullptr;
+
+    QToolButton *help = nullptr;
 
     QCheckBox *autoBrightness = nullptr;
     Tuner *level = nullptr;
@@ -382,7 +389,24 @@ void TrayWindow::build()
     // the tooltip.
     m_ui->status->setWordWrap(false);
     m_ui->status->setContentsMargins(8, 6, 8, 6);
-    outer->addWidget(m_ui->status);
+
+    // The "?" sits on the same line, at the far end. Everything in this window
+    // explains itself on hover, and none of that answers the question somebody
+    // has before they know what to hover over — what this is, and what a mode is.
+    // That answer is a page, and a page has no room in a window whose height is
+    // the height of its largest tab, so it opens outside.
+    m_ui->help = new QToolButton(this);
+    m_ui->help->setObjectName(QStringLiteral("help"));
+    m_ui->help->setText(QStringLiteral("?"));
+    m_ui->help->setAutoRaise(true);
+    m_ui->help->setToolTip(tr("Every control on every tab, what it does and what it costs. "
+                              "Opens the section for the tab you are on, outside this "
+                              "window."));
+    auto *statusRow = new QHBoxLayout;
+    statusRow->setContentsMargins(0, 0, 8, 0);
+    statusRow->addWidget(m_ui->status, 1);
+    statusRow->addWidget(m_ui->help);
+    outer->addLayout(statusRow);
 
     // The name is not the title: the title is translated and the name is what the
     // documentation pictures are called, which has to be the same on a machine in
@@ -807,6 +831,7 @@ void TrayWindow::build()
         connect(tuner, &Tuner::settled, this, [this]() { sendBacklightSettings(true); });
     }
 
+    connect(m_ui->help, &QToolButton::clicked, this, &TrayWindow::openHelp);
     connect(m_ui->autostart, &QCheckBox::toggled, this, &TrayWindow::setAutostart);
     connect(goodButton, &QPushButton::clicked, this, &TrayWindow::markGood);
     connect(loudButton, &QPushButton::clicked, this, &TrayWindow::markTooLoud);
@@ -1110,6 +1135,52 @@ void TrayWindow::sendBacklightSettings(bool durable)
                                         .arg(m_ui->ceiling->value());
     sendCommand(durable ? QStringLiteral("config set brightness ") + assignments
                         : QStringLiteral("brightness set ") + assignments);
+}
+
+QUrl TrayWindow::helpTarget() const
+{
+    // The section for the tab in front of the person. The page's anchors are the
+    // tabs' internal names, which is why this is a string and not a translated
+    // title: `tab_backlight` becomes `backlight` in every language.
+    const QWidget *page = m_ui->tabs->currentWidget();
+    const QString name = page ? page->objectName() : QString();
+    return help::url(name.startsWith(QLatin1String("tab_")) ? name.mid(4) : QString());
+}
+
+void TrayWindow::openHelp()
+{
+    const QUrl target = helpTarget();
+    // A missing page is not a failure of the program, and the button says so
+    // rather than looking as though the click did nothing.
+    if (!target.isValid()) {
+        report(tr("No help page is installed."), true);
+        return;
+    }
+    // Three ways to open it, in the order of how much of the address survives.
+    // Measured on this machine, because every one of them loses the "#backlight"
+    // somewhere else:
+    //
+    //   gio open   hands the URI on whole, and the browser lands on the section;
+    //   xdg-open   turns a file:// URL into a path first, so the section is gone
+    //              and the page opens at the top;
+    //   Qt         asks the desktop portal to open a local file, and the portal
+    //              takes a file descriptor — a descriptor cannot carry a fragment
+    //              at all.
+    //
+    // So the first one that starts wins, and the fallbacks still open the page.
+    // Landing at the top of the reference beats not opening the reference.
+    for (const QString &opener : { QStringLiteral("gio"), QStringLiteral("xdg-open") }) {
+        const QStringList arguments = opener == QLatin1String("gio")
+                ? QStringList { QStringLiteral("open"), target.toString() }
+                : QStringList { target.toString() };
+        if (QProcess::startDetached(opener, arguments))
+            return;
+    }
+    if (!QDesktopServices::openUrl(target)) {
+        report(tr("Nothing here opens documents. The page is at %1.")
+                       .arg(target.toLocalFile()),
+               true);
+    }
 }
 
 void TrayWindow::setAutostart(bool on)

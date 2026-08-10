@@ -46,7 +46,10 @@ sombra_test(tray_icon_test LIBS sombra_tray ENV "QT_QPA_PLATFORM=offscreen")
 sombra_test(translations_test LIBS sombra_tray
     ENV "QT_QPA_PLATFORM=offscreen;SOMBRA_TRANSLATIONS_DIR=${CMAKE_BINARY_DIR}")
 sombra_test(tray_client_test LIBS sombra_tray ENV "QT_QPA_PLATFORM=offscreen")
-sombra_test(tray_window_test LIBS sombra_tray ENV "QT_QPA_PLATFORM=offscreen")
+# The help pages come from the source tree for the same reason the catalogues come
+# from the build tree: testing what is in /usr would be testing the last release.
+sombra_test(tray_window_test LIBS sombra_tray
+    ENV "QT_QPA_PLATFORM=offscreen;SOMBRA_HELP_DIR=${CMAKE_SOURCE_DIR}/help")
 add_dependencies(tray_client_test sombrad)
 add_dependencies(tray_window_test sombrad sombra-tray)
 

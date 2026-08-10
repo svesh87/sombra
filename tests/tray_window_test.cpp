@@ -3,6 +3,7 @@
 #include "control_socket.h"
 #include "fake_sysfs.h"
 #include "brightness_map.h"
+#include "help.h"
 #include "modes.h"
 #include "theme.h"
 #include "tray_window.h"
@@ -13,6 +14,7 @@
 #include <QCoreApplication>
 #include <QDeadlineTimer>
 #include <QDir>
+#include <QFileInfo>
 #include <QStandardPaths>
 #include <QFile>
 #include <QGuiApplication>
@@ -20,6 +22,7 @@
 #include <QJsonObject>
 #include <QImage>
 #include <QLabel>
+#include <QToolButton>
 #include <QProcess>
 #include <QProcessEnvironment>
 #include <QPushButton>
@@ -166,6 +169,7 @@ private slots:
     void saysSoWhenTheDaemonIsUnreachable();
     void theWindowKeepsOneSizeForEveryTab();
     void oneLineCarriesTheStateAndTheReplies();
+    void theHelpButtonFindsAPageForEveryLanguage();
     void everyControlThatSendsACommandExplainsItself();
     void everyChoiceInAListExplainsItself();
     void theBaselineIsAControlOfItsOwn();
@@ -886,7 +890,8 @@ void TrayWindowTest::everyControlThatSendsACommandExplainsItself()
                                 QStringLiteral("auto_brightness"), QStringLiteral("level"),
                                 QStringLiteral("base"),      QStringLiteral("response"),
                                 QStringLiteral("floor"),     QStringLiteral("ceiling"),
-                                QStringLiteral("appearance"), QStringLiteral("autostart") };
+                                QStringLiteral("appearance"), QStringLiteral("autostart"),
+                                QStringLiteral("help") };
     for (const QString &name : named) {
         auto *control = window.findChild<QWidget *>(name);
         QVERIFY2(control, qPrintable(name));
@@ -1106,6 +1111,78 @@ void TrayWindowTest::theTrayWaitsForALateTrayHost()
     QVERIFY(absent.waitForFinished(20000));
     QVERIFY(QString::fromUtf8(absent.readAllStandardError())
                     .contains(QStringLiteral("no system tray")));
+}
+
+void TrayWindowTest::theHelpButtonFindsAPageForEveryLanguage()
+{
+    // The three languages the console speaks each have a page, and the button is
+    // pointed at the one for the language in force. Which document opens is not
+    // this test's business — the desktop decides that — but that there is one to
+    // open is.
+    for (const char *language : { "en", "ru", "es" }) {
+        const QString page = help::path(QLocale(QString::fromLatin1(language)));
+        QVERIFY2(!page.isEmpty(), language);
+        QVERIFY2(page.endsWith(QStringLiteral("sombra-help.%1.html").arg(
+                         QString::fromLatin1(language))),
+                 qPrintable(page));
+        QVERIFY(QFileInfo::exists(page));
+    }
+
+    // A language nothing is written for gets English rather than nothing: it is
+    // the source language of the window as well.
+    const QString fallback = help::path(QLocale(QStringLiteral("fi")));
+    QVERIFY(fallback.endsWith(QStringLiteral("sombra-help.en.html")));
+
+    // A region of a language served by that language's page.
+    const QString region = help::path(QLocale(QStringLiteral("es_MX")));
+    QVERIFY2(region.endsWith(QStringLiteral("sombra-help.es.html")), qPrintable(region));
+
+    TestDaemon daemon(m_tree->root(), m_work.path());
+    QVERIFY(daemon.waitUntilListening());
+    TrayClient client(socketPath());
+    TrayWindow window(client);
+    window.show();
+
+    auto *button = window.findChild<QToolButton *>(QStringLiteral("help"));
+    QVERIFY(button);
+    QVERIFY(!button->toolTip().isEmpty());
+    // On the status line rather than on a tab: it is about the window, not about
+    // one subject in it, and the line is where the eye already is.
+    QCOMPARE(button->parentWidget(), &window);
+    auto *status = window.findChild<QLabel *>(QStringLiteral("status"));
+    QVERIFY(status);
+    QVERIFY(status->width() > button->width());
+
+    // The aim follows the tab in front of the person: asked from the backlight tab,
+    // "what does this do" means the backlight. The anchors are the tabs' internal
+    // names, so they are the same in every language.
+    auto *tabs = window.findChild<QTabWidget *>(QStringLiteral("tabs"));
+    QVERIFY(tabs);
+    for (int i = 0; i < tabs->count(); ++i) {
+        tabs->setCurrentIndex(i);
+        const QUrl target = window.helpTarget();
+        QVERIFY2(target.isValid(), qPrintable(target.toString()));
+        QVERIFY(target.isLocalFile());
+        const QString expected = tabs->widget(i)->objectName().mid(4);
+        QCOMPARE(target.fragment(), expected);
+        QVERIFY(QFileInfo::exists(target.toLocalFile()));
+    }
+
+    // With no page installed there is nothing to aim at, and the button says so
+    // instead of opening a browser on nothing.
+    const QByteArray installed = qgetenv("SOMBRA_HELP_DIR");
+    QTemporaryDir empty;
+    qputenv("SOMBRA_HELP_DIR", empty.path().toLocal8Bit());
+    QVERIFY(help::path(QLocale(QStringLiteral("en"))).isEmpty());
+    QVERIFY(!window.helpTarget().isValid());
+    qputenv("SOMBRA_HELP_DIR", installed);
+    QVERIFY(window.helpTarget().isValid());
+
+    // And it does not grey out with the daemon: nothing about it asks the daemon
+    // anything.
+    daemon.stop();
+    QTRY_VERIFY(!client.connected());
+    QVERIFY(button->isEnabled());
 }
 
 void TrayWindowTest::theWindowKeepsOneSizeForEveryTab()

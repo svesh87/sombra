@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>sombra — the console, control by control</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { font: 16px/1.55 system-ui, sans-serif; max-width: 44em; margin: 2.5em auto;
+         padding: 0 1.2em; }
+  h1 { font-size: 1.5em; }
+  h2 { font-size: 1.15em; margin-top: 2.2em; }
+  h3 { font-size: 1em; margin-top: 1.6em; }
+  dt { font-weight: 600; margin-top: 0.9em; }
+  dd { margin: 0.2em 0 0 0; }
+  code { font-size: 0.95em; }
+  p { margin: 0.8em 0; }
+  .unit { font-weight: 400; opacity: 0.75; }
+  .nav { margin-top: 2em; opacity: 0.85; }
+  :target > * , h2:target { scroll-margin-top: 1em; }
+</style>
+</head>
+<body>
+
+<h1>sombra</h1>
+
+<p>This machine can be hot and quiet or cool and loud, and the firmware offers no
+way to ask for the point in between. <em>sombra</em> is that point: a daemon that
+holds the machine inside a chosen thermal envelope and follows the ambient light
+sensor, and this window to choose an envelope and tune it.</p>
+
+<p>The daemon owns the thermal controls alone — two programs writing the same
+controls produce whichever result wins the race. Everything in this window is a
+request to the daemon, and every control here also exists as a command:
+<code>man sombra</code>.</p>
+
+<p><strong>A mode is a set of numbers</strong>, not a name for a mood: the power
+limits, the frequency ceilings, turbo, the energy preference and which fan curve
+the firmware follows. There are three, from the coolest envelope to the widest, and
+the middle one is where the machine spends nearly all of its time. The desktop
+panel's three slots are these same three modes.</p>
+
+<p><strong>Moving a control applies it at once; only <em>Save to</em> writes it
+down.</strong> While what is running is not one of the saved modes, the mode
+selector is empty and the Status tab says so.</p>
+
+<p class="nav">Jump to: <a href="#status">Status</a> · <a href="#mode">Mode</a> · <a href="#backlight">Backlight</a> · <a href="#settings">Settings</a></p>
+
+<h2 id="status">Status — what only reports</h2>
+
+<p>Nothing on this tab changes anything, except the three buttons at the bottom,
+which write a judgement into the telemetry.</p>
+
+<h3>Readings</h3>
+
+<dl>
+<dt>Package <span class="unit">°C</span></dt>
+<dd>The processor package, from <code>coretemp</code>. This is the temperature
+every limit here exists to hold down, and the one the emergency guard watches.</dd>
+
+<dt>Board <span class="unit">°C</span></dt>
+<dd>The mainboard sensor, <code>acpitz</code>. It lags the package by minutes and
+says what the chassis is doing rather than what a burst just did.</dd>
+
+<dt>NVMe <span class="unit">°C</span></dt>
+<dd>The drive's composite sensor. Nothing here controls it; it is on screen because
+a warm drive shares a chassis with everything else.</dd>
+
+<dt>Fan <span class="unit">RPM</span></dt>
+<dd>Measured, not requested. The firmware decides the speed from the curve and the
+temperature — no value can be written to it, which is the reason this project
+exists.</dd>
+
+<dt>Load average</dt>
+<dd>The kernel's one-minute figure, for reading the rest of the column against.</dd>
+
+<dt>Package power <span class="unit">W</span></dt>
+<dd>What the package is drawing, from the RAPL energy counter. Compare it with the
+long-term limit on the Mode tab: sitting at the limit under load is the limit
+working.</dd>
+
+<dt>Core power, Uncore power <span class="unit">W</span></dt>
+<dd>The same draw split in two. Uncore separates the graphics and the memory side
+from the cores, which is how you tell a hot screen from a hot compiler.</dd>
+
+<dt>CPU frequency <span class="unit">MHz</span></dt>
+<dd>The mean over the online cores.</dd>
+
+<dt>iGPU frequency <span class="unit">MHz</span></dt>
+<dd>The graphics frequency now. Read it against the iGPU ceiling on the Mode
+tab.</dd>
+</dl>
+
+<h3>State</h3>
+
+<dl>
+<dt>Applied</dt>
+<dd>The setpoints actually in force this second, spelled out. While the guard is
+clamping, the controls on the Mode tab say what was asked for and this line says
+what is happening.</dd>
+
+<dt>On mains / On battery</dt>
+<dd>The power source. The daemon reacts to the transition, so this explains a
+change nobody made.</dd>
+
+<dt>The controls have been moved</dt>
+<dd>Live tuning is in force: what is running is not one of the saved modes. The
+mode selector is empty for the same reason. <em>Save to</em> or <em>Revert</em>
+ends it.</dd>
+
+<dt>Emergency thermal guard engaged</dt>
+<dd>The package is near the hardware cutout and power is clamped regardless of
+mode. This is a safety interlock, always active, and the one thing that will run
+the fan up without being asked.</dd>
+
+<dt>A control read back a value the daemon did not write</dt>
+<dd>Something else is writing the thermal controls. That is the arrangement this
+project exists to prevent, and it usually means the vendor daemon came back.</dd>
+
+<dt>Some sensors could not be read</dt>
+<dd>A reading is missing rather than zero. When the package temperature is among
+them, the daemon falls back to the coolest mode instead of guessing.</dd>
+</dl>
+
+<h3>How is it working</h3>
+
+<dl>
+<dt>Good, Too loud, Too slow</dt>
+<dd>Each stamps that judgement onto the reading of this second, so an opinion made
+by ear stays attached to the numbers that produced it. This is what the mode
+numbers are later tuned from; <code>sombra export</code> reads them back.</dd>
+</dl>
+
+<h2 id="mode">Mode — pick one, move it, keep it</h2>
+
+<dl>
+<dt>Mode</dt>
+<dd>Pick one and every control below takes its saved numbers. Empty means what is
+running is not any of them. Each entry carries its own numbers on hover.</dd>
+
+<dt>Apply this one at boot</dt>
+<dd>Which mode the daemon applies when the machine starts.</dd>
+</dl>
+
+<h3>Its numbers</h3>
+
+<dl>
+<dt>Long-term limit <span class="unit">1–45 W</span></dt>
+<dd>The power the processor may draw for as long as it likes — RAPL PL1. This is
+the control that decides how hot the machine gets under sustained load, and
+therefore how fast the fan ends up spinning. The ceiling here is the highest value
+confirmed on this machine, not the highest the firmware would accept: its own
+performance profile programs 200 W on a laptop rated for about 28.</dd>
+
+<dt>Short-term limit <span class="unit">1–65 W</span></dt>
+<dd>What it may draw in a burst of a few seconds — RAPL PL2. It decides how quick
+the machine feels rather than how warm it runs.</dd>
+
+<dt>Frequency ceiling <span class="unit">8–100 %</span></dt>
+<dd>How much of the processor's frequency range is available. A power limit already
+bounds sustained heat; this bounds the peak directly.</dd>
+
+<dt>iGPU ceiling <span class="unit">800–2350 MHz</span></dt>
+<dd>The graphics frequency ceiling. Lowering it saves power, but driving an
+external monitor is work the graphics cannot postpone — too low a ceiling shows as
+stutter. 800 is the hardware minimum; below it the driver refuses the write.</dd>
+
+<dt>Energy preference</dt>
+<dd>What the processor is told to prefer between saving energy and answering
+quickly. <code>performance</code> answers as fast as possible whatever it costs;
+<code>balance_performance</code> leans that way; <code>balance_power</code> leans
+towards saving; <code>power</code> saves wherever it can, and it is what suppresses
+the short bursts that heat the package while the machine is nominally idle. The
+words are the kernel's, because they are what goes into the settings file.</dd>
+
+<dt>Fan</dt>
+<dd>One control with four answers. Three are the curves the firmware carries,
+measured here at identical power under sustained load: <code>quiet</code> about
+2900 RPM and above 84 °C, <code>balanced</code> about 3700 RPM and 80 °C,
+<code>performance</code> about 5000 RPM and 74 °C. <code>maximum</code> is not a
+curve — it is full speed, roughly 6100 RPM, whatever the temperature. At idle the
+choice makes no difference at all: below roughly 45 °C the firmware stops the fan
+outright, and up to about 52 °C it holds it on the edge of stopping, whichever curve
+is selected. The curve starts to matter only once the package is warm enough for the
+firmware to ramp.</dd>
+
+<dt>Turbo</dt>
+<dd>Whether the processor may go above its base frequency at all.</dd>
+
+<dt>HWP dynamic boost</dt>
+<dd>Whether the hardware may raise the frequency on its own when it thinks the work
+needs it. Together with the energy preference, this is the pair that decides how
+much the machine warms itself up while doing nothing.</dd>
+</dl>
+
+<h3>Keep it</h3>
+
+<dl>
+<dt>Save to</dt>
+<dd>Writes the numbers above into the mode named beside the button. Until this is
+pressed, a moved control is applied and not saved, and a restart forgets it.</dd>
+
+<dt>Revert</dt>
+<dd>Back to the saved numbers of the mode in force, discarding what was moved.</dd>
+</dl>
+
+<h2 id="backlight">Backlight — a separate function</h2>
+
+<p>Selecting a thermal mode never moves the backlight, and nothing about the
+backlight reaches the thermal side. All five sliders are per cent of the panel's
+own scale.</p>
+
+<dl>
+<dt>Adjust to the light in the room</dt>
+<dd>Whether the backlight follows the ambient light sensor. Switching it on or off
+never moves the backlight by itself — a jump in brightness in answer to a toggle is
+the same defect as one in answer to a mode switch. It is off until switched on, and
+that choice survives a reboot.</dd>
+
+<dt>Brightness</dt>
+<dd>The backlight as it is right now. Moving it states what you want in
+<em>this</em> light, and the baseline below follows from it: the daemon takes the
+room's contribution of that moment back out. That is why the same light later
+returns the same brightness. Correcting it by the keyboard keys does the same
+thing.</dd>
+
+<dt>Baseline</dt>
+<dd>The level the automation works around. Moving it sets the baseline directly,
+which is what to reach for when the light in the room is not the light you are
+tuning for. Greyed out while the automation is off, because then it is a number
+nothing acts on.</dd>
+
+<dt>Reaction to light</dt>
+<dd>How far the room may move the backlight either way from the baseline, in
+percentage points. A reaction of 30 around a baseline of 80 % means a dark room may
+pull it to 50 % and a bright one push it to 100 %.</dd>
+
+<dt>Never darker than</dt>
+<dd>The floor. Nothing goes below it — not the automation, and not a slip of the
+hand either, because a screen driven into unreadable is a failure whoever did the
+driving.</dd>
+
+<dt>Never brighter than</dt>
+<dd>The ceiling, on the same terms. It is the whole scale until you move it, and it
+is what to reach for on a screen that is unpleasant at its own maximum.</dd>
+</dl>
+
+<p>The one backlight setting that is not on a slider is the curve, which turns a
+light reading in lux into a position from 0 to 100. It is calibrated from recorded
+telemetry rather than judged by eye, and it is edited from the command line:
+<code>man sombra</code>.</p>
+
+<h2 id="settings">Settings — about the program rather than the machine</h2>
+
+<dl>
+<dt>Appearance</dt>
+<dd><em>Follow the desktop</em>, <em>Light</em> or <em>Dark</em>, kept in the
+console's own settings file. Following the desktop usually means changing nothing:
+a desktop that manages Qt applications hands them its colours already, and the
+console re-reads them when the desktop switches theme at sunset. The window's title
+bar takes its colours when the window is created, so a change of scheme reaches the
+widgets at once and the bar at the next opening.</dd>
+
+<dt>Autostart</dt>
+<dd>Whether this console starts with the session. It writes one XDG autostart entry
+and nothing else — the entry <em>is</em> the state, which is what makes something
+switched off stay off. It takes effect at the next login, because that is when the
+session reads autostart entries.</dd>
+
+<dt>Reset everything</dt>
+<dd>Every mode definition and every backlight setting back to the values compiled
+into the daemon. It asks first. The console's own appearance and the autostart entry
+are not part of it: they are about the window, not about the machine.</dd>
+</dl>
+
+<h2 id="further">Where to look further</h2>
+
+<p>The command line does everything this window does and more:
+<code>man sombra</code>. The daemon has its own page, <code>man sombrad</code>, and
+so has this console, <code>man sombra-tray</code>. The project's documents — what
+the hardware actually offers, and the reasoning behind every decision here — are at
+<a href="https://github.com/svesh87/sombra">github.com/svesh87/sombra</a>.</p>
+
+</body>
+</html>

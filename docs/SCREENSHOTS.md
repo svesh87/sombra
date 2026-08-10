@@ -54,6 +54,11 @@ floor and the ceiling, which bind the automation and a slip of the hand alike. T
 baseline is greyed out here because the automation is off, and then it is a number
 nothing acts on.
 
+At the end of the status line there is a `?`. It opens the reference — every control
+of every tab with its units, its range and what it costs, in the language the window
+is speaking — at the section of the tab it was pressed on. Outside the window, because a page has no room in one whose height is
+the height of its largest tab.
+
 ### Settings — about the program rather than the machine
 
 ![The Settings tab](screenshots/console-settings.png)

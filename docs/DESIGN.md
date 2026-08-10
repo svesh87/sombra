@@ -198,6 +198,19 @@ itself.
   cost the controls the height they needed and doubled what there was to
   translate, so what a control does is said in its tooltip. A test walks every
   control that sends a command and fails if one has nothing to say.
+- **The reference a tooltip cannot be goes in a page outside the window.** A
+  tooltip explains one control to somebody who already knows what to hover over. It
+  cannot answer what this program is, and it cannot be read side by side with
+  another one — and comparing two controls is most of what a reference is for. So
+  the page documents every control of every tab, with its units, its range and what
+  it costs, and it is a `?` at the end of the status line with an installed page per
+  language, opened in whatever the desktop opens documents with. It opens at the
+  section of the tab it was pressed on: asked from the backlight tab, "what does this
+  do" means the backlight. The anchors are the tabs' internal names — the same ones
+  the pictures are called — so one set of them serves every language. In the window
+  it would be the paragraphs that were taken out of it, and there is no room for
+  them: the height is the height of the largest tab. A missing page is not a
+  failure — the button says so rather than doing nothing.
 - **One line for the daemon's state and for its replies.** Two of them meant a
   strip of empty space under every tab until the first command. An accepted reply
   gives the line back after five seconds; a refusal holds it until the next

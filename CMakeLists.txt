@@ -56,6 +56,7 @@ target_compile_options(sombra_daemon PRIVATE ${SOMBRA_WARNINGS})
 # with it, so it links the core for the setpoint types and nothing more.
 add_library(sombra_tray STATIC
     src/autostart.cpp
+    src/help.cpp
     src/theme.cpp
     src/tray_client.cpp
     src/tray_icon.cpp
@@ -92,8 +93,10 @@ include(GNUInstallDirs)
 # One place for both, because a mismatch between them is a translation that is
 # installed and never loaded.
 set(SOMBRA_TRANSLATIONS_DIR ${CMAKE_INSTALL_DATAROOTDIR}/sombra/translations)
+set(SOMBRA_HELP_DIR ${CMAKE_INSTALL_DATAROOTDIR}/sombra/help)
 target_compile_definitions(sombra_tray PRIVATE
-    SOMBRA_TRANSLATIONS_PATH="${CMAKE_INSTALL_FULL_DATAROOTDIR}/sombra/translations")
+    SOMBRA_TRANSLATIONS_PATH="${CMAKE_INSTALL_FULL_DATAROOTDIR}/sombra/translations"
+    SOMBRA_HELP_PATH="${CMAKE_INSTALL_FULL_DATAROOTDIR}/sombra/help")
 install(TARGETS sombrad sombra sombra-tray
         RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
 # No configuration is installed. The daemon carries its defaults compiled in
@@ -143,6 +146,12 @@ qt_add_lupdate(sombra_tray TS_FILES ${SOMBRA_TS_FILES}
 qt_add_lrelease(sombra_tray TS_FILES ${SOMBRA_TS_FILES}
     QM_FILES_OUTPUT_VARIABLE SOMBRA_QM_FILES)
 install(FILES ${SOMBRA_QM_FILES} DESTINATION ${SOMBRA_TRANSLATIONS_DIR})
+
+# The page behind the console's "?" button, one file per language. Written by hand
+# and installed as it stands: it is prose rather than a build product, and a page
+# somebody wants to correct should be a file they can open.
+install(FILES help/sombra-help.en.html help/sombra-help.ru.html help/sombra-help.es.html
+        DESTINATION ${SOMBRA_HELP_DIR})
 
 install(FILES man/sombra.1 man/sombra-tray.1 DESTINATION ${CMAKE_INSTALL_MANDIR}/man1)
 install(FILES man/sombrad.8 DESTINATION ${CMAKE_INSTALL_MANDIR}/man8)

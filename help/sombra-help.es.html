@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>sombra — la consola, control por control</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { font: 16px/1.55 system-ui, sans-serif; max-width: 44em; margin: 2.5em auto;
+         padding: 0 1.2em; }
+  h1 { font-size: 1.5em; }
+  h2 { font-size: 1.15em; margin-top: 2.2em; }
+  h3 { font-size: 1em; margin-top: 1.6em; }
+  dt { font-weight: 600; margin-top: 0.9em; }
+  dd { margin: 0.2em 0 0 0; }
+  code { font-size: 0.95em; }
+  p { margin: 0.8em 0; }
+  .unit { font-weight: 400; opacity: 0.75; }
+  .nav { margin-top: 2em; opacity: 0.85; }
+  :target > * , h2:target { scroll-margin-top: 1em; }
+</style>
+</head>
+<body>
+
+<h1>sombra</h1>
+
+<p>Esta máquina puede estar caliente y silenciosa o fría y ruidosa, y el firmware no
+ofrece manera de pedir el punto intermedio. <em>sombra</em> es ese punto: un demonio
+que mantiene la máquina dentro de un margen térmico elegido y sigue al sensor de luz
+ambiental, y esta ventana para elegir el margen y afinarlo.</p>
+
+<p>De los controles térmicos es dueño el demonio y nadie más: cuando dos programas
+escriben en los mismos nodos, el resultado es el de quien llega antes. Todo en esta
+ventana es una petición al demonio, y cada control de aquí existe también como orden:
+<code>man sombra</code>.</p>
+
+<p><strong>Un modo es un juego de números</strong>, no el nombre de un estado de
+ánimo: los límites de potencia, los techos de frecuencia, el turbo, la preferencia de
+energía y qué curva del ventilador sigue el firmware. Hay tres, del margen más frío al
+más amplio, y en el del medio la máquina pasa casi todo su tiempo. Las tres ranuras
+del panel del escritorio son estos mismos tres modos.</p>
+
+<p><strong>Un control que se mueve se aplica al instante; solo <em>Guardar en</em> lo
+escribe.</strong> Mientras lo que está en marcha no sea uno de los modos guardados, el
+selector de modo está vacío y la pestaña Estado lo dice.</p>
+
+<p class="nav">Ir a: <a href="#status">Estado</a> · <a href="#mode">Modo</a> · <a href="#backlight">Retroiluminación</a> · <a href="#settings">Ajustes</a></p>
+
+<h2 id="status">Estado — lo que solo informa</h2>
+
+<p>Nada de esta pestaña cambia nada, salvo los tres botones de abajo, que escriben un
+juicio en la telemetría.</p>
+
+<h3>Lecturas</h3>
+
+<dl>
+<dt>Paquete <span class="unit">°C</span></dt>
+<dd>El paquete del procesador, de <code>coretemp</code>. Es la temperatura que todos
+los límites de esta ventana existen para contener, y la que vigila la protección de
+emergencia.</dd>
+
+<dt>Placa <span class="unit">°C</span></dt>
+<dd>El sensor de la placa, <code>acpitz</code>. Va minutos por detrás del paquete y
+habla de lo que hace el chasis, no de lo que pasó hace un segundo.</dd>
+
+<dt>NVMe <span class="unit">°C</span></dt>
+<dd>El sensor compuesto del disco. Desde aquí nadie lo controla; está en pantalla
+porque un disco caliente comparte chasis con todo lo demás.</dd>
+
+<dt>Ventilador <span class="unit">RPM</span></dt>
+<dd>Revoluciones medidas, no pedidas. La velocidad la decide el firmware según la
+curva y la temperatura, y no se le puede escribir un valor: por eso existe este
+proyecto.</dd>
+
+<dt>Carga media</dt>
+<dd>La cifra de un minuto del kernel, para leer el resto de la columna en relación a
+ella.</dd>
+
+<dt>Potencia del paquete <span class="unit">W</span></dt>
+<dd>Lo que el paquete consume ahora, del contador de energía de RAPL. Compárelo con el
+límite prolongado de la pestaña Modo: quedarse pegado al límite bajo carga es el
+límite funcionando.</dd>
+
+<dt>Potencia de los núcleos, Potencia del uncore <span class="unit">W</span></dt>
+<dd>El mismo consumo repartido en dos. El uncore separa la gráfica y la memoria de los
+núcleos, y por ahí se distingue una pantalla caliente de un compilador caliente.</dd>
+
+<dt>Frecuencia de CPU <span class="unit">MHz</span></dt>
+<dd>La media de los núcleos activos.</dd>
+
+<dt>Frecuencia de iGPU <span class="unit">MHz</span></dt>
+<dd>La frecuencia de la gráfica ahora. Se lee junto con el techo de iGPU de la pestaña
+Modo.</dd>
+</dl>
+
+<h3>Estado</h3>
+
+<dl>
+<dt>Aplicado</dt>
+<dd>Los valores de consigna que rigen en este segundo, escritos con palabras. Mientras
+la protección de emergencia recorta, los controles de la pestaña Modo dicen lo que se
+pidió y esta línea dice lo que ocurre.</dd>
+
+<dt>Con red eléctrica / Con batería</dt>
+<dd>La fuente de energía. El demonio reacciona al paso de una a otra, y esta línea
+explica un cambio que nadie hizo.</dd>
+
+<dt>Los controles se han movido</dt>
+<dd>Hay ajuste en vivo: lo que está en marcha no es ninguno de los modos guardados.
+Por lo mismo está vacío el selector de modo. Se termina con <em>Guardar en</em> o con
+<em>Deshacer</em>.</dd>
+
+<dt>Protección térmica de emergencia activada</dt>
+<dd>El paquete se ha acercado al corte por hardware y la potencia está recortada, sea
+cual sea el modo. Es un enclavamiento de seguridad, está activo siempre, y es lo único
+que acelera el ventilador sin que se lo pidan.</dd>
+
+<dt>Un control devolvió un valor que el demonio no escribió</dt>
+<dd>Algo más está escribiendo en los controles térmicos. Es justo lo que este proyecto
+existe para evitar, y suele significar que ha vuelto el demonio del fabricante.</dd>
+
+<dt>Algunos sensores no se pudieron leer</dt>
+<dd>La lectura falta, no vale cero. Si entre las que faltan está la temperatura del
+paquete, el demonio se va al modo más frío en lugar de adivinar.</dd>
+</dl>
+
+<h3>Cómo funciona</h3>
+
+<dl>
+<dt>Bien, Demasiado ruidoso, Demasiado lento</dt>
+<dd>Cada uno estampa ese juicio en la lectura de este segundo, para que una opinión
+hecha de oído siga pegada a los números que la produjeron. De ahí salen luego los
+ajustes de los números de cada modo; <code>sombra export</code> los vuelve a leer.</dd>
+</dl>
+
+<h2 id="mode">Modo — elegir, mover, guardar</h2>
+
+<dl>
+<dt>Modo</dt>
+<dd>Elija uno y todos los controles de abajo toman sus números guardados. Vacío
+significa que lo que está en marcha no es ninguno. Los números de cada modo se ven al
+pasar el ratón por su entrada.</dd>
+
+<dt>Aplicar este al arrancar</dt>
+<dd>Qué modo aplica el demonio cuando arranca la máquina.</dd>
+</dl>
+
+<h3>Sus valores</h3>
+
+<dl>
+<dt>Límite prolongado <span class="unit">1–45 W</span></dt>
+<dd>La potencia que el procesador puede consumir todo el tiempo que quiera: el PL1 de
+RAPL. Es el control que decide cuánto se calienta la máquina bajo carga sostenida, y
+por tanto cuánto acaba girando el ventilador. El tope de aquí no es lo que aceptaría el
+firmware, sino el valor más alto confirmado en esta máquina: su propio perfil de
+rendimiento programa 200 W en un portátil dimensionado para unos 28.</dd>
+
+<dt>Límite breve <span class="unit">1–65 W</span></dt>
+<dd>Lo que puede consumir en un tirón de unos segundos: el PL2 de RAPL. Decide lo
+rápida que parece la máquina, no lo caliente que va.</dd>
+
+<dt>Techo de frecuencia <span class="unit">8–100 %</span></dt>
+<dd>Qué parte del rango de frecuencia del procesador está disponible. El calor
+sostenido ya lo limita el tope de potencia; esto limita el pico directamente.</dd>
+
+<dt>Techo de iGPU <span class="unit">800–2350 MHz</span></dt>
+<dd>El techo de frecuencia de la gráfica. Bajarlo ahorra potencia, pero mover un
+monitor externo es trabajo que la gráfica no puede posponer, y un techo demasiado bajo
+se nota como tirones. 800 es el mínimo del hardware; por debajo, el controlador rechaza
+la escritura.</dd>
+
+<dt>Preferencia de energía</dt>
+<dd>Qué se le dice al procesador que prefiera entre ahorrar energía y responder
+rápido. <code>performance</code> responde lo más rápido posible cueste lo que cueste,
+<code>balance_performance</code> se inclina a eso, <code>balance_power</code> se
+inclina al ahorro, y <code>power</code> ahorra donde puede: es lo que apaga los tirones
+cortos que calientan el paquete mientras la máquina está en reposo. Las palabras son
+las del kernel, porque son las que van al archivo de ajustes.</dd>
+
+<dt>Ventilador</dt>
+<dd>Un solo control con cuatro respuestas. Tres son las curvas que trae el firmware,
+medidas aquí a igual potencia bajo carga sostenida: <code>quiet</code> unas 2900 RPM y
+por encima de 84 °C, <code>balanced</code> unas 3700 RPM y 80 °C,
+<code>performance</code> unas 5000 RPM y 74 °C. <code>maximum</code> no es una curva:
+es velocidad máxima, unas 6100 RPM, sea cual sea la temperatura. En reposo la elección
+no cambia absolutamente nada: por debajo de unos 45 °C el firmware para el ventilador
+del todo, y hasta unos 52 °C lo mantiene al borde de pararse, con cualquier curva. La
+curva empieza a importar solo cuando el paquete está lo bastante caliente para que el
+firmware lo acelere.</dd>
+
+<dt>Turbo</dt>
+<dd>Si el procesador puede subir por encima de su frecuencia base.</dd>
+
+<dt>HWP dynamic boost</dt>
+<dd>Si el hardware puede subir la frecuencia por su cuenta cuando cree que el trabajo
+lo pide. Junto con la preferencia de energía, esta es la pareja que decide cuánto se
+calienta la máquina sin hacer nada.</dd>
+</dl>
+
+<h3>Guardarlo</h3>
+
+<dl>
+<dt>Guardar en</dt>
+<dd>Escribe los números de arriba en el modo que se nombra al lado del botón. Hasta que
+se pulsa, un control movido está aplicado y no guardado, y un reinicio lo olvida.</dd>
+
+<dt>Deshacer</dt>
+<dd>Volver a los números guardados del modo en vigor, descartando lo que se movió.</dd>
+</dl>
+
+<h2 id="backlight">Retroiluminación — una función aparte</h2>
+
+<p>Elegir un modo térmico no mueve nunca la retroiluminación, y nada de la
+retroiluminación llega al lado térmico. Los cinco deslizadores son por ciento de la
+escala propia del panel.</p>
+
+<dl>
+<dt>Ajustar a la luz de la habitación</dt>
+<dd>Si la retroiluminación sigue al sensor de luz ambiental. Encenderlo o apagarlo no
+mueve el brillo por sí solo: un salto de brillo en respuesta a un interruptor es el
+mismo defecto que uno en respuesta a un cambio de modo. Viene apagado, y esa elección
+sobrevive a un reinicio.</dd>
+
+<dt>Brillo</dt>
+<dd>La retroiluminación tal como está ahora. Al moverla, usted dice qué quiere con
+<em>esta</em> luz, y la base de abajo sale de ahí: el demonio le descuenta la aportación
+de la habitación en ese momento. Por eso la misma luz devuelve después el mismo brillo.
+Corregirlo con las teclas del teclado hace lo mismo.</dd>
+
+<dt>Base</dt>
+<dd>El nivel alrededor del cual trabaja la automatización. Al moverla se fija la base
+directamente, que es lo que hace falta cuando la luz de la habitación no es la luz para
+la que se está ajustando. Está atenuada mientras la automatización esté apagada, porque
+entonces es un número sobre el que nadie actúa.</dd>
+
+<dt>Reacción a la luz</dt>
+<dd>Cuánto puede mover la habitación la retroiluminación a cada lado de la base, en
+puntos porcentuales. Una reacción de 30 alrededor de una base del 80 % significa que
+una habitación oscura puede bajarla al 50 % y una luminosa subirla al 100 %.</dd>
+
+<dt>Nunca más oscuro que</dt>
+<dd>El suelo. Por debajo no baja nadie, ni la automatización ni un descuido de la mano:
+una pantalla llevada a ilegible es un fallo, la haya llevado quien la haya llevado.</dd>
+
+<dt>Nunca más brillante que</dt>
+<dd>El techo, en las mismas condiciones. Mientras no se mueva es la escala entera, y
+está para la pantalla que resulta molesta en su propio máximo.</dd>
+</dl>
+
+<p>El único ajuste de la retroiluminación que no está en un deslizador es la curva, que
+traduce una lectura de luz en lux a una posición de 0 a 100. Se calibra con telemetría
+grabada y no a ojo, y se edita desde la línea de órdenes: <code>man sombra</code>.</p>
+
+<h2 id="settings">Ajustes — sobre el programa, no sobre la máquina</h2>
+
+<dl>
+<dt>Apariencia</dt>
+<dd><em>Seguir al escritorio</em>, <em>Claro</em> u <em>Oscuro</em>, guardado en el
+archivo de ajustes propio de la consola. Seguir al escritorio normalmente significa no
+cambiar nada: un escritorio que gestiona aplicaciones Qt ya les da sus colores, y la
+consola los vuelve a leer cuando el escritorio cambia de tema al atardecer. La barra de
+título toma sus colores al crearse la ventana, así que un cambio de esquema llega al
+contenido al instante y a la barra en la siguiente apertura.</dd>
+
+<dt>Autoarranque</dt>
+<dd>Si esta consola arranca con la sesión. Escribe una entrada de autoarranque XDG y
+nada más: la entrada <em>es</em> el estado, y por eso lo que se apagó sigue apagado.
+Tiene efecto en el siguiente inicio de sesión, que es cuando la sesión lee las entradas
+de autoarranque.</dd>
+
+<dt>Restablecer todo</dt>
+<dd>Todas las definiciones de modo y todos los ajustes de la retroiluminación, de vuelta
+a los valores compilados en el demonio. Pregunta antes. La apariencia de la consola y el
+autoarranque no entran: son sobre la ventana, no sobre la máquina.</dd>
+</dl>
+
+<h2 id="further">Dónde seguir mirando</h2>
+
+<p>La línea de órdenes hace todo lo que hace esta ventana, y más:
+<code>man sombra</code>. El demonio tiene su propia página, <code>man sombrad</code>, y
+esta consola la suya, <code>man sombra-tray</code>. Los documentos del proyecto —qué
+ofrece el hardware realmente y el razonamiento detrás de cada decisión— están en
+<a href="https://github.com/svesh87/sombra">github.com/svesh87/sombra</a>.</p>
+
+</body>
+</html>

@@ -136,6 +136,11 @@ líneas de texto.
 | `scripts/rollback.sh` | se los devuelve al demonio del fabricante |
 | `scripts/screenshots.sh` | hace las imágenes de la documentación |
 
+La consola tiene un `?` al final de su línea de estado. Abre la referencia: cada
+control de cada pestaña con sus unidades, su rango y lo que cuesta, más el modelo
+sobre el que está construida la ventana, en el idioma en que habla la ventana.
+Instalada como `/usr/share/sombra/help/sombra-help.<idioma>.html`.
+
 El paquete instala páginas de manual, `sombra(1)`, `sombrad(8)` y
 `sombra-tray(1)`, y autocompletado para bash, zsh y fish. El autocompletado saca
 los verbos de un archivo estático y solo le pregunta al demonio los nombres de
