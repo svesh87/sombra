@@ -292,7 +292,8 @@ void ModesTest::theWholeFileReadsBackAsTheSameTables()
     QVERIFY(modes.setDefaultModeId(QStringLiteral("quiet")));
 
     const BrightnessSettings brightness = builtinBrightnessSettings();
-    const QString path = writeConfig(settings_file::serialize(modes, brightness));
+    const QString path =
+            writeConfig(settings_file::serialize(modes, brightness, builtinMetricsSettings()));
 
     ModeTable readModes;
     QStringList problems;
@@ -331,7 +332,7 @@ void ModesTest::savingRefusesWhatItCannotWrite()
     QString error;
     QVERIFY(!settings_file::save(blocker + QStringLiteral("/settings.conf"),
                                  ModeTable::builtinDefaults(), builtinBrightnessSettings(),
-                                 &error));
+                                 builtinMetricsSettings(), &error));
     QVERIFY(!error.isEmpty());
 }
 

@@ -155,6 +155,8 @@ private slots:
     void readOnlyMappingRefusesWrites();
     void refusesZeroCapacity();
     void closedRingIsInert();
+    void retentionIsDaysOfSamplesWithinItsBounds();
+    void theMetricsSectionReadsBackAsTheSameSettings();
 
 private:
     QTemporaryDir m_dir;
@@ -412,6 +414,89 @@ void MetricsRingTest::carriesVersionTwoSamplesForward()
     // An absent reading stays absent rather than becoming the largest lux
     // value in the file.
     QCOMPARE(ring.at(1).light, kAbsentLight);
+}
+
+void MetricsRingTest::retentionIsDaysOfSamplesWithinItsBounds()
+{
+    QCOMPARE(retentionCapacity(kRetentionDefaultDays), kRingCapacity);
+    QCOMPARE(retentionCapacity(1), kSamplesPerDay);
+    QCOMPARE(retentionCapacity(30), 30 * kSamplesPerDay);
+    // Out of range is clamped rather than believed: a ring of zero records has no
+    // meaning and one of a thousand days is not what a spin box asked for.
+    QCOMPARE(retentionCapacity(0), kSamplesPerDay * kRetentionMinDays);
+    QCOMPARE(retentionCapacity(-5), kSamplesPerDay * kRetentionMinDays);
+    QCOMPARE(retentionCapacity(1000), kSamplesPerDay * kRetentionMaxDays);
+
+    MetricsSettings settings = builtinMetricsSettings();
+    QCOMPARE(settings.retentionDays, kRetentionDefaultDays);
+    QVERIFY(settings.enabled);
+
+    QString error;
+    QStringList clamped;
+    QVERIFY(applyMetricsSetting(settings, QStringLiteral("retention_days"),
+                                QStringLiteral("30"), &error, &clamped));
+    QCOMPARE(settings.retentionDays, 30);
+    QVERIFY(clamped.isEmpty());
+
+    // Clamped and said out loud, so nobody spends a week expecting samples that
+    // were never going to be kept.
+    QVERIFY(applyMetricsSetting(settings, QStringLiteral("retention_days"),
+                                QStringLiteral("90"), &error, &clamped));
+    QCOMPARE(settings.retentionDays, kRetentionMaxDays);
+    QVERIFY2(clamped.join(QLatin1Char(';')).contains(QStringLiteral("outside")),
+             qPrintable(clamped.join(QLatin1Char(';'))));
+
+    for (const char *word : { "off", "false", "0", "no" }) {
+        QVERIFY(applyMetricsSetting(settings, QStringLiteral("enabled"),
+                                    QString::fromLatin1(word), &error, &clamped));
+        QVERIFY(!settings.enabled);
+    }
+    for (const char *word : { "on", "true", "1", "yes" }) {
+        QVERIFY(applyMetricsSetting(settings, QStringLiteral("enabled"),
+                                    QString::fromLatin1(word), &error, &clamped));
+        QVERIFY(settings.enabled);
+    }
+
+    // Nonsense is refused rather than guessed at, the same as everywhere else.
+    QVERIFY(!applyMetricsSetting(settings, QStringLiteral("enabled"),
+                                 QStringLiteral("sometimes"), &error, &clamped));
+    QVERIFY(!error.isEmpty());
+    QVERIFY(!applyMetricsSetting(settings, QStringLiteral("retention_days"),
+                                 QStringLiteral("a fortnight"), &error, &clamped));
+    QVERIFY(!applyMetricsSetting(settings, QStringLiteral("depth"), QStringLiteral("7"),
+                                 &error, &clamped));
+}
+
+void MetricsRingTest::theMetricsSectionReadsBackAsTheSameSettings()
+{
+    MetricsSettings written;
+    written.retentionDays = 21;
+    written.enabled = false;
+
+    const QString path = m_dir.path() + QStringLiteral("/settings.conf");
+    QFile file(path);
+    QVERIFY(file.open(QIODevice::WriteOnly));
+    QCOMPARE(file.write(metricsSettingsSection(written).toUtf8()),
+             qint64(metricsSettingsSection(written).toUtf8().size()));
+    file.close();
+
+    MetricsSettings read = builtinMetricsSettings();
+    QStringList problems;
+    QVERIFY(loadMetricsSettings(path, &read, &problems));
+    QVERIFY2(problems.isEmpty(), qPrintable(problems.join(QStringLiteral("; "))));
+    QCOMPARE(read.retentionDays, 21);
+    QVERIFY(!read.enabled);
+
+    // A file with no section of ours leaves the argument alone, which is how a
+    // fresh install falls back to the built-in values.
+    MetricsSettings untouched = builtinMetricsSettings();
+    const QString empty = m_dir.path() + QStringLiteral("/empty.conf");
+    QFile other(empty);
+    QVERIFY(other.open(QIODevice::WriteOnly));
+    other.write("[general]\ndefault_mode=work\n");
+    other.close();
+    QVERIFY(!loadMetricsSettings(empty, &untouched, &problems));
+    QCOMPARE(untouched.retentionDays, kRetentionDefaultDays);
 }
 
 void MetricsRingTest::carriesVersionFourSamplesForward()

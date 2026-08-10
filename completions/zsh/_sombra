@@ -61,7 +61,7 @@ _sombra() {
             "") compadd show set save default_mode reset ;;
             set)
                 case $words[3] in
-                "") compadd mode brightness ;;
+                "") compadd mode brightness metrics ;;
                 mode)
                     if (( CURRENT == 4 )); then
                         _sombra_modes
@@ -71,6 +71,7 @@ _sombra() {
                     fi
                     ;;
                 brightness) compadd -S '' response_pct= floor_pct= ceiling_pct= curve= ;;
+                metrics) compadd -S '' retention_days= enabled= ;;
                 esac
                 ;;
             save)
@@ -79,7 +80,7 @@ _sombra() {
                 *) if [[ $words[4] == to ]]; then _sombra_modes; else compadd to; fi ;;
                 esac
                 ;;
-            reset) compadd modes brightness all ;;
+            reset) compadd modes brightness metrics all ;;
             default_mode) _sombra_modes ;;
             esac
             ;;

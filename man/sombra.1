@@ -142,13 +142,25 @@ The backlight settings, written down:
 There are no brightness profiles: the room is one room, and what varies in it
 is the light rather than the preference.
 .TP
+.BI "config set metrics " key = value " ..."
+How the telemetry ring is kept.
+.B retention_days
+is how many days of samples it holds, from 1 to 30; the depth is the ring's own
+size, so changing it rebuilds the file and carries the samples across, and a
+shorter retention drops the oldest.
+.B enabled
+is whether anything is appended at all: switched off, the daemon still takes the
+sample and still answers
+.BR status ,
+the file stays where it is, and an export still reads what is in it.
+.TP
 .BI "config save live to " id
 Keep the current live tuning as that mode's definition.
 .TP
 .BI "config default_mode " id
 The mode applied at boot.
 .TP
-.B config reset modes|brightness|all
+.B config reset modes|brightness|metrics|all
 Back to the values compiled into the daemon. This is the way out of a mess and
 the state of a fresh install, not a routine operation.
 .TP

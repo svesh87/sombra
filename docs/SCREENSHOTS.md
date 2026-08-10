@@ -63,8 +63,10 @@ the height of its largest tab.
 
 ![The Settings tab](screenshots/console-settings.png)
 
-What the window looks like, whether it starts with the session, and the one button
-that discards every setting there is.
+What the window looks like, whether it starts with the session, how much telemetry
+is kept and whether any is recorded at all, and the one button that discards every
+setting there is. The two telemetry controls are the daemon's settings rather than
+the console's, which is what they have in common with the reset beside them.
 
 ## Making them again
 

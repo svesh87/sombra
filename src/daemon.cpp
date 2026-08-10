@@ -103,20 +103,15 @@ bool Daemon::start(QString *error)
         return false;
     }
 
+    // The configuration first, because how deep the ring is comes out of it.
+    loadConfiguration();
+    loadState();
+
     // Telemetry and the control channel are both secondary to keeping the
     // machine inside its thermal envelope. Neither failing is a reason to
     // leave the firmware's own 200 W limit standing, so both degrade to a log
     // line.
-    QString ringError;
-    if (!m_ring.open(m_options.ringPath, m_options.ringCapacity, &ringError))
-        qWarning().noquote() << "telemetry disabled:" << ringError;
-    // Said out loud: samples carried across a change of format, or a file this
-    // build could not read and kept instead of deleting.
-    if (!m_ring.note().isEmpty())
-        qInfo().noquote() << m_ring.note();
-
-    loadConfiguration();
-    loadState();
+    openRing();
 
     m_socket = std::make_unique<ControlSocket>(
             [this](const QString &line) { return handleCommand(line); }, this);
@@ -142,6 +137,30 @@ bool Daemon::start(QString *error)
     applyNow();
     m_timer.start();
     return true;
+}
+
+void Daemon::openRing()
+{
+    // `--capacity` wins where it is given: the suite and the screenshot harness
+    // want a ring of sixty-four records, and neither of them has a settings file
+    // to say so in.
+    const quint64 capacity =
+            m_options.ringCapacity ? m_options.ringCapacity
+                                   : retentionCapacity(m_metrics.retentionDays);
+    QString error;
+    if (!m_ring.open(m_options.ringPath, capacity, &error))
+        qWarning().noquote() << "telemetry disabled:" << error;
+    // Said out loud: samples carried across a change of format or of depth, or a
+    // file this build could not read and kept instead of deleting.
+    if (!m_ring.note().isEmpty())
+        qInfo().noquote() << m_ring.note();
+}
+
+void Daemon::reopenRing()
+{
+    m_ring.flush();
+    m_ring.close();
+    openRing();
 }
 
 void Daemon::applyNow()
@@ -187,6 +206,13 @@ void Daemon::loadConfiguration()
         m_brightnessSettings = brightness;
     else
         m_brightnessSettings = builtinBrightnessSettings();
+
+    // And a third section, for how the ring itself is kept.
+    MetricsSettings metrics;
+    if (loadMetricsSettings(m_options.configPath, &metrics, &problems))
+        m_metrics = metrics;
+    else
+        m_metrics = builtinMetricsSettings();
 
     for (const QString &problem : problems)
         qWarning().noquote() << "configuration:" << problem;
@@ -593,15 +619,43 @@ QString Daemon::applyLiveSetting(const QStringList &assignments)
     return QStringLiteral("ok");
 }
 
+QString Daemon::configMetricsCommand(const QStringList &assignments)
+{
+    if (assignments.isEmpty())
+        return QStringLiteral("err config set metrics needs key=value");
+
+    MetricsSettings edited = m_metrics;
+    QStringList clamped;
+    for (const QString &assignment : assignments) {
+        const int eq = assignment.indexOf(QLatin1Char('='));
+        if (eq <= 0)
+            return QStringLiteral("err malformed assignment %1").arg(assignment);
+        QString error;
+        if (!applyMetricsSetting(edited, assignment.left(eq).trimmed().toLower(),
+                                 assignment.mid(eq + 1).trimmed(), &error, &clamped)) {
+            return QStringLiteral("err ") + error;
+        }
+    }
+    return commitTables(m_modes, m_brightnessSettings, edited, clamped);
+}
+
 QString Daemon::commitTables(const ModeTable &modes, const BrightnessSettings &brightness,
-                             const QStringList &clamped)
+                             const MetricsSettings &metrics, const QStringList &clamped)
 {
     QString error;
-    if (!settings_file::save(m_options.configPath, modes, brightness, &error))
+    if (!settings_file::save(m_options.configPath, modes, brightness, metrics, &error))
         return QStringLiteral("err ") + error;
 
+    const int previousRetention = m_metrics.retentionDays;
     m_modes = modes;
     m_brightnessSettings = brightness;
+    m_metrics = metrics;
+    // The depth of the ring is the ring's own size, so changing it rebuilds the
+    // file. Reopening carries the samples across, which is the same path a change
+    // of record layout takes; shrinking drops the oldest, which is what a shorter
+    // retention means.
+    if (m_running && m_metrics.retentionDays != previousRetention && !m_options.ringCapacity)
+        reopenRing();
     // An edit can rename nothing but can move a mode along the table, and a
     // selection that no longer exists would leave the machine unmanaged.
     if (!m_modes.find(m_state.mode))
@@ -666,6 +720,10 @@ QString Daemon::configJson() const
     root[QStringLiteral("default_mode")] = m_modes.defaultModeId();
     root[QStringLiteral("modes")] = modeList;
     root[QStringLiteral("brightness")] = brightness;
+    QJsonObject metrics;
+    metrics[QStringLiteral("retention_days")] = m_metrics.retentionDays;
+    metrics[QStringLiteral("enabled")] = m_metrics.enabled;
+    root[QStringLiteral("metrics")] = metrics;
     return QString::fromUtf8(QJsonDocument(root).toJson(QJsonDocument::Compact));
 }
 
@@ -703,7 +761,7 @@ QString Daemon::configModeCommand(const QStringList &parts)
 
     ModeTable modes = m_modes;
     modes.replace(edited);
-    return commitTables(modes, m_brightnessSettings, clamped);
+    return commitTables(modes, m_brightnessSettings, m_metrics, clamped);
 }
 
 QString Daemon::configBrightnessCommand(const QStringList &parts)
@@ -723,7 +781,7 @@ QString Daemon::configBrightnessCommand(const QStringList &parts)
             return QStringLiteral("err ") + error;
         }
     }
-    return commitTables(m_modes, edited, clamped);
+    return commitTables(m_modes, edited, m_metrics, clamped);
 }
 
 QString Daemon::configSaveCommand(const QStringList &parts)
@@ -754,7 +812,7 @@ QString Daemon::configSaveCommand(const QStringList &parts)
 
     ModeTable modes = m_modes;
     modes.replace(edited);
-    const QString reply = commitTables(modes, m_brightnessSettings, clamped);
+    const QString reply = commitTables(modes, m_brightnessSettings, m_metrics, clamped);
     // Dropped only when it has become the mode in force: the applied values do
     // not change, and the status stops claiming an experiment is running when
     // what is running is now a saved definition. Saving into another mode
@@ -768,17 +826,20 @@ QString Daemon::configSaveCommand(const QStringList &parts)
 QString Daemon::configResetCommand(const QStringList &parts)
 {
     if (parts.isEmpty())
-        return QStringLiteral("err config reset needs modes, brightness or all");
+        return QStringLiteral("err config reset needs modes, brightness, metrics or all");
     const QString what = parts.first().toLower();
 
     ModeTable modes = m_modes;
     BrightnessSettings brightness = m_brightnessSettings;
+    MetricsSettings metrics = m_metrics;
     if (what == QLatin1String("modes") || what == QLatin1String("all"))
         modes = ModeTable::builtinDefaults();
-    else if (what != QLatin1String("brightness"))
-        return QStringLiteral("err config reset takes modes, brightness or all");
+    else if (what != QLatin1String("brightness") && what != QLatin1String("metrics"))
+        return QStringLiteral("err config reset takes modes, brightness, metrics or all");
     if (what == QLatin1String("brightness") || what == QLatin1String("all"))
         brightness = builtinBrightnessSettings();
+    if (what == QLatin1String("metrics") || what == QLatin1String("all"))
+        metrics = builtinMetricsSettings();
 
     // A reset is the answer to "I have made a mess and want out", so it drops
     // the experiment too: an overlay surviving it would leave the machine on
@@ -786,7 +847,7 @@ QString Daemon::configResetCommand(const QStringList &parts)
     if (what == QLatin1String("modes") || what == QLatin1String("all"))
         m_live.reset();
 
-    return commitTables(modes, brightness, {});
+    return commitTables(modes, brightness, metrics, {});
 }
 
 QString Daemon::applyConfigCommand(const QStringList &parts)
@@ -800,13 +861,15 @@ QString Daemon::applyConfigCommand(const QStringList &parts)
 
     if (what == QLatin1String("set")) {
         if (parts.size() < 2)
-            return QStringLiteral("err config set needs mode or brightness");
+            return QStringLiteral("err config set needs mode, brightness or metrics");
         const QString kind = parts.at(1).toLower();
         if (kind == QLatin1String("mode"))
             return configModeCommand(parts.mid(2));
         if (kind == QLatin1String("brightness"))
             return configBrightnessCommand(parts.mid(2));
-        return QStringLiteral("err config set takes mode or brightness");
+        if (kind == QLatin1String("metrics"))
+            return configMetricsCommand(parts.mid(2));
+        return QStringLiteral("err config set takes mode, brightness or metrics");
     }
 
     if (what == QLatin1String("save"))
@@ -821,7 +884,7 @@ QString Daemon::applyConfigCommand(const QStringList &parts)
         ModeTable modes = m_modes;
         if (!modes.setDefaultModeId(parts.at(1)))
             return QStringLiteral("err unknown mode %1").arg(parts.at(1));
-        return commitTables(modes, m_brightnessSettings, {});
+        return commitTables(modes, m_brightnessSettings, m_metrics, {});
     }
 
     return QStringLiteral("err config takes show, set, save, default_mode or reset");
@@ -926,6 +989,14 @@ QString Daemon::statusJson() const
     root[QStringLiteral("requested")] = wanted;
     root[QStringLiteral("sensors")] = sensors;
     root[QStringLiteral("brightness")] = brightness;
+
+    // How the ring is kept, so that the console can show it without a second
+    // command: how deep it is, and whether anything is being written at all.
+    QJsonObject metrics;
+    metrics[QStringLiteral("retention_days")] = m_metrics.retentionDays;
+    metrics[QStringLiteral("enabled")] = m_metrics.enabled;
+    metrics[QStringLiteral("samples")] = static_cast<qint64>(m_ring.count());
+    root[QStringLiteral("metrics")] = metrics;
 
     return QString::fromUtf8(QJsonDocument(root).toJson(QJsonDocument::Compact));
 }
@@ -1079,7 +1150,10 @@ void Daemon::tick()
     sample.mark = static_cast<uint8_t>(m_pendingMark);
     m_pendingMark = Mark::None;
 
-    m_ring.append(sample);
+    // Switched off, nothing is appended and nothing else changes: the sample was
+    // taken, `status` will answer from it, and the file keeps what it already has.
+    if (m_metrics.enabled)
+        m_ring.append(sample);
     m_lastSample = sample;
     ++m_ticks;
 

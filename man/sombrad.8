@@ -60,9 +60,12 @@ handed to the group
 .BR sombra .
 .TP
 .BI --capacity " records"
-Ring capacity in samples. Default is seven days at 1 Hz. Retention is a
-property of the geometry: the blocks are reserved once and the oldest record is
-overwritten in place, so there is no growth and no cleanup task to fail.
+Ring capacity in samples, overriding the retention in the settings file. Without
+it the depth comes from
+.B retention_days
+there, seven days at 1 Hz by default. Retention is a property of the geometry:
+the blocks are reserved once and the oldest record is overwritten in place, so
+there is no growth and no cleanup task to fail.
 .TP
 .BI --interval-ms " ms"
 The sampling interval. Default 1000.
@@ -96,6 +99,11 @@ against a hard list and panics on anything else.
 .I /var/lib/sombra/state
 .TP
 .I /var/lib/sombra/metrics.ring
+The telemetry. Its depth is
+.B retention_days
+in the settings file, and switching
+.B enabled
+off there stops the appending without touching the file.
 .TP
 .I /var/lib/sombra/metrics.ring.bak
 A ring this build cannot read, kept rather than deleted. One slot, replaced

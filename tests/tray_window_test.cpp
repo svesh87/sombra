@@ -4,6 +4,7 @@
 #include "fake_sysfs.h"
 #include "brightness_map.h"
 #include "help.h"
+#include "metrics_ring.h"
 #include "modes.h"
 #include "theme.h"
 #include "tray_window.h"
@@ -170,6 +171,7 @@ private slots:
     void theWindowKeepsOneSizeForEveryTab();
     void oneLineCarriesTheStateAndTheReplies();
     void theHelpButtonFindsAPageForEveryLanguage();
+    void telemetryIsTwoControlsOnTheSettingsTab();
     void everyControlThatSendsACommandExplainsItself();
     void everyChoiceInAListExplainsItself();
     void theBaselineIsAControlOfItsOwn();
@@ -891,7 +893,8 @@ void TrayWindowTest::everyControlThatSendsACommandExplainsItself()
                                 QStringLiteral("base"),      QStringLiteral("response"),
                                 QStringLiteral("floor"),     QStringLiteral("ceiling"),
                                 QStringLiteral("appearance"), QStringLiteral("autostart"),
-                                QStringLiteral("help") };
+                                QStringLiteral("help"), QStringLiteral("metrics_enabled"),
+                                QStringLiteral("retention_days") };
     for (const QString &name : named) {
         auto *control = window.findChild<QWidget *>(name);
         QVERIFY2(control, qPrintable(name));
@@ -1183,6 +1186,40 @@ void TrayWindowTest::theHelpButtonFindsAPageForEveryLanguage()
     daemon.stop();
     QTRY_VERIFY(!client.connected());
     QVERIFY(button->isEnabled());
+}
+
+void TrayWindowTest::telemetryIsTwoControlsOnTheSettingsTab()
+{
+    TestDaemon daemon(m_tree->root(), m_work.path());
+    QVERIFY(daemon.waitUntilListening());
+    TrayClient client(socketPath());
+    TrayWindow window(client);
+    client.poll();
+
+    auto *enabled = window.findChild<QCheckBox *>(QStringLiteral("metrics_enabled"));
+    auto *days = window.findChild<QSpinBox *>(QStringLiteral("retention_days"));
+    QVERIFY(enabled);
+    QVERIFY(days);
+    QVERIFY(!enabled->toolTip().isEmpty());
+    QVERIFY(!days->toolTip().isEmpty());
+    QCOMPARE(days->minimum(), kRetentionMinDays);
+    QCOMPARE(days->maximum(), kRetentionMaxDays);
+    // What the daemon says, not a compiled-in guess.
+    QTRY_COMPARE(days->value(), kRetentionDefaultDays);
+    QVERIFY(enabled->isChecked());
+
+    // Switching the recording off is a command, and the daemon's answer comes back
+    // through the status the console polls.
+    enabled->setChecked(false);
+    QTRY_VERIFY(!client.status().metricsEnabled);
+    MetricsSettings saved = builtinMetricsSettings();
+    QTRY_VERIFY(loadMetricsSettings(configPath(), &saved));
+    QVERIFY(!saved.enabled);
+
+    // A deeper ring goes out without a question: nothing is lost by keeping more.
+    days->setValue(kRetentionDefaultDays + 1);
+    days->editingFinished();
+    QTRY_COMPARE(client.status().retentionDays, kRetentionDefaultDays + 1);
 }
 
 void TrayWindowTest::theWindowKeepsOneSizeForEveryTab()

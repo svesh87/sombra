@@ -66,8 +66,10 @@ es la de su pestaña más grande.
 
 ![La pestaña Ajustes](screenshots/console-settings.png)
 
-Qué aspecto tiene la ventana, si arranca con la sesión, y el único botón que
-descarta todos los ajustes que hay.
+Qué aspecto tiene la ventana, si arranca con la sesión, cuánta telemetría se guarda
+y si se graba alguna, y el único botón que descarta todos los ajustes que hay. Los
+dos controles de telemetría son ajustes del demonio y no de la consola, que es lo que
+tienen en común con el botón de al lado.
 
 ## Cómo volver a hacerlas
 

@@ -278,6 +278,15 @@ itself.
   record this build compiles. Answering it with `sizeof(Sample)` works for exactly
   as long as every version is the same size, and then sets aside a week of samples
   the day one is not.
+- **How deep the ring is, and whether it is written at all, are settings.** The
+  depth was compiled in, and it is not a policy applied to a ring but the ring's own
+  size — so changing it rebuilds the file and carries the samples across, and a
+  shorter retention drops the oldest, which is what a shorter retention means. One
+  day to thirty, seven by default; a ceiling because the file occupies its whole
+  size from the moment it is made and a person moving a spin box has not agreed to a
+  gigabyte. Switching the recording off stops the appending and nothing else: the
+  sample is still taken, `status` still answers, and the file keeps what it has. A
+  toggle that deleted a week of measurements would be a toggle nobody dares touch.
 - **A ring this build cannot read is kept, not deleted, and it never stops the
   daemon.** A layout from a newer build after a rollback, one that was never
   released, a header damaged by a power cut: all of them are moved aside with

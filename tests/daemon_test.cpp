@@ -63,6 +63,7 @@ private slots:
     void aHandCorrectionBecomesTheNewBase();
     void theFloorBindsEverybodyIncludingThePerson();
     void theCeilingBindsEverybodyTheSameWay();
+    void telemetryDepthIsASettingAndSwitchingItOffKeepsTheFile();
     void selectingAModeDoesNotMoveTheBacklight();
     void brightnessChoicesSurviveARestart();
     void brightnessCommandsAreValidated();
@@ -974,6 +975,76 @@ void DaemonTest::theBrightnessWindowIsTunedLive()
     setBacklightByHand(FakeSysfs::kBacklightMax / 10);
     daemon.tick();
     QVERIFY(daemon.lastSample().brightness >= 35);
+}
+
+void DaemonTest::telemetryDepthIsASettingAndSwitchingItOffKeepsTheFile()
+{
+    // Without --capacity the depth comes from the settings, which is the
+    // production case; the rest of this suite overrides it to sixty-four records.
+    DaemonOptions o = options();
+    o.ringCapacity = 0;
+    Daemon daemon(o);
+    QVERIFY(daemon.start());
+
+    const auto metrics = [&daemon] {
+        return QJsonDocument::fromJson(
+                       daemon.handleCommand(QStringLiteral("status")).mid(3).toUtf8())
+                .object()
+                .value(QStringLiteral("metrics"))
+                .toObject();
+    };
+    QCOMPARE(metrics().value(QStringLiteral("retention_days")).toInt(), kRetentionDefaultDays);
+    QVERIFY(metrics().value(QStringLiteral("enabled")).toBool());
+
+    daemon.tick();
+    daemon.tick();
+    QCOMPARE(metrics().value(QStringLiteral("samples")).toInt(), 2);
+
+    // A shallower ring is a smaller file, and the samples come across rather than
+    // being thrown away: a change of depth is the same operation as a change of
+    // layout.
+    QCOMPARE(daemon.handleCommand(QStringLiteral("config set metrics retention_days=1")),
+             QStringLiteral("ok"));
+    QCOMPARE(metrics().value(QStringLiteral("retention_days")).toInt(), 1);
+    QCOMPARE(metrics().value(QStringLiteral("samples")).toInt(), 2);
+    QCOMPARE(QFileInfo(o.ringPath).size(),
+             qint64(sizeof(RingHeader) + kSamplesPerDay * sizeof(Sample)));
+
+    // Out of range is clamped and reported rather than refused.
+    const QString reply = daemon.handleCommand(QStringLiteral("config set metrics "
+                                                              "retention_days=400"));
+    QVERIFY2(reply.startsWith(QStringLiteral("ok ")), qPrintable(reply));
+    QCOMPARE(metrics().value(QStringLiteral("retention_days")).toInt(), kRetentionMaxDays);
+
+    // Switched off, nothing is appended — and nothing is deleted either. The
+    // sample is still taken, so the readings keep answering.
+    QCOMPARE(daemon.handleCommand(QStringLiteral("config set metrics enabled=off")),
+             QStringLiteral("ok"));
+    const int before = metrics().value(QStringLiteral("samples")).toInt();
+    daemon.tick();
+    daemon.tick();
+    QCOMPARE(metrics().value(QStringLiteral("samples")).toInt(), before);
+    QVERIFY(QFileInfo::exists(o.ringPath));
+    QVERIFY(daemon.lastSample().ts != 0);
+
+    daemon.handleCommand(QStringLiteral("config set metrics enabled=on"));
+    daemon.tick();
+    QCOMPARE(metrics().value(QStringLiteral("samples")).toInt(), before + 1);
+
+    // Both keys are in the saved file, and a reset takes them back.
+    MetricsSettings saved = builtinMetricsSettings();
+    QVERIFY(loadMetricsSettings(o.configPath, &saved));
+    QCOMPARE(saved.retentionDays, kRetentionMaxDays);
+    QCOMPARE(daemon.handleCommand(QStringLiteral("config reset metrics")), QStringLiteral("ok"));
+    QCOMPARE(metrics().value(QStringLiteral("retention_days")).toInt(), kRetentionDefaultDays);
+
+    for (const QString &line : { QStringLiteral("config set metrics"),
+                                 QStringLiteral("config set metrics retention_days"),
+                                 QStringLiteral("config set metrics enabled=maybe"),
+                                 QStringLiteral("config set metrics depth=7"),
+                                 QStringLiteral("config reset sideways") }) {
+        QVERIFY2(daemon.handleCommand(line).startsWith(QStringLiteral("err")), qPrintable(line));
+    }
 }
 
 void DaemonTest::theBacklightSettingsAreDurable()

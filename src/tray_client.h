@@ -2,6 +2,7 @@
 #pragma once
 
 #include "brightness_map.h"
+#include "metrics_ring.h"
 #include "setpoints.h"
 
 #include <QJsonObject>
@@ -69,6 +70,10 @@ public:
         int brightnessResponsePct = kBrightnessDefaultResponsePct;
         int brightnessFloorPct = kBrightnessDefaultFloorPct;
         int brightnessCeilingPct = kBrightnessDefaultCeilingPct;
+        // How the telemetry is kept. Shown on the settings tab beside the reset,
+        // which is the other control there that reaches the daemon.
+        int retentionDays = kRetentionDefaultDays;
+        bool metricsEnabled = true;
         // The band those two produce, which is what the window shows: "between
         // 50 and 100 per cent" is a sentence, "a response of thirty" is not.
         int brightnessWindowLow = kBrightnessDefaultFloorPct;

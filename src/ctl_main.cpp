@@ -89,9 +89,11 @@ int runControl(const QStringList &arguments)
             "                             gt_max_mhz, fan\n"
             "  config set brightness <key>=<value> ...  write the backlight settings:\n"
             "                             response_pct, floor_pct, ceiling_pct, curve\n"
+            "  config set metrics <key>=<value> ...     how the telemetry is kept:\n"
+            "                             retention_days (1..30), enabled\n"
             "  config save live to <id>   keep the current live tuning as a mode\n"
             "  config default_mode <id>   the mode applied at boot\n"
-            "  config reset modes|brightness|all        back to the built-in values\n"
+            "  config reset modes|brightness|metrics|all  back to the built-in values\n"
             "  reload                     re-read the settings file\n"
             "  export [--format csv|json] [--from ts] [--to ts] [--ring file]\n"
             "                             read the telemetry ring; see `export --help`"));

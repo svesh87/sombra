@@ -42,8 +42,9 @@ int main(int argc, char **argv)
                                           QStringLiteral("path"), defaults.socketPath);
     const QCommandLineOption capacityOption(
             QStringLiteral("capacity"),
-            QStringLiteral("Ring capacity in records; one record per second."),
-            QStringLiteral("n"), QString::number(defaults.ringCapacity));
+            QStringLiteral("Ring capacity in records, overriding the retention in the "
+                           "settings file; one record per second."),
+            QStringLiteral("n"), QStringLiteral("0"));
     const QCommandLineOption ticksOption(
             QStringLiteral("ticks"),
             QStringLiteral("Exit after this many ticks instead of running until signalled."),
@@ -69,8 +70,6 @@ int main(int argc, char **argv)
     options.ringCapacity = parser.value(capacityOption).toULongLong();
     options.maxTicks = parser.value(ticksOption).toInt();
     options.intervalMs = parser.value(intervalOption).toInt();
-    if (options.ringCapacity == 0)
-        options.ringCapacity = defaults.ringCapacity;
     if (options.intervalMs <= 0)
         options.intervalMs = defaults.intervalMs;
 

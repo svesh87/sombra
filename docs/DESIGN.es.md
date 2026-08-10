@@ -293,6 +293,15 @@ cambia de modo por su cuenta.
   cada uno; cada paso se escribe una vez y luego se congela, así que una versión
   nueva cuesta una estructura y una función. Los campos que la disposición
   antigua no tenía se graban como ausentes, nunca como ceros.
+- **La profundidad del anillo, y si se escribe en él, son ajustes.** La profundidad
+  estaba compilada, y no es una política aplicada al anillo sino su propio tamaño:
+  cambiarla reconstruye el archivo y arrastra las muestras, y acortarla descarta las
+  más antiguas, que es en lo que consiste acortarla. De un día a treinta, siete por
+  omisión; hay techo porque el archivo ocupa todo su tamaño desde que se crea y quien
+  mueve un contador no ha aceptado un gigabyte. Apagar la grabación detiene solo el
+  añadido: la muestra se sigue tomando, `status` sigue respondiendo y el archivo se
+  queda como está. Un interruptor que borrase una semana de medidas sería un
+  interruptor que nadie se atreve a tocar.
 - **El registro son 128 bytes, la mitad de ellos en reserva, y lo arriesgado aquí
   es cambiar ese tamaño.** Un campo nuevo exige una versión de todos modos: en su
   sitio, un registro antiguo tiene ceros y lo que hace falta es ausencia. La

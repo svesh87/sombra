@@ -7,7 +7,8 @@
 
 namespace settings_file {
 
-QString serialize(const ModeTable &modes, const BrightnessSettings &brightness)
+QString serialize(const ModeTable &modes, const BrightnessSettings &brightness,
+                  const MetricsSettings &metrics)
 {
     QString text;
     text += QStringLiteral("# Written by sombrad. Edit through `sombra config` or the tray;\n"
@@ -25,12 +26,14 @@ QString serialize(const ModeTable &modes, const BrightnessSettings &brightness)
     }
 
     text += brightnessSettingsSection(brightness);
+    text += QLatin1Char('\n');
+    text += metricsSettingsSection(metrics);
 
     return text;
 }
 
 bool save(const QString &path, const ModeTable &modes, const BrightnessSettings &brightness,
-          QString *error)
+          const MetricsSettings &metrics, QString *error)
 {
     const QString directory = QFileInfo(path).absolutePath();
     if (!QDir().mkpath(directory)) {
@@ -45,7 +48,7 @@ bool save(const QString &path, const ModeTable &modes, const BrightnessSettings 
             *error = QStringLiteral("%1 could not be opened: %2").arg(path, file.errorString());
         return false;
     }
-    const QByteArray payload = serialize(modes, brightness).toUtf8();
+    const QByteArray payload = serialize(modes, brightness, metrics).toUtf8();
     if (file.write(payload) != payload.size()) {
         if (error)
             *error = QStringLiteral("%1 could not be written: %2").arg(path, file.errorString());

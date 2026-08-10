@@ -152,6 +152,15 @@ en una sola máquina y son un punto de partida, no un resultado. Están para
 afinarse a partir de telemetría grabada, y para eso están `sombra export` y las
 marcas subjetivas.
 
+Cuánta telemetría se guarda es un ajuste, `retention_days`: de un día a treinta,
+siete por omisión. La profundidad es el tamaño propio del anillo y no una política
+aplicada a él, así que cambiarla reconstruye el archivo y arrastra las muestras, y
+acortarla descarta las más antiguas. Con registros de 128 bytes eso son unos
+10,5 MiB por día, y el archivo ocupa todo su tamaño desde que se crea. `enabled=off`
+detiene solo el añadido: la muestra se sigue tomando, `status` sigue respondiendo y el
+archivo se queda como está. Ambos están también en la pestaña *Ajustes* de la
+consola.
+
 Una versión que cambie la disposición de los registros convierte el anillo en el
 siguiente arranque, campo a campo, y anota lo que el formato antiguo no tenía
 como ausente y no como cero. Un archivo que esta compilación no sepa leer se

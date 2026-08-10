@@ -77,7 +77,7 @@ _sombra() {
             COMPREPLY=($(compgen -W "show set save default_mode reset" -- "$cur"))
             ;;
         set)
-            COMPREPLY=($(compgen -W "mode brightness" -- "$cur"))
+            COMPREPLY=($(compgen -W "mode brightness metrics" -- "$cur"))
             ;;
         save)
             COMPREPLY=($(compgen -W "live" -- "$cur"))
@@ -86,7 +86,7 @@ _sombra() {
             COMPREPLY=($(compgen -W "to" -- "$cur"))
             ;;
         reset)
-            COMPREPLY=($(compgen -W "modes brightness all" -- "$cur"))
+            COMPREPLY=($(compgen -W "modes brightness metrics all" -- "$cur"))
             ;;
         default_mode | to)
             COMPREPLY=($(compgen -W "$(_sombra_names modes)" -- "$cur"))

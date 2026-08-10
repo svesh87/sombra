@@ -142,6 +142,14 @@ and are a starting point, not a result. They are meant to be tuned from
 recorded telemetry, which is what `sombra export` and the subjective marks are
 for.
 
+How much telemetry is kept is a setting, `retention_days` — one day to thirty,
+seven by default. The depth is the ring's own size rather than a policy applied to
+it, so changing it rebuilds the file and carries the samples across, and a shorter
+retention drops the oldest. At 128 bytes a record that is about 10.5 MiB a day, and
+the file occupies its whole size from the moment it is made. `enabled=off` stops the
+appending and nothing else: the sample is still taken, `status` still answers, and
+the file keeps what it has. Both are on the console's *Settings* tab as well.
+
 A release that changes the record layout converts the ring at the next start,
 field by field, and records what the old format did not have as absent rather
 than as zero. A file this build cannot read is kept as `metrics.ring.bak` and a fresh ring

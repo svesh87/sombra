@@ -5,13 +5,23 @@
 
 #include <QList>
 #include <QString>
+#include <QStringList>
 
 #include <cstdint>
 
-// Seven days at 1 Hz. Retention is a property of the geometry: the file's
-// blocks are reserved once at this size and the oldest record is overwritten
-// in place, so there is no growth and no background cleanup task to fail.
-inline constexpr uint64_t kRingCapacity = 604800;
+// Retention is a property of the geometry: the file's blocks are reserved once at
+// this size and the oldest record is overwritten in place, so there is no growth
+// and no background cleanup task to fail. The depth is therefore not a policy
+// applied to the ring but the ring's own size, and changing it rebuilds the file —
+// which is why it is a setting and not a slider anybody drags twice a minute.
+inline constexpr uint64_t kSamplesPerDay = 86400;  // one sample a second
+inline constexpr int kRetentionDefaultDays = 7;
+inline constexpr int kRetentionMinDays = 1;
+// Thirty days at 128 bytes is about 316 MiB, and the ring occupies its whole size
+// from the moment it is created. The ceiling is a limit on a surprise rather than
+// on the disk: a person moving a spin box has not agreed to a gigabyte.
+inline constexpr int kRetentionMaxDays = 30;
+inline constexpr uint64_t kRingCapacity = kRetentionDefaultDays * kSamplesPerDay;
 
 inline constexpr uint32_t kRingMagic = 0x52424d4f;  // "OMBR" little-endian
 // Raised whenever the meaning of the record changes. An existing ring in an
@@ -26,6 +36,30 @@ inline constexpr uint32_t kRingMagic = 0x52424d4f;  // "OMBR" little-endian
 // header's recordSize against sizeof(Sample) is therefore wrong from here on: the
 // question is always "does it match the version that wrote it".
 inline constexpr uint16_t kRingVersion = 5;
+
+// How the ring is kept, as opposed to what goes in it. Both of these are the
+// daemon's settings, in the "[metrics]" section of its file.
+struct MetricsSettings {
+    int retentionDays = kRetentionDefaultDays;
+    // Switched off, the daemon stops appending and nothing else changes: the
+    // sample is still taken, `status` still answers, the file stays where it is
+    // and an export still reads what is in it. A toggle that deleted a week of
+    // measurements would be a toggle nobody dares touch.
+    bool enabled = true;
+};
+
+// Records for that many days, clamped to what the settings accept.
+uint64_t retentionCapacity(int days);
+
+// The same three functions every other settings group has: one parser for the
+// file and for the socket, a reader for the section, and the writer that the
+// round-trip test holds to it.
+bool applyMetricsSetting(MetricsSettings &settings, const QString &key, const QString &value,
+                         QString *error, QStringList *clamped);
+bool loadMetricsSettings(const QString &path, MetricsSettings *settings,
+                         QStringList *problems = nullptr);
+QString metricsSettingsSection(const MetricsSettings &settings);
+MetricsSettings builtinMetricsSettings();
 
 #pragma pack(push, 1)
 struct RingHeader {

@@ -33,7 +33,10 @@ struct DaemonOptions {
     QString statePath = QStringLiteral("/var/lib/sombra/state");
     QString ringPath = QStringLiteral("/var/lib/sombra/metrics.ring");
     QString socketPath = QStringLiteral("/run/sombra/control.sock");
-    quint64 ringCapacity = kRingCapacity;
+    // Zero means "as deep as the settings file says", which is the production
+    // case. A number here overrides it and is how the suite and the screenshot
+    // harness get a ring of sixty-four records without a settings file.
+    quint64 ringCapacity = 0;
     int intervalMs = 1000;
     // The backlight fade runs far faster than the sampling loop, because a
     // correct step applied in one write still reads as a defect.
@@ -108,6 +111,7 @@ private:
     QString applyConfigCommand(const QStringList &parts);
     QString configModeCommand(const QStringList &parts);
     QString configBrightnessCommand(const QStringList &parts);
+    QString configMetricsCommand(const QStringList &assignments);
     QString configSaveCommand(const QStringList &parts);
     QString configResetCommand(const QStringList &parts);
     // Writes the edited tables out and, only if that worked, installs them.
@@ -115,7 +119,12 @@ private:
     // and what is on disk agreeing with each other, and a caller must never be
     // told a change is durable when it is not.
     QString commitTables(const ModeTable &modes, const BrightnessSettings &brightness,
-                         const QStringList &clamped);
+                         const MetricsSettings &metrics, const QStringList &clamped);
+    // Rebuilds the ring at the depth the settings now ask for. The samples come
+    // across, which is the same path a change of record layout takes; a shorter
+    // retention drops the oldest, because that is what a shorter retention is.
+    void reopenRing();
+    void openRing();
     QString configJson() const;
 
     QString statusJson() const;
@@ -148,6 +157,7 @@ private:
     MetricsRing m_ring;
     ModeTable m_modes;
     BrightnessSettings m_brightnessSettings;
+    MetricsSettings m_metrics;
     std::unique_ptr<ControlSocket> m_socket;
     QFileSystemWatcher m_watcher;
     QTimer m_timer;

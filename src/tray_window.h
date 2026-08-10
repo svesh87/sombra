@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Sergei Sveshnikov. MIT licensed, see LICENSE.
 #pragma once
 
+#include "metrics_ring.h"
 #include "theme.h"
 #include "tray_client.h"
 
@@ -82,6 +83,11 @@ public slots:
     // wanted baseline behind after moving the brightness itself.
     void sendBacklightBase();
     void sendBacklightSettings(bool durable);
+
+    // How the telemetry is kept. Both are the daemon's settings, so both go out
+    // as commands; the depth asks first when it is being shortened.
+    void sendMetricsEnabled(bool on);
+    void sendRetention();
 
     // Writes or removes the tray's own autostart entry.
     void setAutostart(bool on);
@@ -166,6 +172,9 @@ private:
     // moving a control programmatically does not look like the person moving
     // it.
     bool m_updating = false;
+    // What the daemon last said the depth was, so that a spin box being lowered can
+    // tell "shortening it" from "the daemon told us a smaller number".
+    int m_retentionDays = kRetentionDefaultDays;
     bool m_sized = false;
     bool m_connected = false;
     // Set while the line is holding a refusal, which is what keeps a status

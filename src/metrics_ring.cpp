@@ -6,6 +6,7 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QSettings>
 
 #include <algorithm>
 #include <atomic>
@@ -41,6 +42,117 @@ RingHeader *MetricsRing::header() const
 Sample *MetricsRing::records() const
 {
     return reinterpret_cast<Sample *>(static_cast<char *>(m_map) + sizeof(RingHeader));
+}
+
+namespace {
+
+// Clamps and says so, on the same terms as every other numeric setting: a value
+// out of range is a mistake worth reporting rather than a reason to refuse the
+// whole edit.
+int clampReported(int value, int low, int high, const QString &what, QStringList *clamped)
+{
+    if (value >= low && value <= high)
+        return value;
+    const int bounded = std::clamp(value, low, high);
+    if (clamped) {
+        clamped->append(QStringLiteral("%1: %2 is outside %3..%4, using %5")
+                                .arg(what)
+                                .arg(value)
+                                .arg(low)
+                                .arg(high)
+                                .arg(bounded));
+    }
+    return bounded;
+}
+
+} // namespace
+
+uint64_t retentionCapacity(int days)
+{
+    return static_cast<uint64_t>(std::clamp(days, kRetentionMinDays, kRetentionMaxDays))
+            * kSamplesPerDay;
+}
+
+MetricsSettings builtinMetricsSettings()
+{
+    return MetricsSettings {};
+}
+
+bool applyMetricsSetting(MetricsSettings &settings, const QString &key, const QString &value,
+                         QString *error, QStringList *clamped)
+{
+    const QString what = QStringLiteral("metrics: %1").arg(key);
+    const QString text = value.trimmed();
+
+    if (key == QLatin1String("enabled")) {
+        // The same words the state file takes for a switch, because a person
+        // editing one file should not have to learn a second vocabulary.
+        const QString lowered = text.toLower();
+        if (lowered == QLatin1String("on") || lowered == QLatin1String("true")
+            || lowered == QLatin1String("1") || lowered == QLatin1String("yes")) {
+            settings.enabled = true;
+            return true;
+        }
+        if (lowered == QLatin1String("off") || lowered == QLatin1String("false")
+            || lowered == QLatin1String("0") || lowered == QLatin1String("no")) {
+            settings.enabled = false;
+            return true;
+        }
+        if (error)
+            *error = QStringLiteral("%1: '%2' is not on or off").arg(what, value);
+        return false;
+    }
+
+    if (key == QLatin1String("retention_days")) {
+        bool ok = false;
+        const int number = text.toInt(&ok);
+        if (!ok) {
+            if (error)
+                *error = QStringLiteral("%1: '%2' is not a number").arg(what, value);
+            return false;
+        }
+        settings.retentionDays =
+                clampReported(number, kRetentionMinDays, kRetentionMaxDays, what, clamped);
+        return true;
+    }
+
+    if (error)
+        *error = QStringLiteral("metrics: unknown setting '%1'").arg(key);
+    return false;
+}
+
+bool loadMetricsSettings(const QString &path, MetricsSettings *settings, QStringList *problems)
+{
+    if (!QFileInfo::exists(path))
+        return false;
+    QSettings file(path, QSettings::IniFormat);
+    if (file.status() != QSettings::NoError)
+        return false;
+    if (!file.childGroups().contains(QStringLiteral("metrics")))
+        return false;
+
+    MetricsSettings parsed = builtinMetricsSettings();
+    file.beginGroup(QStringLiteral("metrics"));
+    for (const QString &key : file.childKeys()) {
+        QString error;
+        const QString value = file.value(key).toString();
+        if (!applyMetricsSetting(parsed, key.toLower(), value, &error, problems) && problems)
+            problems->append(error + QStringLiteral(", ignored"));
+    }
+    file.endGroup();
+
+    *settings = parsed;
+    return true;
+}
+
+QString metricsSettingsSection(const MetricsSettings &settings)
+{
+    QString text;
+    text += QStringLiteral("[metrics]\n");
+    text += QStringLiteral("retention_days=%1\n").arg(settings.retentionDays);
+    text += QStringLiteral("enabled=%1\n").arg(settings.enabled ? QStringLiteral("on")
+                                                                 : QStringLiteral("off"));
+    return text;
 }
 
 bool MetricsRing::open(const QString &path, uint64_t capacity, QString *error)

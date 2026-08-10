@@ -197,6 +197,11 @@ TrayClient::Status TrayClient::parseStatus(const QJsonObject &object)
                                          .toInt(status.brightnessFloorPct);
     status.brightnessWindowHigh = brightness.value(QLatin1String("window_high"))
                                           .toInt(status.brightnessCeilingPct);
+
+    const QJsonObject metrics = object.value(QLatin1String("metrics")).toObject();
+    status.retentionDays = metrics.value(QLatin1String("retention_days"))
+                                   .toInt(status.retentionDays);
+    status.metricsEnabled = metrics.value(QLatin1String("enabled")).toBool(status.metricsEnabled);
     return status;
 }
 

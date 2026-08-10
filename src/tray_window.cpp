@@ -205,6 +205,8 @@ public:
     QLabel *fanState = nullptr;
 
     QToolButton *help = nullptr;
+    QCheckBox *metricsEnabled = nullptr;
+    QSpinBox *retentionDays = nullptr;
 
     QCheckBox *autoBrightness = nullptr;
     Tuner *level = nullptr;
@@ -759,6 +761,33 @@ void TrayWindow::build()
     trayForm->addRow(tr("Autostart:"), m_ui->autostart);
     settingsLayout->addWidget(trayBox);
 
+    // The daemon's settings, on the tab that already holds the reset — which
+    // discards the daemon's settings too. Telemetry is about the program rather
+    // than about the thermal envelope: nothing here changes what the machine does.
+    auto *metricsBox = new QGroupBox(tr("Telemetry"), settingsPage);
+    auto *metricsForm = new QFormLayout(metricsBox);
+
+    m_ui->metricsEnabled = new QCheckBox(tr("A sample a second"), metricsBox);
+    m_ui->metricsEnabled->setObjectName(QStringLiteral("metrics_enabled"));
+    m_ui->metricsEnabled->setToolTip(tr("Whether the daemon appends a sample a second. "
+                                        "Switched off it keeps what is already recorded and "
+                                        "stops adding to it, and the readings above go on "
+                                        "working."));
+    // Captioned, like the autostart above it: a checkbox alone in a row reads as
+    // another line of whatever precedes it.
+    metricsForm->addRow(tr("Recording:"), m_ui->metricsEnabled);
+
+    m_ui->retentionDays = new QSpinBox(metricsBox);
+    m_ui->retentionDays->setObjectName(QStringLiteral("retention_days"));
+    m_ui->retentionDays->setRange(kRetentionMinDays, kRetentionMaxDays);
+    m_ui->retentionDays->setSuffix(tr(" days"));
+    m_ui->retentionDays->setToolTip(tr("How much history the ring holds. It is the ring's own "
+                                       "size, so the file is that big from the moment it is "
+                                       "made: about 11 MiB a day. Shortening it discards the "
+                                       "oldest samples."));
+    metricsForm->addRow(tr("Keep:"), m_ui->retentionDays);
+    settingsLayout->addWidget(metricsBox);
+
     auto *defaults = new QGroupBox(tr("Back to the built-in values"), settingsPage);
     auto *defaultsLayout = new QVBoxLayout(defaults);
     auto *resetButton = new QPushButton(tr("Reset everything"), defaults);
@@ -832,6 +861,11 @@ void TrayWindow::build()
     }
 
     connect(m_ui->help, &QToolButton::clicked, this, &TrayWindow::openHelp);
+    connect(m_ui->metricsEnabled, &QCheckBox::toggled, this, &TrayWindow::sendMetricsEnabled);
+    // On the value, not on every keystroke: a spin box climbing from 7 to 30 would
+    // otherwise rebuild the ring twenty-three times.
+    connect(m_ui->retentionDays, &QSpinBox::editingFinished, this,
+            &TrayWindow::sendRetention);
     connect(m_ui->autostart, &QCheckBox::toggled, this, &TrayWindow::setAutostart);
     connect(goodButton, &QPushButton::clicked, this, &TrayWindow::markGood);
     connect(loudButton, &QPushButton::clicked, this, &TrayWindow::markTooLoud);
@@ -938,6 +972,9 @@ void TrayWindow::applyStatus(const TrayClient::Status &status)
     m_ui->response->setValue(status.brightnessResponsePct);
     m_ui->floor->setValue(status.brightnessFloorPct);
     m_ui->ceiling->setValue(status.brightnessCeilingPct);
+    m_ui->metricsEnabled->setChecked(status.metricsEnabled);
+    m_retentionDays = status.retentionDays;
+    m_ui->retentionDays->setValue(status.retentionDays);
     if (!status.brightnessAvailable) {
         m_ui->backlightState->setText(tr("This machine has no backlight control."));
     } else if (status.autoBrightness) {
@@ -1181,6 +1218,38 @@ void TrayWindow::openHelp()
                        .arg(target.toLocalFile()),
                true);
     }
+}
+
+void TrayWindow::sendMetricsEnabled(bool on)
+{
+    if (m_updating)
+        return;
+    sendCommand(QStringLiteral("config set metrics enabled=%1")
+                        .arg(on ? QStringLiteral("on") : QStringLiteral("off")));
+}
+
+void TrayWindow::sendRetention()
+{
+    if (m_updating)
+        return;
+    const int wanted = m_ui->retentionDays->value();
+    // Shortening it throws away the oldest samples, and that is a question worth
+    // asking: the console has a person in front of it, where the command line has
+    // a script and no business being interrupted.
+    if (wanted < m_retentionDays) {
+        const auto answer = QMessageBox::question(
+                this, tr("Keep less telemetry?"),
+                tr("Shortening the history to %1 days discards the samples older than "
+                   "that. They cannot be brought back.")
+                        .arg(wanted));
+        if (answer != QMessageBox::Yes) {
+            m_updating = true;
+            m_ui->retentionDays->setValue(m_retentionDays);
+            m_updating = false;
+            return;
+        }
+    }
+    sendCommand(QStringLiteral("config set metrics retention_days=%1").arg(wanted));
 }
 
 void TrayWindow::setAutostart(bool on)

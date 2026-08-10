@@ -44,8 +44,10 @@ complete -c sombra -n '__fish_seen_subcommand_from brightness; and __fish_seen_s
 
 complete -c sombra -n '__fish_seen_subcommand_from config; and not __fish_seen_subcommand_from show set save default_mode reset' \
     -a 'show set save default_mode reset'
-complete -c sombra -n '__fish_seen_subcommand_from config; and __fish_seen_subcommand_from set; and not __fish_seen_subcommand_from mode brightness' \
-    -a 'mode brightness'
+complete -c sombra -n '__fish_seen_subcommand_from config; and __fish_seen_subcommand_from set; and not __fish_seen_subcommand_from mode brightness metrics' \
+    -a 'mode brightness metrics'
+complete -c sombra -n '__fish_seen_subcommand_from config; and __fish_seen_subcommand_from metrics' \
+    -a 'retention_days= enabled='
 complete -c sombra -n '__fish_seen_subcommand_from config; and __fish_seen_subcommand_from save; and not __fish_seen_subcommand_from live' \
     -a live
 complete -c sombra -n '__fish_seen_subcommand_from config; and __fish_seen_subcommand_from live; and not __fish_seen_subcommand_from to' \
@@ -53,7 +55,7 @@ complete -c sombra -n '__fish_seen_subcommand_from config; and __fish_seen_subco
 complete -c sombra -n '__fish_seen_subcommand_from config; and __fish_seen_subcommand_from to' \
     -a '(__sombra_ids modes)'
 complete -c sombra -n '__fish_seen_subcommand_from config; and __fish_seen_subcommand_from reset' \
-    -a 'modes brightness all'
+    -a 'modes brightness metrics all'
 complete -c sombra -n '__fish_seen_subcommand_from config; and __fish_seen_subcommand_from default_mode' \
     -a '(__sombra_ids modes)'
 
