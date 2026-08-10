@@ -136,17 +136,27 @@ itself.
 - **The tray never writes the settings file itself.** It asks the daemon, on the
   same commands the command line sends. Two writers of one file is the same
   mistake as two owners of one control surface.
-- **The panel icon is the desktop's to draw, and the console's palette is the
-  person's to choose.** The icon is published as a standard theme name so the
-  panel draws it from the icon theme in force and recolours it to match itself —
-  but only when that theme has the name, because a host prefers a name over any
-  picture sent with it and draws a question mark for one it cannot find. Where
-  the name is missing the icon is a picture of ours in fixed colours, never in
-  palette colours: the palette is the application's and the panel is the
-  desktop's, and they disagree exactly when the desktop is light with a dark bar.
-  The window's own light or dark is a setting on the settings tab, because a
-  panel-and-window combination the desktop calls light is not always the one
-  somebody wants to look at.
+- **The panel icon is drawn rather than named.** Publishing a standard theme
+  name would let the panel draw and recolour it, and it does not work: a
+  StatusNotifierItem host prefers the name over the picture sent with it and
+  draws a placeholder for a name its own theme cannot resolve, while this process
+  can only ask its own icon theme, which follows a different inheritance and
+  answers yes where the panel answers no. There is also no glyph to borrow — the
+  themes here carry trios about volume, brightness, microphone and security, and
+  none about power. The colours are fixed rather than palette colours, because
+  the palette is the application's and the panel is the desktop's.
+- **The console's colours come from the desktop, and follow it while the window
+  is open.** A desktop that configures Qt applications writes them a colour
+  scheme; the console reads that file and reads it again whenever the appearance
+  portal says something moved. This is not gold-plating: the desktop switches
+  theme by itself at sunrise and sunset, a platform theme does not update the
+  palette of a running application, and reopening a window does not restart the
+  process — so without re-reading the file, a console open all day sits in
+  yesterday's colours. Where no scheme is written, the portal's answer picks one
+  of two palettes of ours, and the settings tab can override the choice outright.
+- **What is not attempted is imitating the desktop's widgets** — corner radii,
+  container tints. That is a stylesheet chasing a moving target, and the colours
+  are the part that makes a window look out of place.
 - **The one exception is the tray's own autostart entry, and it is not
   configuration.** Whether the tray starts with the session is what the console
   knows about itself; the daemon's file has no way to describe it, and no mode

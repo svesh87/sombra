@@ -11,14 +11,32 @@
 #include <QDebug>
 #include <QDir>
 #include <QIcon>
+#include <QLocalServer>
+#include <QLocalSocket>
 #include <QMenu>
 #include <QPixmap>
 #include <QScrollArea>
+#include <QStandardPaths>
 #include <QSystemTrayIcon>
 #include <QTabWidget>
 #include <QTimer>
 
 namespace {
+
+// Where the one-instance lock lives: the session's runtime directory, so it goes
+// away with the session and belongs to one person on a shared machine.
+QString guardPath()
+{
+    QString directory = QStandardPaths::writableLocation(QStandardPaths::RuntimeLocation);
+    if (directory.isEmpty())
+        directory = QDir::tempPath();
+    return directory + QStringLiteral("/ombra-tray.sock");
+}
+
+// How long an already running console has to answer before this one decides it
+// is talking to a socket nobody is behind. Local, and it either answers at once
+// or the process that made it is gone.
+constexpr int kGuardTimeoutMs = 300;
 
 // How long to wait for a tray host at startup, and how often to ask. The host
 // registers over the session bus and is routinely a second or two behind the
@@ -197,6 +215,42 @@ int main(int argc, char **argv)
                      });
     QObject::connect(quitAction, &QAction::triggered, &app, &QApplication::quit);
 
+    // One console per session. Two of them put two icons in the panel and two
+    // pollers on the daemon, and nothing tells you which icon you clicked. A
+    // second start therefore opens the first one's window instead: that is what
+    // somebody clicking the launcher again is asking for anyway.
+    //
+    // Not in --screenshot mode. That run is a photograph taken beside whatever
+    // is already in the panel, and it must not turn into "asked the running one
+    // to open its window".
+    QLocalServer guard;
+    if (!parser.isSet(screenshotOption)) {
+        QLocalSocket probe;
+        probe.connectToServer(guardPath());
+        if (probe.waitForConnected(kGuardTimeoutMs)) {
+            probe.write("show\n");
+            probe.flush();
+            probe.waitForBytesWritten(kGuardTimeoutMs);
+            qInfo().noquote() << "already running; asked it to open the console";
+            return 0;
+        }
+        // Nobody answered, so any socket at that path is left over from a
+        // process that is gone. Removing it is what makes a crash recoverable
+        // without a reboot.
+        QLocalServer::removeServer(guardPath());
+        if (!guard.listen(guardPath()))
+            qWarning().noquote() << "cannot hold the single-instance lock:" << guard.errorString();
+        QObject::connect(&guard, &QLocalServer::newConnection, &window, [&guard, &window]() {
+            while (QLocalSocket *client = guard.nextPendingConnection()) {
+                QObject::connect(client, &QLocalSocket::disconnected, client,
+                                 &QLocalSocket::deleteLater);
+                window.show();
+                window.raise();
+                window.activateWindow();
+            }
+        });
+    }
+
     QStringList shownModes;
     QObject::connect(&client, &TrayClient::statusChanged, &app,
                      [&](const TrayClient::Status &status) {
@@ -224,20 +278,17 @@ int main(int argc, char **argv)
         }
     });
 
-    // Appearance, applied at startup and followed afterwards. Two separate
-    // things: the console's palette, which the person may override on the
-    // settings tab, and the icon theme, which they may not — the panel icon is
-    // the desktop's to draw. The icon theme matters twice over, because whether
-    // a name exists at all is a question only the theme in force can answer.
-    const auto followTheme = [&]() {
-        theme::applyPreference();
-        theme::applyDesktopIconTheme();
-        tray.setIcon(trayIcon(client.connected(), lastStatus.guardEngaged,
-                              lastStatus.modeIds.indexOf(lastStatus.modeId),
-                              lastStatus.modeIds.size()));
-    };
-    followTheme();
-    theme::watch(&app, followTheme);
+    // The console's palette: the desktop's own colours where the desktop wrote
+    // them for Qt, and re-read whenever it says its appearance moved. That signal
+    // is what makes an automatic switch at sunset reach a console that has been
+    // open all day — nothing else would, because a platform theme does not update
+    // a running application's palette and reopening the window does not restart
+    // the process.
+    //
+    // The panel icon is not part of this: it is drawn from constants, because a
+    // panel is coloured by the desktop and not by this application's palette.
+    theme::applyPreference();
+    theme::watch(&app, [] { theme::applyPreference(); });
 
     if (parser.isSet(screenshotOption)) {
         // With real readings if the daemon is there: a console shown full of

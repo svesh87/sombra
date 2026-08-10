@@ -552,6 +552,8 @@ void TrayWindow::build()
     m_ui->appearance->setObjectName(QStringLiteral("appearance"));
     m_ui->appearance->addItem(QStringLiteral("Follow the desktop"),
                               theme::nameOf(theme::Preference::System));
+    m_ui->appearance->setToolTip(QStringLiteral("Following the desktop takes its colours as "
+                                                "they are and again whenever it changes them."));
     m_ui->appearance->addItem(QStringLiteral("Light"), theme::nameOf(theme::Preference::Light));
     m_ui->appearance->addItem(QStringLiteral("Dark"), theme::nameOf(theme::Preference::Dark));
     m_ui->appearance->setCurrentIndex(
@@ -838,8 +840,8 @@ void TrayWindow::revertToMode()
 
 void TrayWindow::setAppearance(theme::Preference wanted)
 {
-    // Stored before it is applied, because the panel icon and any other window
-    // read the stored choice rather than being told about it.
+    // Stored before it is applied, because anything else that wants to know
+    // reads the stored choice rather than being told about it.
     theme::setPreference(wanted);
     theme::applyPreference();
 }

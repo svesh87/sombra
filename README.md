@@ -284,6 +284,10 @@ login. The appearance is light, dark, or whatever the desktop says; it is the
 console's own setting and does not reach the panel icon, which the desktop draws
 from its own icon theme.
 
+There is one console per session: started while another is running, it asks that
+one to open its window and exits. Two of them would mean two icons in the panel
+and two pollers on the daemon, and no way to tell which icon belongs to which.
+
 Started with the session, the tray waits up to a minute for a panel to appear
 before deciding there is none: the tray host registers over the session bus and
 is routinely a second or two behind an autostarted process. Until an icon

@@ -26,14 +26,20 @@ keeping, the console asks the daemon to save it, on the same commands
 .B ombra config
 sends. The one thing the console does write is its own autostart entry.
 .PP
-The panel icon shows which mode is in force, by the names desktop power-profile
-applets use, and two names that are not modes: one for a daemon that is not
-answering and one for the emergency guard clamping. A name rather than a picture,
-because the panel then draws the glyph of the icon theme in force and recolours
-it to match itself. A name the theme does not carry is never published — a
-StatusNotifierItem host would draw a question mark for it — and the icon is then
-a picture of the console's own, in fixed colours that read on any panel. The icon
-theme is read from the portal, so a change of it changes the icon.
+The panel icon shows which mode is in force: a chip whose fill rises with the
+power envelope, and two colours that are not modes, one for a daemon that is not
+answering and one for the emergency guard clamping. It is drawn rather than named
+from the icon theme: a StatusNotifierItem host prefers a name over the picture
+sent with it and draws a placeholder for one its own theme cannot resolve, and no
+icon theme here carries a glyph that means a thermal envelope. The colours are
+fixed, because a panel is coloured by the desktop and not by this application's
+palette.
+.PP
+One console per session. Started while another is already running, it asks that
+one to open its window and exits: two of them would put two icons in the panel
+and two pollers on the daemon, with nothing to say which icon is which. The lock
+is a socket in the session's runtime directory, and a leftover from a process
+that is gone is taken over rather than waited on.
 .PP
 Started with a session, it waits up to a minute for a panel to appear before
 deciding there is none: the tray host registers over the session bus and is
@@ -60,9 +66,15 @@ in the source tree, which is how they are actually taken.
 Exit after this long. A test hook.
 .SH FILES
 .TP
+.I $XDG_RUNTIME_DIR/ombra-tray.sock
+The single-instance lock. A second start connects to it, asks the console that
+holds it to open its window, and exits.
+.TP
 .I $XDG_CONFIG_HOME/ombra/console.conf
 The console's own settings: at present, whether its window is light, dark or
-whatever the desktop says. Nothing about the machine is kept here.
+whatever the desktop says. Nothing about the machine is kept here. Following the
+desktop usually means changing nothing at all, because a desktop that manages Qt
+applications gives them its own colours already.
 .TP
 .I $XDG_CONFIG_HOME/autostart/ombra-tray.desktop
 Whether the console starts with the session. The entry is the whole state,

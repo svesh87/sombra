@@ -1,43 +1,12 @@
 // Copyright (c) 2026 Sergei Sveshnikov. MIT licensed, see LICENSE.
 #include "tray_icon.h"
 
-#include <QIconEngine>
 #include <QPainter>
 #include <QPixmap>
 
 #include <algorithm>
-#include <utility>
 
 namespace {
-
-// QIcon::fromTheme() may resolve a specific name to a generic alias, and
-// QSystemTrayIcon then publishes that alias over StatusNotifierItem — which is
-// how a panel ends up drawing one glyph for every state. Keeping the name we
-// asked for is the whole point of asking for it.
-class NamedIcon final : public QIconEngine {
-public:
-    NamedIcon(QString name, QIcon resolved)
-        : m_name(std::move(name))
-        , m_resolved(std::move(resolved))
-    {
-    }
-
-    QIconEngine *clone() const override { return new NamedIcon(m_name, m_resolved); }
-    QString iconName() override { return m_name; }
-    void paint(QPainter *painter, const QRect &rect, QIcon::Mode mode,
-               QIcon::State state) override
-    {
-        m_resolved.paint(painter, rect, Qt::AlignCenter, mode, state);
-    }
-    QPixmap pixmap(const QSize &size, QIcon::Mode mode, QIcon::State state) override
-    {
-        return m_resolved.pixmap(size, mode, state);
-    }
-
-private:
-    QString m_name;
-    QIcon m_resolved;
-};
 
 // Drawn on a 64-unit grid and scaled by the panel. The body is the identity of
 // the thing; the pins are what makes it a chip at 22 pixels rather than a
@@ -54,16 +23,21 @@ constexpr qreal kStroke = 5;
 constexpr qreal kFillInset = 6;
 constexpr qreal kCornerRadius = 5;
 
-// Saturated mid-tones on purpose. A near-black glyph disappears on a dark
-// panel and a near-white one on a light panel; these read on both, which is the
-// whole reason the colour is not taken from the palette.
+// Saturated mid-tones, chosen by contrast against both panels rather than by
+// eye. A near-black glyph disappears on a dark panel and a near-white one on a
+// light panel, and the palette cannot be asked which of the two this panel is.
+//
+// Measured against a light panel (#f6f5f4) and a dark one (#202225), each of
+// these clears 3.5:1 both ways, and none is below 3.8 on either side by more
+// than a little. Anything lighter reads well on the dark panel and washes out on
+// the light one, which is what the first attempt did at 3.1:1.
 //
 // The whole picture is drawn in one of them, outline and fill alike. A second
 // colour for the fill would have to be light or dark, and either choice is a
 // bet on the panel — the same bet the palette was making.
-const QColor kRunning(74, 144, 217);   // blue: the daemon is answering
-const QColor kGuard(224, 74, 63);      // red: the emergency guard is clamping
-const QColor kAbsent(150, 156, 162);   // grey: nothing is answering
+const QColor kRunning(47, 127, 209);   // blue: the daemon is answering
+const QColor kGuard(217, 68, 54);      // red: the emergency guard is clamping
+const QColor kAbsent(115, 122, 130);   // grey: nothing is answering
 
 // How much of the body the fill occupies, from the coolest mode to the widest.
 // A mode that is not known yet leaves the body empty rather than guessing at
@@ -78,26 +52,7 @@ qreal fillFraction(int modeIndex, int modeCount)
 
 } // namespace
 
-QString trayIconName(bool connected, bool guardEngaged, int modeIndex, int modeCount)
-{
-    if (!connected)
-        return QStringLiteral("action-unavailable-symbolic");
-    if (guardEngaged)
-        return QStringLiteral("dialog-warning-symbolic");
-    if (modeCount <= 0 || modeIndex < 0)
-        return {};
-    // By position on the scale rather than by name: the modes run from the
-    // coolest envelope to the widest, and an id is the maintainer's word rather
-    // than a promise about where it sits.
-    if (modeIndex == 0)
-        return QStringLiteral("power-profile-power-saver-symbolic");
-    if (modeIndex >= modeCount - 1)
-        return QStringLiteral("power-profile-performance-symbolic");
-    return QStringLiteral("power-profile-balanced-symbolic");
-}
-
-namespace {
-QIcon drawnIcon(bool connected, bool guardEngaged, int modeIndex, int modeCount)
+QIcon trayIcon(bool connected, bool guardEngaged, int modeIndex, int modeCount)
 {
     const QColor colour = !connected ? kAbsent : (guardEngaged ? kGuard : kRunning);
 
@@ -147,16 +102,4 @@ QIcon drawnIcon(bool connected, bool guardEngaged, int modeIndex, int modeCount)
                                 available, height));
     }
     return QIcon(pixmap);
-}
-} // namespace
-
-QIcon trayIcon(bool connected, bool guardEngaged, int modeIndex, int modeCount)
-{
-    const QString name = trayIconName(connected, guardEngaged, modeIndex, modeCount);
-    // hasThemeIcon() rather than the emptiness of what fromTheme() returns:
-    // fromTheme() answers with a usable icon for a name the theme does not have,
-    // and publishing that name is what puts a question mark in the panel.
-    if (!name.isEmpty() && QIcon::hasThemeIcon(name))
-        return QIcon(new NamedIcon(name, QIcon::fromTheme(name)));
-    return drawnIcon(connected, guardEngaged, modeIndex, modeCount);
 }

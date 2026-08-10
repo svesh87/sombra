@@ -103,6 +103,13 @@ QProcessEnvironment isolatedEnvironment()
     environment.insert(QStringLiteral("QT_QPA_PLATFORM"), QStringLiteral("offscreen"));
     environment.insert(QStringLiteral("DBUS_SESSION_BUS_ADDRESS"),
                        QStringLiteral("unix:path=/nonexistent/ombra-test-has-no-session-bus"));
+    // A runtime directory of the suite's own, because the single-instance lock
+    // lives in one. Sharing the session's would mean the tests answer to the
+    // console the person is running, and that the person's console answers to
+    // them.
+    static QTemporaryDir runtime;
+    if (runtime.isValid())
+        environment.insert(QStringLiteral("XDG_RUNTIME_DIR"), runtime.path());
     return environment;
 }
 
@@ -160,6 +167,7 @@ private slots:
     void theWindowKeepsOneSizeForEveryTab();
     void theReplyLineTakesNoRoomUntilThereIsAReply();
     void theTrayBinaryRunsAgainstADaemon();
+    void aSecondConsoleOpensTheFirstOneInstead();
     void theTrayWaitsForALateTrayHost();
     void theTrayBinaryWritesTheDocumentationScreenshots();
 
@@ -665,9 +673,15 @@ void TrayWindowTest::theConsoleAppearanceIsAChoiceOfThree()
     QCOMPARE(appearance->count(), 3);
     QCOMPARE(appearance->currentData().toString(), QStringLiteral("system"));
 
+    window.show();
+    QTest::qWait(50);
+
     appearance->setCurrentIndex(appearance->findData(QStringLiteral("dark")));
     QCOMPARE(theme::preference(), theme::Preference::Dark);
     QCOMPARE(theme::schemeOf(QApplication::palette()), theme::Scheme::Dark);
+    // The window stays exactly where it was: the choice repaints widgets and
+    // nothing about the window itself is rebuilt.
+    QVERIFY(window.isVisible());
 
     appearance->setCurrentIndex(appearance->findData(QStringLiteral("light")));
     QCOMPARE(theme::preference(), theme::Preference::Light);
@@ -857,6 +871,42 @@ void TrayWindowTest::theTrayBinaryRunsAgainstADaemon()
     nonsense.start(binary, { QStringLiteral("--nonsense") });
     QVERIFY(nonsense.waitForFinished(10000));
     QCOMPARE(nonsense.exitCode(), 1);
+}
+
+void TrayWindowTest::aSecondConsoleOpensTheFirstOneInstead()
+{
+    const QString binary = QDir::cleanPath(QCoreApplication::applicationDirPath()
+                                           + QStringLiteral("/../ombra-tray"));
+    QVERIFY2(QFile::exists(binary), qPrintable(binary));
+
+    TestDaemon daemon(m_tree->root(), m_work.path());
+    QVERIFY(daemon.waitUntilListening());
+
+    QProcess first;
+    const Reaped reaped(first);
+    first.setProcessEnvironment(isolatedEnvironment());
+    first.start(binary, { QStringLiteral("--socket"), socketPath(),
+                          QStringLiteral("--interval-ms"), QStringLiteral("40"),
+                          QStringLiteral("--quit-after-ms"), QStringLiteral("4000") });
+    QVERIFY(first.waitForStarted(10000));
+    QTest::qWait(600);
+    QCOMPARE(first.state(), QProcess::Running);
+
+    // Two of them would put two icons in the panel and two pollers on the
+    // daemon, and nothing would say which icon was which.
+    QProcess second;
+    second.setProcessEnvironment(isolatedEnvironment());
+    second.setProcessChannelMode(QProcess::MergedChannels);
+    second.start(binary, { QStringLiteral("--socket"), socketPath() });
+    QVERIFY(second.waitForFinished(10000));
+    QCOMPARE(second.exitStatus(), QProcess::NormalExit);
+    QCOMPARE(second.exitCode(), 0);
+    QVERIFY2(second.readAll().contains("already running"), "it has to say why it left");
+
+    // And the one that was there is untouched.
+    QCOMPARE(first.state(), QProcess::Running);
+    QVERIFY(first.waitForFinished(20000));
+    QCOMPARE(first.exitCode(), 0);
 }
 
 void TrayWindowTest::theTrayWaitsForALateTrayHost()

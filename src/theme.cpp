@@ -4,10 +4,10 @@
 #include <QDBusConnection>
 #include <QDBusInterface>
 #include <QDBusReply>
+#include <QColor>
 #include <QDir>
 #include <QFileInfo>
 #include <QGuiApplication>
-#include <QIcon>
 #include <QSettings>
 #include <QStandardPaths>
 #include <QVariant>
@@ -19,10 +19,6 @@ constexpr const char *kPortalPath = "/org/freedesktop/portal/desktop";
 constexpr const char *kPortalInterface = "org.freedesktop.portal.Settings";
 constexpr const char *kNamespace = "org.freedesktop.appearance";
 constexpr const char *kKey = "color-scheme";
-// The icon theme has no home in the appearance namespace, and every desktop
-// that implements the portal answers for this one instead.
-constexpr const char *kIconNamespace = "org.gnome.desktop.interface";
-constexpr const char *kIconKey = "icon-theme";
 
 // The portal is another process, and one that may be starting up alongside us.
 // A second is long for a colour and short for a window that is already visible.
@@ -62,6 +58,54 @@ theme::Scheme fromPortalValue(uint value)
     }
 }
 
+// The colour scheme a platform theme was pointed at, as a path, or empty when
+// neither of them names one that exists.
+//
+// Both names are tried because both are written: this is a Qt 6 application and
+// `qt6ct` is its own, but a desktop that configures Qt keeps the pair in step and
+// a machine may have only the older one.
+QString colourSchemePath()
+{
+    const QString base = QStandardPaths::writableLocation(QStandardPaths::GenericConfigLocation);
+    for (const QString &tool : { QStringLiteral("qt6ct"), QStringLiteral("qt5ct") }) {
+        const QString conf = QStringLiteral("%1/%2/%2.conf").arg(base, tool);
+        if (!QFileInfo::exists(conf))
+            continue;
+        QSettings settings(conf, QSettings::IniFormat);
+        // A configuration that says not to use the scheme is respected: the
+        // person turned the colours off, and taking them anyway would be the
+        // opposite of following the desktop.
+        if (!settings.value(QStringLiteral("Appearance/custom_palette"), false).toBool())
+            continue;
+        const QString path =
+                settings.value(QStringLiteral("Appearance/color_scheme_path")).toString();
+        if (!path.isEmpty() && QFileInfo::exists(path))
+            return path;
+    }
+    return {};
+}
+
+// One group of a colour scheme: twenty-one colours in QPalette's own role order,
+// which is what the format is. Fewer than that is a file to leave alone rather
+// than to guess at.
+bool readColourGroup(const QSettings &scheme, const QString &key, QPalette *palette,
+                     QPalette::ColorGroup group)
+{
+    // A list, because the colours are comma-separated and that is how QSettings
+    // reads such a value. Asking it for a string gives nothing at all.
+    const QStringList values = scheme.value(QStringLiteral("ColorScheme/") + key).toStringList();
+    constexpr int kRoles = QPalette::PlaceholderText + 1;
+    if (values.size() < kRoles)
+        return false;
+    for (int role = 0; role < kRoles; ++role) {
+        const QColor colour(values.at(role).trimmed());
+        if (!colour.isValid())
+            return false;
+        palette->setColor(group, static_cast<QPalette::ColorRole>(role), colour);
+    }
+    return true;
+}
+
 // The console's own settings, beside the autostart entry rather than in the
 // daemon's file: what the window looks like is the window's business.
 QString settingsPath()
@@ -74,10 +118,11 @@ QString settingsPath()
 
 namespace theme {
 
-// The portal announces every setting it holds, so the namespace and the key are
-// checked here rather than in a match rule: a rule narrow enough to do it would
-// have to encode argument positions, which is the kind of thing that breaks
-// silently when the portal adds a setting.
+// The portal announces every setting it holds, and every one of them is a reason
+// to look again: the scheme changes at sunrise, and an accent colour changes
+// whenever somebody picks one. Filtering by key would mean encoding which keys
+// matter, and the answer to a key we did not think of is the same as to one we
+// did — re-read the file.
 class PortalWatcher : public QObject {
     Q_OBJECT
 
@@ -93,16 +138,10 @@ public:
     }
 
 public slots:
-    void settingChanged(const QString &space, const QString &key, const QDBusVariant &)
+    void settingChanged(const QString &, const QString &, const QDBusVariant &)
     {
-        const bool scheme = space == QLatin1String(kNamespace) && key == QLatin1String(kKey);
-        const bool icons =
-                space == QLatin1String(kIconNamespace) && key == QLatin1String(kIconKey);
-        if (!scheme && !icons)
-            return;
-        // The value carried by the signal is deliberately ignored and the
-        // portal asked again: one path into the answer means one place where a
-        // surprising value is handled.
+        // The value carried by the signal is ignored: what it announces is that
+        // the desktop's appearance moved, and where the colours live is a file.
         m_onChange();
     }
 
@@ -116,12 +155,6 @@ Scheme desktopScheme()
     bool ok = false;
     const uint scheme = value.toUInt(&ok);
     return ok ? fromPortalValue(scheme) : Scheme::Unknown;
-}
-
-QString desktopIconTheme()
-{
-    const QVariant value = readPortalSetting(kIconNamespace, kIconKey);
-    return value.typeId() == QMetaType::QString ? value.toString() : QString();
 }
 
 Scheme schemeOf(const QPalette &palette)
@@ -234,6 +267,23 @@ void setPreference(Preference wanted)
     settings.setValue(QStringLiteral("appearance"), nameOf(wanted));
 }
 
+std::optional<QPalette> desktopPalette()
+{
+    const QString path = colourSchemePath();
+    if (path.isEmpty())
+        return std::nullopt;
+
+    QSettings scheme(path, QSettings::IniFormat);
+    QPalette palette;
+    if (!readColourGroup(scheme, QStringLiteral("active_colors"), &palette, QPalette::Active))
+        return std::nullopt;
+    // The other two groups are optional: a scheme that names only the active one
+    // still says everything about the window somebody is looking at.
+    readColourGroup(scheme, QStringLiteral("inactive_colors"), &palette, QPalette::Inactive);
+    readColourGroup(scheme, QStringLiteral("disabled_colors"), &palette, QPalette::Disabled);
+    return palette;
+}
+
 bool applyPreference()
 {
     switch (preference()) {
@@ -244,16 +294,26 @@ bool applyPreference()
     case Preference::System:
         break;
     }
-    return applyDesktopScheme();
-}
 
-bool applyDesktopIconTheme()
-{
-    const QString wanted = desktopIconTheme();
-    if (wanted.isEmpty() || QIcon::themeName() == wanted)
-        return false;
-    QIcon::setThemeName(wanted);
-    return true;
+    // What the desktop wrote for Qt, if it wrote anything. Applied even when it
+    // matches what is already on screen, because from then on this is the only
+    // thing that will update the colours: setting a palette stops Qt taking one
+    // from the platform theme, and the platform theme was not going to update it
+    // anyway.
+    if (const std::optional<QPalette> wanted = desktopPalette()) {
+        if (QGuiApplication::palette() == *wanted)
+            return false;
+        QGuiApplication::setPalette(*wanted);
+        return true;
+    }
+
+    // Nothing written, so the palette goes back to the platform theme and the
+    // portal decides whether it needs correcting. Handing it back is what undoes
+    // a light or dark chosen earlier in the same session.
+    const QPalette before = QGuiApplication::palette();
+    QGuiApplication::setPalette(QPalette());
+    const bool released = QGuiApplication::palette() != before;
+    return applyDesktopScheme() || released;
 }
 
 void watch(QObject *context, std::function<void()> onChange)

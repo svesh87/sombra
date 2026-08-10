@@ -69,6 +69,11 @@ public slots:
 
     // Light, dark, or whatever the desktop says. Stored in the console's own
     // settings and applied at once.
+    // Light, dark, or whatever the desktop says. Stored in the console's own
+    // settings and applied at once — to the widgets. The title bar is Qt's own
+    // on a Wayland desktop and takes its colours when the window is created, so
+    // it stays in the previous scheme until the console is closed and opened
+    // again. Rebuilding the window to refresh it took the process down with it.
     void setAppearance(theme::Preference wanted);
 
     // A judgement made by ear, stamped onto the current sample.

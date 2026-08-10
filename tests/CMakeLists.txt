@@ -37,7 +37,9 @@ ombra_test(dbus_service_test LIBS ombra_daemon)
 # and the real tray binary as child processes, which is the topology they will
 # run in, so the build order has to guarantee those exist.
 ombra_test(autostart_test LIBS ombra_tray)
-ombra_test(theme_test LIBS ombra_tray ENV "QT_QPA_PLATFORM=offscreen")
+# No session bus either: following the desktop asks the portal, and a test that
+# reached the real one would answer differently on every machine.
+ombra_test(theme_test LIBS ombra_tray ENV "QT_QPA_PLATFORM=offscreen;DBUS_SESSION_BUS_ADDRESS=unix:path=/nonexistent/ombra-test-has-no-session-bus")
 ombra_test(tray_icon_test LIBS ombra_tray ENV "QT_QPA_PLATFORM=offscreen")
 ombra_test(tray_client_test LIBS ombra_tray ENV "QT_QPA_PLATFORM=offscreen")
 ombra_test(tray_window_test LIBS ombra_tray ENV "QT_QPA_PLATFORM=offscreen")

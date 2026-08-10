@@ -6,9 +6,9 @@
 #include <QString>
 
 #include <functional>
+#include <optional>
 
-// Following the desktop's appearance: the light or dark preference, and the icon
-// theme.
+// Following the desktop's light or dark preference.
 //
 // The source is the freedesktop appearance portal —
 // `org.freedesktop.portal.Settings`, key `org.freedesktop.appearance` /
@@ -18,11 +18,23 @@
 // (`qt5ct`) takes its colours from its own configuration and never looks at the
 // desktop at all. The portal answers the question that was actually asked.
 //
-// What is deliberately not done: replacing the platform theme's palette when it
-// already agrees with the desktop. A palette of our own would look like nothing
-// else on the machine, so it is applied only when the two disagree — which on a
-// correctly configured desktop is never, and after a switch to the other scheme
-// is immediately.
+// Following it while the console is open takes assembling the palette here, and
+// two measurements on this machine say why. A platform theme does not update a
+// running application's palette when the desktop's theme changes — the file
+// watcher is there and the colours do not move — and the desktop switches its
+// theme on its own, at sunrise and sunset. A console that only read the scheme at
+// startup would sit in yesterday's colours until it was closed and opened.
+//
+// So the colours are read from where the desktop wrote them for Qt: the colour
+// scheme named by `qt6ct`'s or `qt5ct`'s configuration, which is a file of
+// twenty-one colours per group in QPalette's own role order. On this machine
+// `cosmic-settings-daemon` generates it from the desktop's theme and rewrites it
+// on every switch. Where there is no such file, the portal's scheme picks one of
+// the two palettes below instead.
+//
+// An explicit choice of light or dark pins the palette: Qt stops taking one from
+// the platform theme once an application has set its own, which is why `System`
+// hands it back before deciding anything.
 namespace theme {
 
 // What the person asked for. `System` is the default and the only value that
@@ -45,9 +57,18 @@ void setPreference(Preference wanted);
 QString nameOf(Preference wanted);
 Preference preferenceFrom(const QString &name);
 
-// Applies the stored choice: the desktop's scheme when it is `System`, and the
-// named one otherwise. Returns true when the palette changed.
+// Applies the stored choice: the desktop's own colours when it is `System`, and
+// one of the two palettes below otherwise. Returns true when the palette changed.
 bool applyPreference();
+
+// The palette the desktop wrote for Qt applications, or nothing when it wrote
+// none. Read fresh on every call, because the point of it is to be re-read when
+// the desktop switches theme under a running console.
+std::optional<QPalette> desktopPalette();
+
+// Calls `onChange` on any setting the appearance portal announces. The context
+// object owns the subscription; when it dies, so does the watch.
+void watch(QObject *context, std::function<void()> onChange);
 
 enum class Scheme {
     // The portal is absent or answered something unexpected. Nothing is
@@ -80,25 +101,5 @@ bool applyDesktopScheme();
 // the other one, because replacing a palette that already agrees would make the
 // window the odd one out on the machine.
 bool applyScheme(Scheme scheme);
-
-// The desktop's icon theme, from the portal's `org.gnome.desktop.interface` /
-// `icon-theme`. Empty when the portal is absent or says nothing.
-//
-// Asked for the same reason as the colour scheme: `qt5ct` names an icon theme of
-// its own, and Qt then looks names up in a theme the panel knows nothing about.
-// A name that resolves for us and not for the panel is worse than no name — a
-// StatusNotifierItem host prefers the name and draws a placeholder when it
-// cannot find it. Agreeing with the desktop is what makes "does this name exist"
-// a question worth asking.
-QString desktopIconTheme();
-
-// Points Qt at the desktop's icon theme. Returns true when the theme changed,
-// which is the caller's cue to redraw anything it has already drawn.
-bool applyDesktopIconTheme();
-
-// Calls `onChange` whenever the portal reports a different scheme or a different
-// icon theme. The context object owns the subscription; when it dies, so does
-// the watch.
-void watch(QObject *context, std::function<void()> onChange);
 
 } // namespace theme

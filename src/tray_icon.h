@@ -3,37 +3,33 @@
 
 #include <QIcon>
 
-// The panel icon.
+// The panel icon, drawn here and borrowing nothing from its surroundings.
 //
-// A standard name from the icon theme where the theme has one, so the panel
-// draws the glyph its own theme provides, recolours it to match itself, and
-// changes it when the person changes their icon theme. The names are the ones
-// desktop power-profile applets use, so a glyph already means what we mean by
-// it.
+// Publishing a standard theme name would be the polite thing to do: the panel
+// would draw the glyph of the icon theme in force and recolour it to match
+// itself. It does not work for what this icon has to say. A StatusNotifierItem
+// host prefers the name over any picture sent with it and draws a placeholder for
+// a name it cannot resolve, and it resolves names in its own icon theme — the
+// panel here reaches nothing that its theme does not carry, while Qt follows that
+// theme's inheritance and finds `power-profile-*-symbolic` two themes up. So a
+// check against Qt's answer is not a check against the panel's, and the panel
+// drew an empty square.
 //
-// A picture of our own where the theme has nothing. This is not a nicety: a
-// StatusNotifierItem host prefers the name over any picture sent with it, and a
-// name its theme does not carry becomes a question mark in the panel.
-// `power-profile-*-symbolic` ships in Adwaita and in neither the panel's theme
-// nor Qt's on this machine, so the name has to be checked rather than assumed.
+// The icon themes on this machine carry no trio of glyphs about power at all.
+// What they have is trios about volume, screen brightness, microphone
+// sensitivity and security, and borrowing one of those would put a sun or a
+// speaker in the panel to mean a thermal envelope. A picture that means what it
+// shows is worth more than one the panel can recolour.
 //
-// The check is only worth anything if Qt looks names up in the theme the panel
-// uses — see theme::applyDesktopIconTheme(), which is what makes that true.
+// The colour is fixed rather than taken from the palette, for a related reason:
+// the palette belongs to the application, the panel is coloured by the desktop,
+// and the two disagree exactly when the desktop is light with a dark bar.
 //
-// The drawn picture takes no colour from the palette either. The palette belongs
-// to the application and the panel is coloured by the desktop; the two disagree
-// exactly when the desktop is light with a dark bar. It is drawn in fixed
-// colours that read on both.
-//
-// What a glance has to answer either way: which of the modes is running, and the
-// two states that are not modes — no daemon, and the guard clamping.
+// What a glance has to answer: which of the modes is running, and the two states
+// that are not modes — no daemon, and the guard clamping.
 //
 // `modeIndex` is the mode's position in the table, from the coolest envelope to
-// the widest, and `modeCount` the size of that table. The drawn fill is a
-// fraction of the two, so a table of a different size still reads as a level. A
-// negative index means the mode is not known yet.
+// the widest, and `modeCount` the size of that table. The fill is a fraction of
+// the two, so a table of a different size still reads as a level. A negative
+// index means the mode is not known yet.
 QIcon trayIcon(bool connected, bool guardEngaged, int modeIndex, int modeCount);
-
-// The theme name this state would use, or empty when there is none for it. Split
-// out so the choice of name can be read and tested without a panel.
-QString trayIconName(bool connected, bool guardEngaged, int modeIndex, int modeCount);

@@ -14,38 +14,53 @@ speed beside it, because that is what a glance at the panel is for. Below it the
 modes as the daemon has them saved — the menu is built from a status reply, not
 compiled in — then the console and the way out.
 
-The icon says which mode is in force, by the names desktop power-profile
-applets use (`power-profile-power-saver-symbolic` for the coolest envelope,
-`-balanced-` for the working one, `-performance-` for the widest), plus two
-names that are not modes: `action-unavailable-symbolic` when the daemon is not
-answering and `dialog-warning-symbolic` when the emergency guard is clamping. A
-name rather than a picture, because the panel then draws the glyph of the icon
-theme in force, recolours it to match itself, and follows a change of icon
-theme.
+The icon says which mode is in force: a chip whose fill rises with the power
+envelope, blue while the daemon answers, red while the emergency guard is
+clamping, grey with a bar across it when nothing is answering.
 
-The catch, and the reason there is code behind this at all: a
-StatusNotifierItem host prefers the name over any picture sent with it, so a
-name its theme does not carry becomes a question mark in the panel. So the name
-is published only when the theme has it, and otherwise the icon is a picture of
-ours — a chip whose fill says which mode is running, drawn in fixed colours that
-read on a light panel and on a dark one. The palette is not consulted for it:
-the palette belongs to the application, the panel is coloured by the desktop,
-and the two disagree exactly when the desktop is light with a dark bar.
+It is drawn here rather than named from the icon theme, and that is the second
+attempt. Publishing a standard name is the polite thing to do — the panel would
+draw the glyph of the theme in force and recolour it to match itself — but a
+StatusNotifierItem host prefers the name over any picture sent with it and draws
+a placeholder for a name it cannot resolve. It resolves names in its own icon
+theme and reaches nothing that theme does not carry, while Qt follows the same
+theme's inheritance and finds `power-profile-*-symbolic` two themes further up.
+So the check said yes and the panel drew an empty square.
 
-For that check to mean anything, Qt has to look names up in the theme the panel
-uses. It does not by default — the platform theme in use names an icon theme of
-its own — so the console reads the desktop's icon theme from the portal
-(`org.gnome.desktop.interface` / `icon-theme`) and points Qt at it. A change of
-icon theme arrives as a portal signal, and the icon is chosen again.
+Nor is there a glyph to borrow. The icon themes on this machine carry no trio
+about power at all; what they have is trios about volume, screen brightness,
+microphone sensitivity and security, and any of those would put a sun or a
+speaker in the panel to mean a thermal envelope.
 
-The console's own light or dark is a choice on the *Settings* tab: follow the
-desktop, or light, or dark. Following the desktop reads the freedesktop
-appearance portal rather than Qt — `QStyleHints::colorScheme()` needs Qt 6.5 and
-the Qt here is 6.4, and the platform theme takes its colours from its own
-configuration and never looks at the desktop. A palette of ours is applied only
-when the current one is of the other scheme, so on a correctly configured
-desktop following the desktop changes nothing at all. None of this reaches the
-panel icon: what the panel draws is the desktop's business.
+The colours are fixed for a related reason: the palette belongs to the
+application, the panel is coloured by the desktop, and the two disagree exactly
+when the desktop is light with a dark bar. The three used here read on both.
+
+The console's colours are the desktop's own, and they follow it while the window
+is open. On this machine `cosmic-settings-daemon` generates a Qt colour scheme
+from the COSMIC theme and points `qt5ct` and `qt6ct` at it, so a Qt window starts
+in the desktop's greys and accent without being told; when the desktop switches
+theme it rewrites that file, and the console reads it again on the portal's
+signal.
+
+Reading the file is what makes an automatic switch at sunset reach a console that
+has been open all day. Nothing else would: a platform theme does not update the
+palette of a running application — measured on this machine, the file watcher is
+there and the colours do not move — and reopening the window does not restart the
+process, so the palette it was given at startup is the palette it keeps.
+
+Where a desktop writes no such scheme, the portal's answer picks one of two
+palettes of our own instead. The *Settings* tab can override the choice with
+light or dark, and that applies at once; going back to following the desktop
+hands the palette back, because Qt stops taking one from the platform theme once
+an application has set its own.
+
+The title bar is Qt's own on this desktop — the compositor offers to draw one and
+Qt 6.4 does not ask it to — and it takes its colours when the window is created.
+A change of scheme therefore reaches the widgets at once and the bar at the next
+opening. Rebuilding the window to refresh the bar was tried and took the process
+down with it, so the console leaves it alone: one close and one click on the
+panel icon is the whole of it.
 
 ## The console
 
