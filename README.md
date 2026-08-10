@@ -142,6 +142,16 @@ and are a starting point, not a result. They are meant to be tuned from
 recorded telemetry, which is what `sombra export` and the subjective marks are
 for.
 
+External monitors are driven over DDC/CI, which is a conversation on the
+connector's I2C bus rather than a sysfs node — about 300 ms to write and 350 ms to
+read, measured on three monitors. `sombra monitor list` says which ones answer;
+`sombra monitor level <percent> [<id>]` sets one, or every one that answers. The
+reply means the request was sent: the level in `status` follows the read that
+confirms it, and that read is also how a hand on the monitor's own buttons is
+noticed. The internal panel is not among them and cannot be — a laptop panel does
+not answer DDC/CI. Each monitor's level, and one byte saying which monitor it is,
+goes into every sample in the slot of its socket.
+
 How much telemetry is kept is a setting, `retention_days` — one day to thirty,
 seven by default. The depth is the ring's own size rather than a policy applied to
 it, so changing it rebuilds the file and carries the samples across, and a shorter

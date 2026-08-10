@@ -81,6 +81,8 @@ int runControl(const QStringList &arguments)
             "  brightness level <percent>  set the backlight, as the person would\n"
             "  brightness base <percent>   the level the automation works around\n"
             "  brightness set <key>=<value> ...  response_pct, floor_pct, ceiling_pct, curve\n"
+            "  monitor list               the external monitors that answer DDC/CI\n"
+            "  monitor level <percent> [<id>]   set one, or every one that answers\n"
             "  charge <percent>           battery charge threshold\n"
             "  config show                what the daemon has saved, as JSON\n"
             "  config set mode <id> <key>=<value> ...   durable mode definition:\n"

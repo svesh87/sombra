@@ -1,6 +1,9 @@
 // Copyright (c) 2026 Sergei Sveshnikov. MIT licensed, see LICENSE.
 #include "daemon.h"
 
+#include "monitor_ddc.h"
+#include "monitor_file.h"
+
 #include <QDateTime>
 #include <QDebug>
 #include <QDir>
@@ -107,6 +110,35 @@ bool Daemon::start(QString *error)
     loadConfiguration();
     loadState();
 
+    resolveConnectors();
+    // The real bus on a real machine, files anywhere else. A control surface that
+    // is not `/` already means "this is not the machine", and a flag that turns
+    // the hardware into a fake is a flag somebody eventually leaves on.
+    std::unique_ptr<MonitorBus> bus;
+    if (m_sysfs.root() == QStringLiteral("/"))
+        bus = std::make_unique<MonitorDdcBus>(m_sysfs);
+    else
+        bus = std::make_unique<MonitorFileBus>(m_sysfs);
+    m_monitorWorker = std::make_unique<MonitorWorker>(std::move(bus), m_options.threadedMonitors);
+    connect(m_monitorWorker.get(), &MonitorWorker::detected, this,
+            [this](const QList<MonitorInfo> &monitors) {
+                m_monitors = monitors;
+                // A monitor that is gone takes its level with it: keeping the last
+                // number would report a screen that is not there.
+                QHash<QString, int> kept;
+                for (const MonitorInfo &monitor : monitors) {
+                    if (m_monitorLevel.contains(monitor.id))
+                        kept.insert(monitor.id, m_monitorLevel.value(monitor.id));
+                }
+                m_monitorLevel = kept;
+                m_monitorWorker->requestRead();
+            });
+    connect(m_monitorWorker.get(), &MonitorWorker::levelRead, this,
+            [this](const QString &id, int percent) { m_monitorLevel.insert(id, percent); });
+    connect(m_monitorWorker.get(), &MonitorWorker::monitorAbsent, this,
+            [this](const QString &id) { m_monitorLevel.insert(id, -1); });
+    m_monitorWorker->requestDetect();
+
     // Telemetry and the control channel are both secondary to keeping the
     // machine inside its thermal envelope. Neither failing is a reason to
     // leave the firmware's own 200 W limit standing, so both degrade to a log
@@ -137,6 +169,64 @@ bool Daemon::start(QString *error)
     applyNow();
     m_timer.start();
     return true;
+}
+
+void Daemon::resolveConnectors()
+{
+    m_externalConnectors.clear();
+    for (const QString &relative :
+         m_sysfs.glob(QStringLiteral("sys/class/drm"), QStringLiteral("card*-*"))) {
+        const QString name = relative.section(QLatin1Char('/'), -1);
+        // The internal panel is not an external connector and does not answer DDC,
+        // which it says itself. Everything else is a socket a monitor can be in.
+        if (name.contains(QStringLiteral("eDP")))
+            continue;
+        m_externalConnectors.append(name);
+    }
+    // Sorted, so a slot in a sample means the same socket in every sample. The
+    // glob is sorted already; this says out loud that the order is the contract.
+    m_externalConnectors.sort();
+}
+
+void Daemon::updateMonitors(Sample &sample)
+{
+    clearMonitorSlots(sample);
+    if (!m_monitorWorker)
+        return;
+
+    // What is plugged in is microseconds of sysfs; what answers DDC is most of a
+    // second of bus. So the cheap question is asked every tick and the expensive
+    // one only when its answer can have changed.
+    QStringList connected;
+    for (const QString &connector : m_externalConnectors) {
+        const auto status = m_sysfs.readText(QStringLiteral("sys/class/drm/%1/status")
+                                                     .arg(connector));
+        if (status && *status == QLatin1String("connected"))
+            connected.append(connector);
+    }
+    if (connected != m_connectedConnectors) {
+        m_connectedConnectors = connected;
+        m_monitorWorker->requestDetect();
+    } else if (m_metrics.enabled && m_ticks % kMonitorReadTicks == 0) {
+        // Re-read on a slow cadence, which is how a hand on the monitor's own
+        // buttons is noticed — measured: a change made with its keys reads back.
+        m_monitorWorker->requestRead();
+    }
+
+    int answering = 0;
+    for (const MonitorInfo &monitor : m_monitors) {
+        const int level = m_monitorLevel.value(monitor.id, -1);
+        if (level >= 0)
+            ++answering;
+        const int slot = monitorSlot(monitor.connector, m_externalConnectors);
+        if (slot < 0 || slot >= kMonitorSlots)
+            continue;
+        MonitorSlot &record = sample.monitorSlots[slot];
+        record.id = monitorFingerprint(monitor.id);
+        if (level >= 0)
+            record.level = static_cast<uint8_t>(level);
+    }
+    sample.monitors = static_cast<uint8_t>(std::min(answering, kAbsentPercent - 1));
 }
 
 void Daemon::openRing()
@@ -619,6 +709,65 @@ QString Daemon::applyLiveSetting(const QStringList &assignments)
     return QStringLiteral("ok");
 }
 
+QString Daemon::applyMonitorCommand(const QStringList &parts)
+{
+    if (parts.isEmpty())
+        return QStringLiteral("err monitor needs list or level");
+    const QString verb = parts.first().toLower();
+
+    if (verb == QLatin1String("list")) {
+        QJsonArray list;
+        for (const MonitorInfo &monitor : m_monitors) {
+            QJsonObject entry;
+            entry[QStringLiteral("id")] = monitor.id;
+            entry[QStringLiteral("model")] = monitor.model;
+            entry[QStringLiteral("connector")] = monitor.connector;
+            const int level = m_monitorLevel.value(monitor.id, -1);
+            entry[QStringLiteral("level")] = level < 0 ? QJsonValue() : QJsonValue(level);
+            entry[QStringLiteral("answering")] = level >= 0;
+            list.append(entry);
+        }
+        return QStringLiteral("ok ")
+                + QString::fromUtf8(QJsonDocument(list).toJson(QJsonDocument::Compact));
+    }
+
+    if (verb == QLatin1String("level")) {
+        if (parts.size() < 2)
+            return QStringLiteral("err monitor level needs a percentage");
+        bool ok = false;
+        const int percent = parts.at(1).toInt(&ok);
+        if (!ok)
+            return QStringLiteral("err monitor level is not a number");
+        if (percent < 0 || percent > 100)
+            return QStringLiteral("err monitor level is outside 0..100");
+
+        // Without an identifier: every monitor that answers. One screen is the
+        // common case and naming it every time would be ceremony.
+        QStringList wanted;
+        if (parts.size() >= 3) {
+            for (const MonitorInfo &monitor : m_monitors) {
+                if (monitor.id == parts.at(2))
+                    wanted.append(monitor.id);
+            }
+            if (wanted.isEmpty())
+                return QStringLiteral("err unknown monitor %1").arg(parts.at(2));
+        } else {
+            for (const MonitorInfo &monitor : m_monitors)
+                wanted.append(monitor.id);
+        }
+        if (wanted.isEmpty())
+            return QStringLiteral("err no external monitor is answering");
+
+        for (const QString &id : wanted)
+            m_monitorWorker->requestWrite(id, percent);
+        // Accepted for sending, not applied: the bus takes about 300 ms and the
+        // level in `status` changes when the read that follows confirms it.
+        return QStringLiteral("ok %1").arg(percent);
+    }
+
+    return QStringLiteral("err monitor takes list or level");
+}
+
 QString Daemon::configMetricsCommand(const QStringList &assignments)
 {
     if (assignments.isEmpty())
@@ -990,6 +1139,19 @@ QString Daemon::statusJson() const
     root[QStringLiteral("sensors")] = sensors;
     root[QStringLiteral("brightness")] = brightness;
 
+    QJsonArray monitors;
+    for (const MonitorInfo &monitor : m_monitors) {
+        QJsonObject entry;
+        entry[QStringLiteral("id")] = monitor.id;
+        entry[QStringLiteral("model")] = monitor.model;
+        entry[QStringLiteral("connector")] = monitor.connector;
+        const int level = m_monitorLevel.value(monitor.id, -1);
+        entry[QStringLiteral("level")] = level < 0 ? QJsonValue() : QJsonValue(level);
+        entry[QStringLiteral("answering")] = level >= 0;
+        monitors.append(entry);
+    }
+    root[QStringLiteral("monitors")] = monitors;
+
     // How the ring is kept, so that the console can show it without a second
     // command: how deep it is, and whether anything is being written at all.
     QJsonObject metrics;
@@ -1030,6 +1192,8 @@ QString Daemon::handleCommand(const QString &line)
 
     if (verb == QLatin1String("brightness"))
         return applyBrightnessCommand(parts.mid(1));
+    if (verb == QLatin1String("monitor"))
+        return applyMonitorCommand(parts.mid(1));
 
     if (verb == QLatin1String("mark")) {
         if (parts.size() < 2)
@@ -1086,9 +1250,6 @@ void Daemon::tick()
 {
     const uint32_t now = static_cast<uint32_t>(QDateTime::currentSecsSinceEpoch());
     Sample sample = m_sensors.read(now, m_monotonic.elapsed());
-    // Nothing asks the monitors anything yet, and a slot of zeros would read as a
-    // screen sitting at nought per cent. Absence has to be written in.
-    clearMonitorSlots(sample);
 
     Setpoints requested = requestedSetpoints();
     if (sample.pkgTemp == kAbsentTemp) {
@@ -1110,6 +1271,10 @@ void Daemon::tick()
     const Setpoints effective = applyGuard(sample, requested, m_guard);
     m_actuator.apply(effective);
     m_lastApplied = effective;
+
+    // The screens, on the same terms as the backlight below: after the thermal
+    // path and sharing nothing with it.
+    updateMonitors(sample);
 
     // A separate path, run after the thermal one and sharing nothing with it.
     // The backlight is not part of the thermal envelope, and selecting a mode

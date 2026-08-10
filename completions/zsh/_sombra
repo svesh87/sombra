@@ -24,6 +24,7 @@ _sombra() {
         'mark:stamp a verdict onto the current sample'
         'fan:full speed or the mode's own curve'
         'brightness:the backlight and its automation'
+        'monitor:the external monitors over DDC/CI'
         'charge:battery charge threshold'
         'config:the saved definitions'
         'reload:re-read the settings file'
@@ -49,6 +50,9 @@ _sombra() {
         set)
             compadd -S '' pl1= pl2= max_perf_pct= turbo= epp= hwp_boost= gt_max_mhz= \
                 profile= fan=
+            ;;
+        monitor)
+            compadd list level
             ;;
         brightness)
             case $words[2] in

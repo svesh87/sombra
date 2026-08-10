@@ -184,6 +184,12 @@ case "$depends" in
 *libqt6core*) ;;
 *) report "Depends does not mention Qt: '$depends'" ;;
 esac
+# The monitors' bus. Derived the same way, and worth asserting because a package
+# whose daemon cannot open a monitor fails silently: there is simply no monitor.
+case "$depends" in
+*libddcutil*) ;;
+*) report "Depends does not mention libddcutil: '$depends'" ;;
+esac
 
 # Optional: not installed on the build machine, and the package targets one
 # machine rather than an archive, so its absence is not a failure.

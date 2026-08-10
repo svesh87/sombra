@@ -57,6 +57,25 @@ archivo dice cómo es el proyecto, no cómo fue.
   mientras nadie lo mueva, y existe porque una pantalla puede ser demasiado
   brillante para sentarse delante, y porque los paneles externos hacen distinta
   cantidad de luz con el mismo tanto por ciento.
+- **Los monitores externos son del demonio, y su bus vive en un hilo.** El brillo
+  de un monitor es DDC/CI por el bus I2C de su conector, no un nodo de sysfs: medido
+  en esta máquina, una lectura cuesta unos 350 ms y una escritura unos 300 ms, y dos
+  monitores son dos buses en secuencia. En el bucle de 1 Hz está la protección de
+  emergencia y no espera a una pantalla, así que el bus se trabaja en un hilo propio
+  y las respuestas llegan como señales. Es del demonio y no de la consola por lo
+  mismo que el panel: la automatización que seguirá a la luz vivirá aquí, y la
+  consola pide.
+- **Una escritura a un monitor la confirma una lectura, nunca su propia respuesta.**
+  Uno de los paneles medidos aquí informa de un fallo y aplica el valor de todas
+  formas. Así que una escritura significa «enviada», decide la lectura siguiente, y
+  la verificación propia de la biblioteca —que lee demasiado pronto para ese panel—
+  está apagada.
+- **Una ranura de una muestra es un conector, no un orden de llegada.** Los
+  conectores externos ordenados por nombre, tres en esta máquina, y un conector que
+  invente un concentrador DP-MST no recibe ranura. Una ranura que significara
+  pantallas distintas en muestras distintas haría ilegible una sesión. Un byte por
+  ranura dice qué monitor hay en ella: por un mismo conector de esta mesa pasaron
+  tres paneles en una hora.
 - **La base se puede fijar directamente, y no solo deducirse.** Al mover el
   brillo, la persona dice qué quiere con la luz del momento, y la base sale de
   ahí; esa es la dirección natural y falla en una sola cosa: ajustar para una

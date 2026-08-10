@@ -18,6 +18,7 @@
 #include <QFileInfo>
 #include <QStandardPaths>
 #include <QFile>
+#include <QGroupBox>
 #include <QGuiApplication>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -172,6 +173,7 @@ private slots:
     void oneLineCarriesTheStateAndTheReplies();
     void theHelpButtonFindsAPageForEveryLanguage();
     void telemetryIsTwoControlsOnTheSettingsTab();
+    void anExternalMonitorGetsAGroupOfItsOwn();
     void everyControlThatSendsACommandExplainsItself();
     void everyChoiceInAListExplainsItself();
     void theBaselineIsAControlOfItsOwn();
@@ -1220,6 +1222,63 @@ void TrayWindowTest::telemetryIsTwoControlsOnTheSettingsTab()
     days->setValue(kRetentionDefaultDays + 1);
     days->editingFinished();
     QTRY_COMPARE(client.status().retentionDays, kRetentionDefaultDays + 1);
+}
+
+void TrayWindowTest::anExternalMonitorGetsAGroupOfItsOwn()
+{
+    TestDaemon daemon(m_tree->root(), m_work.path());
+    QVERIFY(daemon.waitUntilListening());
+    TrayClient client(socketPath());
+    TrayWindow window(client);
+    client.poll();
+
+    // Nothing plugged in: a line saying so and no sliders, because a slider for a
+    // screen that is not there is a slider that lies.
+    auto *state = window.findChild<QLabel *>(QStringLiteral("monitor_state"));
+    QVERIFY(state);
+    QVERIFY(!window.findChild<QSlider *>(QStringLiteral("monitor1_level_slider")));
+
+    // Two of them, as the daemon would report them.
+    TrayClient::Status status = client.status();
+    TrayClient::Status::Monitor first;
+    first.id = QStringLiteral("DEL-DELL_U3425WE-421B3Z3");
+    first.model = QStringLiteral("DELL U3425WE");
+    first.connector = QStringLiteral("card1-DP-1");
+    first.level = 85;
+    TrayClient::Status::Monitor second;
+    second.id = QStringLiteral("WCS-AQ14T-card1-DP-2");
+    second.model = QStringLiteral("AQ14T");
+    second.connector = QStringLiteral("card1-DP-2");
+    second.level = -1;  // switched off, or its input moved elsewhere
+    status.monitors = { first, second };
+    window.applyStatus(status);
+
+    auto *one = window.findChild<QSpinBox *>(QStringLiteral("monitor1_level_box"));
+    auto *two = window.findChild<QSpinBox *>(QStringLiteral("monitor2_level_box"));
+    QVERIFY(one);
+    QVERIFY(two);
+    QCOMPARE(one->value(), 85);
+    // One that stopped answering greys out and keeps its position: zero would be a
+    // screen at nought per cent, which it is not.
+    QVERIFY(!two->isEnabled());
+    QVERIFY(one->isEnabled());
+
+    // The title says which screen it is by socket as well as by model: one panel
+    // measured here calls itself "TYPEC", and two identical titles are two sliders
+    // nobody can tell apart.
+    bool titled = false;
+    for (const QGroupBox *box : window.findChildren<QGroupBox *>()) {
+        if (box->title().contains(QStringLiteral("card1-DP-1"))
+            && box->title().contains(QStringLiteral("DELL U3425WE"))) {
+            titled = true;
+        }
+    }
+    QVERIFY(titled);
+
+    // And when they go, the groups go with them.
+    status.monitors.clear();
+    window.applyStatus(status);
+    QVERIFY(!window.findChild<QSpinBox *>(QStringLiteral("monitor1_level_box")));
 }
 
 void TrayWindowTest::theWindowKeepsOneSizeForEveryTab()

@@ -19,6 +19,19 @@ public:
     QString root() const { return m_dir.path(); }
     bool isValid() const { return m_dir.isValid(); }
 
+    // Plugs a monitor into an external connector: the DRM status the daemon reads
+    // to notice it, and the file the fake bus answers from.
+    void plugMonitor(const QString &connector, const QString &vendor, const QString &model,
+                     const QString &serial, int level) const
+    {
+        write(FakeSysfs::connector(connector), QStringLiteral("connected"));
+        write(monitorFile(connector),
+              QStringLiteral("vendor=%1\nmodel=%2\nserial=%3\nconnector=card1-%4\n"
+                             "maximum=100\nlevel=%5\n")
+                      .arg(vendor, model, serial, connector)
+                      .arg(level));
+    }
+
     void write(const QString &relative, const QString &contents) const
     {
         const QString path = m_dir.path() + QLatin1Char('/') + relative;
@@ -64,6 +77,13 @@ public:
     static QString connector(const QString &name)
     {
         return QStringLiteral("sys/class/drm/card1-%1/status").arg(name);
+    }
+    // What the fake DDC bus answers from: one file per monitor, named after its
+    // connector. Nothing writes it by default — a machine with nothing plugged in
+    // is the state the pictures and most of the suite want.
+    static QString monitorFile(const QString &connector)
+    {
+        return QStringLiteral("fake-ddc/card1-%1").arg(connector);
     }
     static QString pstate() { return QStringLiteral("sys/devices/system/cpu/intel_pstate"); }
     static QString platformProfile()

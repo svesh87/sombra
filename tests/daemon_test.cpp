@@ -64,6 +64,7 @@ private slots:
     void theFloorBindsEverybodyIncludingThePerson();
     void theCeilingBindsEverybodyTheSameWay();
     void telemetryDepthIsASettingAndSwitchingItOffKeepsTheFile();
+    void externalMonitorsAreFoundReadAndRecordedBySocket();
     void selectingAModeDoesNotMoveTheBacklight();
     void brightnessChoicesSurviveARestart();
     void brightnessCommandsAreValidated();
@@ -1043,6 +1044,77 @@ void DaemonTest::telemetryDepthIsASettingAndSwitchingItOffKeepsTheFile()
                                  QStringLiteral("config set metrics enabled=maybe"),
                                  QStringLiteral("config set metrics depth=7"),
                                  QStringLiteral("config reset sideways") }) {
+        QVERIFY2(daemon.handleCommand(line).startsWith(QStringLiteral("err")), qPrintable(line));
+    }
+}
+
+void DaemonTest::externalMonitorsAreFoundReadAndRecordedBySocket()
+{
+    // Two screens on the desk, which is the arrangement the slots exist for.
+    m_tree->plugMonitor(QStringLiteral("DP-1"), QStringLiteral("DEL"),
+                        QStringLiteral("DELL U3425WE"), QStringLiteral("421B3Z3"), 85);
+    m_tree->plugMonitor(QStringLiteral("DP-2"), QStringLiteral("WCS"),
+                        QStringLiteral("AQ14T"), QString(), 20);
+
+    DaemonOptions o = options();
+    // In the daemon's own thread, so that an answer has arrived by the next line.
+    o.threadedMonitors = false;
+    Daemon daemon(o);
+    QVERIFY(daemon.start());
+    daemon.tick();
+
+    const auto monitors = [&daemon] {
+        return QJsonDocument::fromJson(
+                       daemon.handleCommand(QStringLiteral("monitor list")).mid(3).toUtf8())
+                .array();
+    };
+    QCOMPARE(monitors().size(), 2);
+    QCOMPARE(monitors().at(0).toObject().value(QStringLiteral("id")).toString(),
+             QStringLiteral("DEL-DELL_U3425WE-421B3Z3"));
+    QCOMPARE(monitors().at(0).toObject().value(QStringLiteral("level")).toInt(), 85);
+    QVERIFY(monitors().at(1).toObject().value(QStringLiteral("answering")).toBool());
+
+    // A slot is a socket: DP-1 first, DP-2 second, and the third socket empty.
+    const Sample &s = daemon.lastSample();
+    QCOMPARE(s.monitors, uint8_t(2));
+    QCOMPARE(s.monitorSlots[0].level, uint8_t(85));
+    QCOMPARE(s.monitorSlots[1].level, uint8_t(20));
+    QCOMPARE(s.monitorSlots[2].level, kAbsentPercent);
+    // And which monitor is in it, so that a panel swapped mid-session is visible.
+    QVERIFY(s.monitorSlots[0].id != 0);
+    QVERIFY(s.monitorSlots[0].id != s.monitorSlots[1].id);
+    QCOMPARE(s.monitorSlots[2].id, uint8_t(0));
+
+    // One monitor by name, and the reply says what was asked for: the write is
+    // accepted for sending, and the level in the status follows the read.
+    QCOMPARE(daemon.handleCommand(QStringLiteral("monitor level 45 WCS-AQ14T-card1-DP-2")),
+             QStringLiteral("ok 45"));
+    daemon.tick();
+    QCOMPARE(monitors().at(1).toObject().value(QStringLiteral("level")).toInt(), 45);
+    QCOMPARE(monitors().at(0).toObject().value(QStringLiteral("level")).toInt(), 85);
+
+    // Without a name: every monitor that answers, because one screen is the common
+    // case and naming it every time would be ceremony.
+    QCOMPARE(daemon.handleCommand(QStringLiteral("monitor level 60")), QStringLiteral("ok 60"));
+    daemon.tick();
+    QCOMPARE(monitors().at(0).toObject().value(QStringLiteral("level")).toInt(), 60);
+    QCOMPARE(monitors().at(1).toObject().value(QStringLiteral("level")).toInt(), 60);
+
+    // Unplugged: the daemon notices from sysfs, which costs microseconds, and asks
+    // the bus again — which is where the cost is.
+    m_tree->write(FakeSysfs::connector(QStringLiteral("DP-2")), QStringLiteral("disconnected"));
+    m_tree->remove(FakeSysfs::monitorFile(QStringLiteral("DP-2")));
+    daemon.tick();
+    daemon.tick();
+    QCOMPARE(monitors().size(), 1);
+    QCOMPARE(daemon.lastSample().monitors, uint8_t(1));
+    QCOMPARE(daemon.lastSample().monitorSlots[1].level, kAbsentPercent);
+
+    for (const QString &line : { QStringLiteral("monitor"), QStringLiteral("monitor sideways"),
+                                 QStringLiteral("monitor level"),
+                                 QStringLiteral("monitor level plenty"),
+                                 QStringLiteral("monitor level 101"),
+                                 QStringLiteral("monitor level 50 no-such-monitor") }) {
         QVERIFY2(daemon.handleCommand(line).startsWith(QStringLiteral("err")), qPrintable(line));
     }
 }

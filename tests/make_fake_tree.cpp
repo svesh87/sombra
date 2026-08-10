@@ -30,6 +30,11 @@ int main(int argc, char **argv)
     // result is copied out. Copying rather than pointing at it: the temporary
     // one is removed when this process exits, and the daemon outlives it.
     FakeSysfs tree;
+    // One external monitor, so the pictures show the controls a monitor brings with
+    // it. Invented identity: a real serial has no business in a public repository,
+    // and the window shows the socket and the model rather than the serial anyway.
+    tree.plugMonitor(QStringLiteral("DP-1"), QStringLiteral("DEL"),
+                     QStringLiteral("U3425WE"), QStringLiteral("0001"), 85);
     QDir().mkpath(target);
 
     QDirIterator it(tree.root(), QDir::Files | QDir::NoDotAndDotDot,

@@ -72,6 +72,17 @@ public:
         int brightnessCeilingPct = kBrightnessDefaultCeilingPct;
         // How the telemetry is kept. Shown on the settings tab beside the reset,
         // which is the other control there that reaches the daemon.
+        // The external monitors, as the daemon reported them. A level below zero
+        // is a monitor that stopped answering: switched off, or its input moved to
+        // another machine.
+        struct Monitor {
+            QString id;
+            QString model;
+            QString connector;
+            int level = -1;
+        };
+        QList<Monitor> monitors;
+
         int retentionDays = kRetentionDefaultDays;
         bool metricsEnabled = true;
         // The band those two produce, which is what the window shows: "between

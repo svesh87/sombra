@@ -205,6 +205,13 @@ public:
     QLabel *fanState = nullptr;
 
     QToolButton *help = nullptr;
+    // The monitors, built and rebuilt from what the daemon reports. The layout is
+    // kept so that a monitor plugged in later has somewhere to appear.
+    QLabel *monitorState = nullptr;
+    QVBoxLayout *monitorsLayout = nullptr;
+    QList<QGroupBox *> monitorBoxes;
+    QList<Tuner *> monitorLevels;
+    QStringList monitorIds;
     QCheckBox *metricsEnabled = nullptr;
     QSpinBox *retentionDays = nullptr;
 
@@ -724,6 +731,15 @@ void TrayWindow::build()
                                         "Switching it on or off never moves the backlight by "
                                         "itself."));
     backlightLayout->addWidget(backlight);
+
+    // The external monitors are built when the daemon says what they are, because
+    // there is no compiled-in number of them: this is the slot they go into, and the
+    // line that stands there while there are none.
+    m_ui->monitorState = new QLabel(tr("No external monitor is answering."), backlightPage);
+    m_ui->monitorState->setObjectName(QStringLiteral("monitor_state"));
+    m_ui->monitorState->setWordWrap(true);
+    backlightLayout->addWidget(m_ui->monitorState);
+    m_ui->monitorsLayout = backlightLayout;
     backlightLayout->addStretch(1);
 
     // ---- Settings --------------------------------------------------------
@@ -972,6 +988,15 @@ void TrayWindow::applyStatus(const TrayClient::Status &status)
     m_ui->response->setValue(status.brightnessResponsePct);
     m_ui->floor->setValue(status.brightnessFloorPct);
     m_ui->ceiling->setValue(status.brightnessCeilingPct);
+    rebuildMonitors(status);
+    for (int i = 0; i < m_ui->monitorLevels.size() && i < status.monitors.size(); ++i) {
+        const int level = status.monitors.at(i).level;
+        // A monitor that stopped answering keeps its last position and greys out:
+        // showing zero would be a screen at nought per cent, which it is not.
+        m_ui->monitorLevels.at(i)->setEnabled(level >= 0);
+        if (level >= 0)
+            m_ui->monitorLevels.at(i)->setValue(level);
+    }
     m_ui->metricsEnabled->setChecked(status.metricsEnabled);
     m_retentionDays = status.retentionDays;
     m_ui->retentionDays->setValue(status.retentionDays);
@@ -1217,6 +1242,54 @@ void TrayWindow::openHelp()
         report(tr("Nothing here opens documents. The page is at %1.")
                        .arg(target.toLocalFile()),
                true);
+    }
+}
+
+void TrayWindow::rebuildMonitors(const TrayClient::Status &status)
+{
+    QStringList ids;
+    for (const TrayClient::Status::Monitor &monitor : status.monitors)
+        ids.append(monitor.id);
+    if (ids == m_ui->monitorIds)
+        return;
+
+    // Rebuilt rather than reshuffled: monitors appear and disappear a few times a
+    // day at most, and a builder is easier to be sure of than a diff.
+    for (QGroupBox *box : m_ui->monitorBoxes)
+        delete box;
+    m_ui->monitorBoxes.clear();
+    m_ui->monitorLevels.clear();
+    m_ui->monitorIds = ids;
+
+    m_ui->monitorState->setVisible(status.monitors.isEmpty());
+    QWidget *const page = m_ui->monitorState->parentWidget();
+    for (int i = 0; i < status.monitors.size(); ++i) {
+        const TrayClient::Status::Monitor &monitor = status.monitors.at(i);
+        // The connector is in the title as well as the model, because a model is
+        // not always a name: one panel measured here calls itself "TYPEC", and two
+        // screens whose titles are the same are two sliders nobody can tell apart.
+        const QString title = monitor.model.isEmpty()
+                ? monitor.connector
+                : QStringLiteral("%1 — %2").arg(monitor.connector, monitor.model);
+        auto *box = new QGroupBox(title, page);
+        auto *form = new QFormLayout(box);
+        auto *level = new Tuner(0, 100, 1, QStringLiteral(" %"), box);
+        level->nameParts(QStringLiteral("monitor%1_level").arg(i + 1));
+        level->setToolTip(tr("The monitor's own brightness, over DDC/CI. A write takes about a "
+                             "third of a second, so this one is sent when the slider is let go "
+                             "rather than while it moves."));
+        form->addRow(tr("Brightness:"), level);
+        // Sent when the gesture ends, unlike the panel: the panel is a sysfs write
+        // of microseconds, and this is a conversation over a bus.
+        const QString id = monitor.id;
+        connect(level, &Tuner::settled, this, [this, id, level]() {
+            if (!m_updating)
+                sendCommand(QStringLiteral("monitor level %1 %2").arg(level->value()).arg(id));
+        });
+        // Inserted before the stretch that holds the bottom of the page down.
+        m_ui->monitorsLayout->insertWidget(m_ui->monitorsLayout->count() - 1, box);
+        m_ui->monitorBoxes.append(box);
+        m_ui->monitorLevels.append(level);
     }
 }
 

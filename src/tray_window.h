@@ -84,6 +84,10 @@ public slots:
     void sendBacklightBase();
     void sendBacklightSettings(bool durable);
 
+    // Builds a group per external monitor the daemon reports, and removes them
+    // again when they go. There is no compiled-in number of screens.
+    void rebuildMonitors(const TrayClient::Status &status);
+
     // How the telemetry is kept. Both are the daemon's settings, so both go out
     // as commands; the depth asks first when it is being shortened.
     void sendMetricsEnabled(bool on);

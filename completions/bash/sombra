@@ -18,7 +18,7 @@ _sombra() {
     local cur prev words cword
     _init_completion || return
 
-    local verbs="status mode set reset mark fan brightness charge config reload export"
+    local verbs="status mode set reset mark fan brightness monitor charge config reload export"
     local i verb=""
     for ((i = 1; i < cword; i++)); do
         case ${words[i]} in

@@ -26,6 +26,7 @@ complete -c sombra -n __fish_use_subcommand -a reset -d 'Drop live tuning'
 complete -c sombra -n __fish_use_subcommand -a mark -d 'Stamp a verdict onto the sample'
 complete -c sombra -n __fish_use_subcommand -a fan -d "Full speed or the mode's own curve"
 complete -c sombra -n __fish_use_subcommand -a brightness -d 'The backlight and its automation'
+complete -c sombra -n __fish_use_subcommand -a monitor -d 'The external monitors over DDC/CI'
 complete -c sombra -n __fish_use_subcommand -a charge -d 'Battery charge threshold'
 complete -c sombra -n __fish_use_subcommand -a config -d 'The saved definitions'
 complete -c sombra -n __fish_use_subcommand -a reload -d 'Re-read the settings file'
@@ -39,6 +40,8 @@ complete -c sombra -n '__fish_seen_subcommand_from set' \
 
 complete -c sombra -n '__fish_seen_subcommand_from brightness; and not __fish_seen_subcommand_from on off level base set' \
     -a 'on off level base set'
+complete -c sombra -n '__fish_seen_subcommand_from monitor; and not __fish_seen_subcommand_from list level' \
+    -a 'list level'
 complete -c sombra -n '__fish_seen_subcommand_from brightness; and __fish_seen_subcommand_from set' \
     -a 'response_pct= floor_pct= ceiling_pct= curve='
 

@@ -62,6 +62,13 @@ pestaña con sus unidades, su rango y lo que cuesta, en el idioma en que habla l
 ventana— en la sección de la pestaña desde la que se pulsó. Fuera de la ventana, porque una página no cabe en una cuya altura
 es la de su pestaña más grande.
 
+Debajo de los controles del propio panel hay un grupo por cada monitor externo que
+responda a DDC/CI, titulado con su conector y su modelo: el conector porque un modelo
+no siempre es un nombre, y dos títulos iguales serían dos deslizadores que nadie
+distingue. Su deslizador se envía al soltarlo y no mientras se mueve: una escritura
+por ese bus son unos 300 ms. Un monitor que deja de responder se atenúa y se queda en
+su valor.
+
 ### Ajustes — sobre el programa, no sobre la máquina
 
 ![La pestaña Ajustes](screenshots/console-settings.png)

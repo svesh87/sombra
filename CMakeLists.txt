@@ -14,6 +14,12 @@ endif()
 
 find_package(Qt6 REQUIRED COMPONENTS Core Network DBus Widgets Test LinguistTools)
 
+# The external monitors' brightness goes over DDC/CI, and that is `libddcutil`
+# rather than a sysfs node. Only the daemon links it: the console asks the daemon,
+# as it does for everything else about the machine.
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(DDCUTIL REQUIRED IMPORTED_TARGET ddcutil)
+
 set(SOMBRA_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/src)
 set(SOMBRA_WARNINGS -Wall -Wextra -Wpedantic -Werror)
 
@@ -22,6 +28,8 @@ set(SOMBRA_WARNINGS -Wall -Wextra -Wpedantic -Werror)
 # directory, which is why the sysfs root is a constructor argument rather than
 # a compiled-in constant.
 add_library(sombra_core STATIC
+    src/monitor_bus.cpp
+    src/monitor_file.cpp
     src/sysfs.cpp
     src/setpoints.cpp
     src/modes.cpp
@@ -48,8 +56,11 @@ add_library(sombra_daemon STATIC
     src/control_socket.cpp
     src/signal_pipe.cpp
     src/dbus_service.cpp
+    src/monitor_ddc.cpp
+    src/monitor_worker.cpp
 )
-target_link_libraries(sombra_daemon PUBLIC sombra_core Qt6::Network Qt6::DBus)
+target_link_libraries(sombra_daemon PUBLIC sombra_core Qt6::Network Qt6::DBus
+                      PkgConfig::DDCUTIL)
 target_compile_options(sombra_daemon PRIVATE ${SOMBRA_WARNINGS})
 
 # The tray talks to the daemon over the control socket and shares nothing else

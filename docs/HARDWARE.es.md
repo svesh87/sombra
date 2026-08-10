@@ -200,6 +200,51 @@ compositor. En cualquier caso los dos son un indicio de cuánto trabajo gráfico
 se está haciendo, y eso ya se mide de forma directa con el dominio uncore de
 RAPL y con `gt_act_freq_mhz`.
 
+### Los monitores externos responden a DDC/CI; el panel interno, no
+
+El brillo de un monitor externo no está en sysfs. Es una conversación por el bus
+I2C de su conector, en la dirección 0x37 —DDC/CI—, y el bus está en
+`/sys/class/drm/card1-<conector>/ddc` como enlace simbólico al `i2c-N` por el que
+va el intercambio. Medido aquí: `DP-1` es el bus 12 y `DP-2` el 13, y el bus
+pertenece al conector y no al monitor.
+
+Se midieron tres monitores, todos por la característica VCP 0x10 y todos
+declarando un máximo de 100:
+
+| Monitor | Conector, bus | Serie en EDID | Lectura | Escritura, con la verificación de la biblioteca | Escritura, sin ella |
+|---|---|---|---|---|---|
+| `DELL U3425WE`, MCCS 2.1 | `DP-1`, `i2c-12` | `421B3Z3` | 353 ms | 405 ms, éxito | 301 ms, éxito |
+| `RTK TYPEC`, MCCS 2.2 | `DP-2`, `i2c-13` | `L56051794302` | 351–357 ms | **1344 ms, DDCRC_RETRIES** | 302 ms, éxito |
+| `WCS AQ14T` | `DP-2`, `i2c-13` | ninguna, y `0x01010101` en el campo numérico | 351–359 ms | 409 ms, éxito | 300 ms, éxito |
+
+De ahí se siguen cuatro cosas, y las cuatro están en el código:
+
+- **La verificación propia de la biblioteca rompe la escritura.** `ddcutil` vuelve
+  a leer el valor de inmediato, y uno de estos paneles no está listo para
+  responder tan pronto: informa de `DDCRC_RETRIES` mientras el valor que se le dio
+  ya está en el monitor. Con la verificación apagada la misma escritura cuesta
+  302 ms e informa de éxito, así que está apagada y lo que confirma es la
+  siguiente lectura ordinaria.
+- **El código de retorno de una escritura no es la respuesta.** Lo es la lectura.
+  El fallo de arriba está medido, no supuesto.
+- **Los botones del propio monitor se ven.** Un nivel puesto con sus teclas se lee
+  por DDC, y eso es lo que permite que el modelo «una mano es una indicación»
+  funcione igual para un monitor que para el panel.
+- **De la serie no se puede depender.** Un panel no trae descriptor de serie en
+  absoluto y lleva un relleno en el campo numérico, así que donde no hay serie el
+  conector ocupa su lugar en el identificador.
+
+El panel interno está en el bus 11 y responde `DDC communication failed`, diciendo
+sin rodeos que un panel de portátil no soporta DDC/CI. Se queda en
+`intel_backlight`.
+
+Dos monitores leídos en secuencia cuestan 704–707 ms, así que los buses se suman en
+vez de solaparse, y todo el intercambio vive en un hilo propio: en el bucle de 1 Hz
+está la protección de emergencia, y no espera a una pantalla.
+
+`/dev/i2c-*` es `root:i2c 0660`, con una ACL para el usuario local del asiento. El
+demonio es root y no necesita nada más.
+
 ### Contadores de limitación del hardware
 
 `/sys/devices/system/cpu/cpu*/thermal_throttle/`: `core_throttle_count`,

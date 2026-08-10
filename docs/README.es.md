@@ -152,6 +152,16 @@ en una sola máquina y son un punto de partida, no un resultado. Están para
 afinarse a partir de telemetría grabada, y para eso están `sombra export` y las
 marcas subjetivas.
 
+Los monitores externos se manejan por DDC/CI, que es una conversación por el bus
+I2C del conector y no un nodo de sysfs: unos 300 ms para escribir y 350 para leer,
+medido en tres monitores. `sombra monitor list` dice cuáles responden;
+`sombra monitor level <por ciento> [<id>]` fija uno, o todos los que respondan. La
+respuesta significa «enviado»: el nivel en `status` cambia tras la lectura que lo
+confirma, y esa misma lectura es la que nota que alguien ha usado los botones del
+monitor. El panel interno no está entre ellos ni puede estarlo: un panel de portátil
+no responde a DDC/CI. El nivel de cada monitor, y un byte que dice qué monitor es,
+van en cada muestra en la ranura de su conector.
+
 Cuánta telemetría se guarda es un ajuste, `retention_days`: de un día a treinta,
 siete por omisión. La profundidad es el tamaño propio del anillo y no una política
 aplicada a él, así que cambiarla reconstruye el archivo y arrastra las muestras, y

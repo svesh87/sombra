@@ -187,6 +187,50 @@ modes it supports, and which one is in use is known to the compositor. Both are
 in any case a proxy for how much graphics work is being done, and that is
 already measured directly by the uncore RAPL domain and `gt_act_freq_mhz`.
 
+### External monitors answer DDC/CI, the internal panel does not
+
+The brightness of an external monitor is not in sysfs. It is a conversation over
+the connector's I2C bus at address 0x37 — DDC/CI — and the bus is
+`/sys/class/drm/card1-<connector>/ddc`, a symlink to the `i2c-N` the exchange goes
+over. Measured here: `DP-1` is bus 12 and `DP-2` is bus 13, and the bus belongs to
+the socket rather than to the monitor.
+
+Three monitors were measured, all on VCP feature 0x10 and all reporting a maximum
+of 100:
+
+| Monitor | Socket, bus | Serial in EDID | Read | Write, library verifying | Write, verification off |
+|---|---|---|---|---|---|
+| `DELL U3425WE`, MCCS 2.1 | `DP-1`, `i2c-12` | `421B3Z3` | 353 ms | 405 ms, success | 301 ms, success |
+| `RTK TYPEC`, MCCS 2.2 | `DP-2`, `i2c-13` | `L56051794302` | 351–357 ms | **1344 ms, DDCRC_RETRIES** | 302 ms, success |
+| `WCS AQ14T` | `DP-2`, `i2c-13` | none, and `0x01010101` in the binary field | 351–359 ms | 409 ms, success | 300 ms, success |
+
+Four things follow, and all four are in the code:
+
+- **The library's own verification breaks the write.** `ddcutil` reads the value
+  back immediately, and one of these panels is not ready to answer that soon: it
+  reports `DDCRC_RETRIES` while the value it was given is sitting in the monitor.
+  With verification off the same write costs 302 ms and reports success, so
+  verification is off and the read that confirms is the next ordinary one.
+- **A write's return value is not the answer.** Reading is. The failure above is
+  measured, not hypothetical.
+- **A monitor's own buttons are visible.** A level set with the monitor's keys
+  reads back over DDC, which is what lets the same "a hand on it is an
+  instruction" model work for a monitor as for the panel.
+- **A serial cannot be relied on.** One panel has no serial descriptor at all and
+  a placeholder in the binary field, so where there is no serial the socket takes
+  its place in the identifier.
+
+The internal panel is on bus 11 and answers `DDC communication failed`, saying
+plainly that a laptop panel does not support DDC/CI. It stays on
+`intel_backlight`.
+
+Two monitors read in sequence cost 704–707 ms, so the buses add up rather than
+overlap, and the whole exchange happens in a thread of its own: the 1 Hz loop owns
+the emergency guard and does not wait for a screen.
+
+`/dev/i2c-*` is `root:i2c 0660`, with an ACL granting the seat's local user. The
+daemon is root and needs nothing added.
+
 ### Hardware throttle counters
 
 `/sys/devices/system/cpu/cpu*/thermal_throttle/` — `core_throttle_count`,

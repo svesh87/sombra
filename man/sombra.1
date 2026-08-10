@@ -115,6 +115,20 @@ the level nothing goes above, and
 is the
 .IR lux : percent
 table the room is read through.
+.TP
+.B monitor list
+The external monitors that answer DDC/CI, as JSON: the identifier settings and
+telemetry key them by, the model, the DRM connector and the level each is at.
+The internal panel is not among them and cannot be — a laptop panel does not
+answer DDC/CI, which it says itself.
+.TP
+.BI "monitor level " percent " [" id ]
+Sets one monitor, or every one that answers when no identifier is given. The
+reply means the request was sent: a write over DDC/CI takes about 300 ms and the
+level reported by
+.B status
+changes when the read that follows confirms it. A monitor's own buttons are
+noticed the same way, because that read sees them.
 .SS The saved definitions
 .TP
 .BI "config set mode " id " " key = value " ..."

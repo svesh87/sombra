@@ -59,6 +59,13 @@ of every tab with its units, its range and what it costs, in the language the wi
 is speaking — at the section of the tab it was pressed on. Outside the window, because a page has no room in one whose height is
 the height of its largest tab.
 
+Below the panel's own controls there is a group for each external monitor that
+answers DDC/CI, titled by its socket and its model — the socket because a model is
+not always a name, and two identical titles would be two sliders nobody can tell
+apart. Its slider is sent when it is let go rather than while it moves: a write over
+that bus is about 300 ms. A monitor that stops answering keeps its position and
+greys out.
+
 ### Settings — about the program rather than the machine
 
 ![The Settings tab](screenshots/console-settings.png)

@@ -198,6 +198,19 @@ TrayClient::Status TrayClient::parseStatus(const QJsonObject &object)
     status.brightnessWindowHigh = brightness.value(QLatin1String("window_high"))
                                           .toInt(status.brightnessCeilingPct);
 
+    const QJsonArray monitors = object.value(QLatin1String("monitors")).toArray();
+    for (const QJsonValue &value : monitors) {
+        const QJsonObject entry = value.toObject();
+        Status::Monitor monitor;
+        monitor.id = entry.value(QLatin1String("id")).toString();
+        monitor.model = entry.value(QLatin1String("model")).toString();
+        monitor.connector = entry.value(QLatin1String("connector")).toString();
+        monitor.level = entry.value(QLatin1String("answering")).toBool()
+                ? entry.value(QLatin1String("level")).toInt(-1)
+                : -1;
+        status.monitors.append(monitor);
+    }
+
     const QJsonObject metrics = object.value(QLatin1String("metrics")).toObject();
     status.retentionDays = metrics.value(QLatin1String("retention_days"))
                                    .toInt(status.retentionDays);

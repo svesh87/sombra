@@ -9,12 +9,14 @@
 #include "light_sensor.h"
 #include "metrics_ring.h"
 #include "modes.h"
+#include "monitor_worker.h"
 #include "power_source.h"
 #include "sensors.h"
 #include "settings_file.h"
 #include "sysfs.h"
 
 #include <QElapsedTimer>
+#include <QHash>
 #include <QFileSystemWatcher>
 #include <QObject>
 #include <QTimer>
@@ -33,6 +35,11 @@ struct DaemonOptions {
     QString statePath = QStringLiteral("/var/lib/sombra/state");
     QString ringPath = QStringLiteral("/var/lib/sombra/metrics.ring");
     QString socketPath = QStringLiteral("/run/sombra/control.sock");
+    // False keeps the monitor bus in the daemon's own thread, which is what the
+    // suite wants: an answer that arrives before the next line is an answer a test
+    // can assert on. Production runs it threaded, because a bus exchange is a third
+    // of a second and the loop that owns the emergency guard does not wait.
+    bool threadedMonitors = true;
     // Zero means "as deep as the settings file says", which is the production
     // case. A number here overrides it and is how the suite and the screenshot
     // harness get a ring of sixty-four records without a settings file.
@@ -54,6 +61,12 @@ struct DaemonOptions {
 // together — as one sample. The daemon does not adjust setpoints towards a
 // target and does not change mode by itself: mode selection is a deliberate
 // act, and the guard is an interlock rather than a controller.
+// How often the monitors are re-read, in ticks of the 1 Hz loop. A read costs
+// about 350 ms per monitor in the worker's thread, and what it buys is noticing a
+// hand on the monitor's own buttons; five seconds is soon enough for that and
+// twenty times rarer than the panel is read.
+inline constexpr int kMonitorReadTicks = 5;
+
 class Daemon : public QObject {
     Q_OBJECT
 
@@ -112,6 +125,13 @@ private:
     QString configModeCommand(const QStringList &parts);
     QString configBrightnessCommand(const QStringList &parts);
     QString configMetricsCommand(const QStringList &assignments);
+    // The external monitors: what answers, at what level, and how to move one.
+    // Everything here is a request to the worker thread; nothing waits for a bus.
+    QString applyMonitorCommand(const QStringList &parts);
+    void updateMonitors(Sample &sample);
+    // The connectors this machine has, sorted, without the internal panel: the
+    // list a slot in a sample is an index into.
+    void resolveConnectors();
     QString configSaveCommand(const QStringList &parts);
     QString configResetCommand(const QStringList &parts);
     // Writes the edited tables out and, only if that worked, installs them.
@@ -158,6 +178,19 @@ private:
     ModeTable m_modes;
     BrightnessSettings m_brightnessSettings;
     MetricsSettings m_metrics;
+
+    // Owned rather than held by value: the worker moves itself into a thread, and
+    // which bus it drives depends on whether the control surface is the real one.
+    std::unique_ptr<MonitorWorker> m_monitorWorker;
+    QList<MonitorInfo> m_monitors;
+    // Percent, or -1 for a monitor that stopped answering. Absent from the map
+    // means nothing has been read from it yet.
+    QHash<QString, int> m_monitorLevel;
+    QStringList m_externalConnectors;
+    // The connectors that were connected last tick. A change is what asks the
+    // worker to look again — reading sysfs is microseconds, walking the buses is
+    // most of a second.
+    QStringList m_connectedConnectors;
     std::unique_ptr<ControlSocket> m_socket;
     QFileSystemWatcher m_watcher;
     QTimer m_timer;

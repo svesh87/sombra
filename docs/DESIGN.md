@@ -55,6 +55,23 @@ the project is, not what it used to be.
   scale until somebody moves it, and it exists because a screen can be too bright
   to sit in front of, and because external panels differ in how much light they
   make of the same per cent.
+- **The external monitors are the daemon's, and their bus lives in a thread.** A
+  monitor's brightness is DDC/CI over the connector's I2C bus, not a sysfs node:
+  measured on this machine a read costs about 350 ms and a write about 300 ms, and
+  two monitors are two buses in sequence. The 1 Hz loop owns the emergency guard and
+  does not wait for a screen, so the bus is worked in a thread of its own and answers
+  arrive as signals. The daemon owns it rather than the console for the same reason
+  it owns the panel: the automation that will follow the light lives here, and the
+  console asks.
+- **A write to a monitor is confirmed by reading, never by its own answer.** One of
+  the panels measured here reports a failure and applies the value anyway. So a
+  write means "sent", the next read decides, and the library's own verification —
+  which reads back too soon for that panel — is switched off.
+- **A slot in a sample is a socket, not an arrival order.** The external connectors
+  sorted by name, three of them on this machine, and a connector a DP-MST hub
+  invents gets no slot. A slot that meant a different screen in different samples
+  would make a session unreadable. One byte per slot says which monitor is in it,
+  because three panels went through one socket in an hour on this desk.
 - **The baseline can be set outright, not only derived.** Moving the brightness
   says what is wanted in the light of the moment and the baseline follows from it;
   that is the natural direction and it fails at exactly one thing — tuning for a
