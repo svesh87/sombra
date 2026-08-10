@@ -10,6 +10,29 @@
 #include <csignal>
 #include <memory>
 
+#include <cstdio>
+#include <unistd.h>
+
+namespace {
+
+// Leaves without running anything else's teardown, and that is deliberate.
+//
+// The monitor library starts a thread at load time to watch the display
+// connectors over udev. A process that exits soon after loading it — `--version`,
+// `--help`, or a refusal to start — terminates that thread while it is still
+// starting, and the library segfaults doing it: measured here, four times out of
+// five on `--version`. Nothing of ours is left unfinished at this point. The
+// daemon's own shutdown is explicit and has already run where there was one: the
+// fan is back on automatic, the ring is flushed, the state is written. Only other
+// people's atexit handlers are skipped, and one of them is known to crash.
+[[noreturn]] void leave(int code)
+{
+    std::fflush(nullptr);
+    ::_exit(code);
+}
+
+} // namespace
+
 int main(int argc, char **argv)
 {
     QCoreApplication app(argc, argv);
@@ -19,8 +42,11 @@ int main(int argc, char **argv)
     QCommandLineParser parser;
     parser.setApplicationDescription(
             QStringLiteral("Thermal and power daemon for the ASUS Zenbook 14 UX3405MA."));
-    parser.addHelpOption();
-    parser.addVersionOption();
+    // Kept for their text, not for their behaviour: Qt answers both of these by
+    // calling ::exit() itself, which is the one exit this process must not take —
+    // see leave() above.
+    const QCommandLineOption helpOption = parser.addHelpOption();
+    const QCommandLineOption versionOption = parser.addVersionOption();
 
     DaemonOptions defaults;
     const QCommandLineOption rootOption(
@@ -59,7 +85,19 @@ int main(int argc, char **argv)
                            "the primary interface; the D-Bus names are compatibility."));
     parser.addOptions({ rootOption, configOption, stateOption, ringOption, socketOption,
                         capacityOption, ticksOption, intervalOption, noDbusOption });
-    parser.process(app);
+    if (!parser.parse(QCoreApplication::arguments())) {
+        qWarning().noquote() << parser.errorText();
+        leave(1);
+    }
+    if (parser.isSet(versionOption)) {
+        std::printf("%s %s\n", qPrintable(QCoreApplication::applicationName()),
+                    qPrintable(QCoreApplication::applicationVersion()));
+        leave(0);
+    }
+    if (parser.isSet(helpOption)) {
+        std::fputs(qPrintable(parser.helpText()), stdout);
+        leave(0);
+    }
 
     DaemonOptions options;
     options.sysfsRoot = parser.value(rootOption);
@@ -94,7 +132,7 @@ int main(int argc, char **argv)
     QString error;
     if (!daemon.start(&error)) {
         qCritical().noquote() << "cannot start:" << error;
-        return 1;
+        leave(1);
     }
 
     // Compatibility, not the primary interface: a bus that cannot be reached
@@ -109,5 +147,5 @@ int main(int argc, char **argv)
             qWarning().noquote() << "no D-Bus names claimed:" << dbusError;
     }
 
-    return app.exec();
+    leave(app.exec());
 }

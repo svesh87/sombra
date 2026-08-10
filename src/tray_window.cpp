@@ -133,6 +133,10 @@ public:
     }
 
     int value() const { return m_slider->value(); }
+    // Whether a hand is on it right now. A control being dragged, or a field being
+    // typed into, must not be repainted from underneath: the answer from the daemon
+    // is a second old and the hand is not.
+    bool held() const { return m_slider->isSliderDown() || m_box->hasFocus(); }
     void setValue(int value)
     {
         m_syncing = true;
@@ -943,10 +947,10 @@ void TrayWindow::applyStatus(const TrayClient::Status &status)
 
     // What was asked for, not what reached the hardware: when the guard clamps,
     // the difference between the two is the information.
-    m_ui->pl1->setValue(status.requested.pl1W);
-    m_ui->pl2->setValue(status.requested.pl2W);
-    m_ui->maxPerfPct->setValue(status.requested.maxPerfPct);
-    m_ui->gtMaxMhz->setValue(status.requested.gtMaxMhz);
+    follow(m_ui->pl1, QStringLiteral("pl1"), status.requested.pl1W);
+    follow(m_ui->pl2, QStringLiteral("pl2"), status.requested.pl2W);
+    follow(m_ui->maxPerfPct, QStringLiteral("max_perf_pct"), status.requested.maxPerfPct);
+    follow(m_ui->gtMaxMhz, QStringLiteral("gt_max_mhz"), status.requested.gtMaxMhz);
     m_ui->epp->setCurrentIndex(m_ui->epp->findData(static_cast<int>(status.requested.epp)));
     // Full speed is a selection here, not a separate switch: the applied fan
     // mode wins over the curve underneath it, because that is what is running.
@@ -978,24 +982,26 @@ void TrayWindow::applyStatus(const TrayClient::Status &status)
     m_ui->autoBrightness->setEnabled(status.brightnessAvailable);
     m_ui->level->setEnabled(status.brightnessAvailable);
     if (status.brightness > TrayClient::kNoReading)
-        m_ui->level->setValue(static_cast<int>(status.brightness));
+        follow(m_ui->level, QStringLiteral("level"), static_cast<int>(status.brightness));
     // The baseline is what the automation works around, so it is a control only
     // while the automation is running. Left enabled it would move a number
     // nothing acts on.
     m_ui->base->setEnabled(status.brightnessAvailable && status.autoBrightness);
     if (status.brightnessBase > TrayClient::kNoReading)
-        m_ui->base->setValue(static_cast<int>(status.brightnessBase));
-    m_ui->response->setValue(status.brightnessResponsePct);
-    m_ui->floor->setValue(status.brightnessFloorPct);
-    m_ui->ceiling->setValue(status.brightnessCeilingPct);
+        follow(m_ui->base, QStringLiteral("base"), static_cast<int>(status.brightnessBase));
+    follow(m_ui->response, QStringLiteral("response"), status.brightnessResponsePct);
+    follow(m_ui->floor, QStringLiteral("floor"), status.brightnessFloorPct);
+    follow(m_ui->ceiling, QStringLiteral("ceiling"), status.brightnessCeilingPct);
     rebuildMonitors(status);
     for (int i = 0; i < m_ui->monitorLevels.size() && i < status.monitors.size(); ++i) {
-        const int level = status.monitors.at(i).level;
+        const TrayClient::Status::Monitor &monitor = status.monitors.at(i);
+        Tuner *level = m_ui->monitorLevels.at(i);
         // A monitor that stopped answering keeps its last position and greys out:
         // showing zero would be a screen at nought per cent, which it is not.
-        m_ui->monitorLevels.at(i)->setEnabled(level >= 0);
-        if (level >= 0)
-            m_ui->monitorLevels.at(i)->setValue(level);
+        level->setEnabled(monitor.level >= 0);
+        if (monitor.level < 0)
+            continue;
+        follow(level, monitor.id, monitor.level);
     }
     m_ui->metricsEnabled->setChecked(status.metricsEnabled);
     m_retentionDays = status.retentionDays;
@@ -1175,6 +1181,7 @@ void TrayWindow::resetEverything()
 
 void TrayWindow::sendBacklightLevel()
 {
+    noteSent(QStringLiteral("level"), m_ui->level->value());
     if (m_updating)
         return;
     sendCommand(QStringLiteral("brightness level %1").arg(m_ui->level->value()));
@@ -1182,6 +1189,7 @@ void TrayWindow::sendBacklightLevel()
 
 void TrayWindow::sendBacklightBase()
 {
+    noteSent(QStringLiteral("base"), m_ui->base->value());
     if (m_updating)
         return;
     sendCommand(QStringLiteral("brightness base %1").arg(m_ui->base->value()));
@@ -1245,6 +1253,36 @@ void TrayWindow::openHelp()
     }
 }
 
+void TrayWindow::follow(Tuner *tuner, const QString &key, int reported)
+{
+    if (!tuner || reported < 0)
+        return;
+
+    // A value was sent and the daemon has not reported it back yet. Repainting from
+    // what it says in the meantime is what makes a slider crawl backwards: the panel
+    // fades over about a second and reports the middle of it, and a monitor answers
+    // half a second late. Patience is bounded, because the number that comes back
+    // can legitimately differ — a level asked for above the ceiling arrives clamped,
+    // and the console has to end up agreeing with the machine.
+    const auto sent = m_sent.find(key);
+    if (sent != m_sent.end()) {
+        if (reported == sent->value || --sent->patience <= 0)
+            m_sent.erase(sent);
+        return;
+    }
+
+    // And a control with a hand on it is not repainted at all. The answer in hand is
+    // older than the hand.
+    if (tuner->held())
+        return;
+    tuner->setValue(reported);
+}
+
+void TrayWindow::noteSent(const QString &key, int value)
+{
+    m_sent.insert(key, Sent { value, kSentPatience });
+}
+
 void TrayWindow::rebuildMonitors(const TrayClient::Status &status)
 {
     QStringList ids;
@@ -1275,17 +1313,22 @@ void TrayWindow::rebuildMonitors(const TrayClient::Status &status)
         auto *form = new QFormLayout(box);
         auto *level = new Tuner(0, 100, 1, QStringLiteral(" %"), box);
         level->nameParts(QStringLiteral("monitor%1_level").arg(i + 1));
-        level->setToolTip(tr("The monitor's own brightness, over DDC/CI. A write takes about a "
-                             "third of a second, so this one is sent when the slider is let go "
-                             "rather than while it moves."));
+        level->setToolTip(tr("The monitor's own brightness, over DDC/CI. The bus is slower "
+                             "than a hand, so the screen follows a drag a moment behind it."));
         form->addRow(tr("Brightness:"), level);
-        // Sent when the gesture ends, unlike the panel: the panel is a sysfs write
-        // of microseconds, and this is a conversation over a bus.
+        // Sent while it moves, like the panel's, so the screen follows the hand.
+        // The bus cannot keep up with a gesture and does not have to: the daemon's
+        // worker holds one pending value per monitor and replaces it, so a drag
+        // across the slider costs a write or two rather than thirty.
         const QString id = monitor.id;
-        connect(level, &Tuner::settled, this, [this, id, level]() {
-            if (!m_updating)
-                sendCommand(QStringLiteral("monitor level %1 %2").arg(level->value()).arg(id));
-        });
+        const auto send = [this, id, level]() {
+            if (m_updating)
+                return;
+            noteSent(id, level->value());
+            sendCommand(QStringLiteral("monitor level %1 %2").arg(level->value()).arg(id));
+        };
+        connect(level, &Tuner::changed, this, send);
+        connect(level, &Tuner::settled, this, send);
         // Inserted before the stretch that holds the bottom of the page down.
         m_ui->monitorsLayout->insertWidget(m_ui->monitorsLayout->count() - 1, box);
         m_ui->monitorBoxes.append(box);

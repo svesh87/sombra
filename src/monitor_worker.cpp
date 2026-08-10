@@ -2,6 +2,7 @@
 #include "monitor_worker.h"
 
 #include <QDateTime>
+#include <QMutexLocker>
 #include <QMetaObject>
 
 MonitorWorker::MonitorWorker(std::unique_ptr<MonitorBus> bus, bool threaded, QObject *parent)
@@ -38,8 +39,17 @@ void MonitorWorker::requestRead()
 
 void MonitorWorker::requestWrite(const QString &id, int percent)
 {
-    QMetaObject::invokeMethod(this, "doWrite", Qt::AutoConnection, Q_ARG(QString, id),
-                              Q_ARG(int, percent));
+    {
+        QMutexLocker locked(&m_lock);
+        m_pending.insert(id, percent);
+        // One flush in flight. Everything asked for while it works lands in the map
+        // and is picked up by the same drain, which is what keeps a slider being
+        // dragged from turning into a queue of writes the bus cannot serve.
+        if (m_flushQueued)
+            return;
+        m_flushQueued = true;
+    }
+    QMetaObject::invokeMethod(this, "doFlush", Qt::AutoConnection);
 }
 
 bool MonitorWorker::sleeping(const QString &id) const
@@ -94,26 +104,37 @@ void MonitorWorker::doRead()
     }
 }
 
-void MonitorWorker::doWrite(const QString &id, int percent)
+void MonitorWorker::doFlush()
 {
-    // The latest value wins. Anything that arrived while this one waited its turn
-    // is already gone from the map, which is the whole point of holding it there.
-    m_pending.insert(id, percent);
-    const int wanted = m_pending.take(id);
+    for (;;) {
+        QString id;
+        int wanted = 0;
+        {
+            QMutexLocker locked(&m_lock);
+            if (m_pending.isEmpty()) {
+                m_flushQueued = false;
+                return;
+            }
+            const auto first = m_pending.begin();
+            id = first.key();
+            wanted = first.value();
+            m_pending.erase(first);
+        }
 
-    if (sleeping(id))
-        return;
+        if (sleeping(id))
+            continue;
 
-    m_bus->write(id, wanted);
-    // The write's own answer is not trusted — a monitor measured here reports a
-    // failure and applies the value regardless — so the read decides, and the read
-    // is also what everything above learns the new level from.
-    const auto level = m_bus->read(id);
-    if (!level) {
-        noteFailure(id);
-        emit levelRead(id, -1);
-        return;
+        m_bus->write(id, wanted);
+        // The write's own answer is not trusted — a monitor measured here reports a
+        // failure and applies the value regardless — so the read decides, and the
+        // read is also what everything above learns the new level from.
+        const auto level = m_bus->read(id);
+        if (!level) {
+            noteFailure(id);
+            emit levelRead(id, -1);
+            continue;
+        }
+        noteSuccess(id);
+        emit levelRead(id, *level);
     }
-    noteSuccess(id);
-    emit levelRead(id, *level);
 }

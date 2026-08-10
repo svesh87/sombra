@@ -3,6 +3,7 @@
 #include "monitor_worker.h"
 
 #include <QSignalSpy>
+#include <QThread>
 #include <QTest>
 
 #include <memory>
@@ -30,6 +31,8 @@ public:
 
     bool write(const QString &id, int percent) override
     {
+        if (writeCostMs > 0)
+            QThread::msleep(static_cast<unsigned long>(writeCostMs));
         writes.append(QStringLiteral("%1=%2").arg(id).arg(percent));
         if (silent.contains(id))
             return false;
@@ -42,6 +45,8 @@ public:
     QHash<QString, int> levels;
     QSet<QString> silent;
     bool liesAboutWrites = false;
+    // Milliseconds a write costs, for the case a gesture is faster than the bus.
+    int writeCostMs = 0;
     int detects = 0;
     QStringList reads;
     QStringList writes;
@@ -66,6 +71,7 @@ private slots:
     void onlyTheLastValueOfAGestureReachesTheMonitor();
     void aMonitorThatStopsAnsweringIsCalledAbsentAndLeftAlone();
     void aThreadOfItsOwnIsWhereTheBusRuns();
+    void aGestureFasterThanTheBusCollapsesIntoTwoWrites();
 };
 
 void MonitorWorkerTest::aWriteIsConfirmedByReadingAndNotByItsOwnAnswer()
@@ -170,6 +176,34 @@ void MonitorWorkerTest::aThreadOfItsOwnIsWhereTheBusRuns()
     worker.requestWrite(QStringLiteral("one"), 35);
     QTRY_COMPARE(levels.last().at(1).toInt(), 35);
     QCOMPARE(scripted->levels.value(QStringLiteral("one")), 35);
+}
+
+void MonitorWorkerTest::aGestureFasterThanTheBusCollapsesIntoTwoWrites()
+{
+    auto bus = std::make_unique<ScriptedBus>();
+    ScriptedBus *scripted = bus.get();
+    scripted->monitors = { entry(QStringLiteral("one"), QStringLiteral("card1-DP-1")) };
+    // A write that takes a while, which is what a real one does: 300 ms measured.
+    scripted->writeCostMs = 40;
+
+    MonitorWorker worker(std::move(bus));
+    QSignalSpy detected(&worker, &MonitorWorker::detected);
+    QSignalSpy levels(&worker, &MonitorWorker::levelRead);
+    worker.requestDetect();
+    QVERIFY(detected.wait(2000));
+
+    // A slider dragged across its range asks for twenty values faster than the bus
+    // can serve one. Only the last of them means anything, and the bus must not be
+    // handed the other nineteen.
+    for (int percent = 20; percent <= 40; ++percent)
+        worker.requestWrite(QStringLiteral("one"), percent);
+
+    QTRY_COMPARE(scripted->levels.value(QStringLiteral("one")), 40);
+    QVERIFY2(scripted->writes.size() <= 3,
+             qPrintable(QStringLiteral("writes: %1").arg(scripted->writes.size())));
+    QCOMPARE(scripted->writes.last(), QStringLiteral("one=40"));
+    // And the level that reaches everything above is the one the monitor holds.
+    QTRY_COMPARE(levels.last().at(1).toInt(), 40);
 }
 
 QTEST_MAIN(MonitorWorkerTest)

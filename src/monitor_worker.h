@@ -4,6 +4,7 @@
 #include "monitor_bus.h"
 
 #include <QHash>
+#include <QMutex>
 #include <QObject>
 #include <QThread>
 
@@ -64,7 +65,10 @@ signals:
 private slots:
     void doDetect();
     void doRead();
-    void doWrite(const QString &id, int percent);
+    // Drains the pending values, newest per monitor, until there are none left. One
+    // of these is queued at a time: a gesture that asks for thirty values while one
+    // write is on the bus leaves one value behind it, not twenty-nine.
+    void doFlush();
 
 private:
     // Nothing is asked of a monitor that has just failed, until the retry is due.
@@ -79,5 +83,9 @@ private:
     QHash<QString, qint64> m_quietUntil;  // monotonic seconds
     // The write that has not gone out yet, per monitor. A value here replaces an
     // older one; there is no history of what a slider passed through on its way.
+    // Touched from the thread that asks and from the one that writes, so it has a
+    // lock of its own — the only shared state there is.
+    mutable QMutex m_lock;
     QHash<QString, int> m_pending;
+    bool m_flushQueued = false;
 };

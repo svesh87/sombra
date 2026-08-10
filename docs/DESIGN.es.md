@@ -65,6 +65,14 @@ archivo dice cómo es el proyecto, no cómo fue.
   y las respuestas llegan como señales. Es del demonio y no de la consola por lo
   mismo que el panel: la automatización que seguirá a la luz vivirá aquí, y la
   consola pide.
+- **Un gesto se colapsa en vez de encolarse, y la consola no pelea con la mano.** El
+  bus no puede servir a un deslizador: veinte valores llegan más rápido de lo que
+  termina una escritura. Así que el demonio guarda un valor pendiente por monitor y lo
+  reemplaza, y al bus va el último: un arrastre cuesta una escritura o dos. Del lado
+  de la consola, un control con una mano encima no se repinta con una respuesta de
+  estado, y tampoco el que espera la confirmación del valor que acaba de enviar: la
+  respuesta en mano tiene medio segundo, y repintar con ella es lo que arranca el
+  deslizador de debajo de los dedos.
 - **Una escritura a un monitor la confirma una lectura, nunca su propia respuesta.**
   Uno de los paneles medidos aquí informa de un fallo y aplica el valor de todas
   formas. Así que una escritura significa «enviada», decide la lectura siguiente, y

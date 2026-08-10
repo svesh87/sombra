@@ -174,6 +174,7 @@ private slots:
     void theHelpButtonFindsAPageForEveryLanguage();
     void telemetryIsTwoControlsOnTheSettingsTab();
     void anExternalMonitorGetsAGroupOfItsOwn();
+    void aStatusReplyDoesNotRepaintAControlUnderTheHand();
     void everyControlThatSendsACommandExplainsItself();
     void everyChoiceInAListExplainsItself();
     void theBaselineIsAControlOfItsOwn();
@@ -1279,6 +1280,49 @@ void TrayWindowTest::anExternalMonitorGetsAGroupOfItsOwn()
     status.monitors.clear();
     window.applyStatus(status);
     QVERIFY(!window.findChild<QSpinBox *>(QStringLiteral("monitor1_level_box")));
+}
+
+void TrayWindowTest::aStatusReplyDoesNotRepaintAControlUnderTheHand()
+{
+    TestDaemon daemon(m_tree->root(), m_work.path());
+    QVERIFY(daemon.waitUntilListening());
+    TrayClient client(socketPath());
+    TrayWindow window(client);
+    window.show();
+    client.poll();
+
+    auto *slider = window.findChild<QSlider *>(QStringLiteral("pl1_slider"));
+    auto *box = window.findChild<QSpinBox *>(QStringLiteral("pl1_box"));
+    QVERIFY(slider);
+    QVERIFY(box);
+
+    // A reply arriving while a hand is on the control must not move it. Every reply
+    // is up to a second old, and that is what used to pull a control out from under
+    // the fingers mid-gesture. The field having focus is the same case as the slider
+    // being dragged, and it is the one a test can hold still.
+    // Held outright rather than by simulating a press: on the offscreen platform a
+    // window is never activated and a press lands nowhere near the handle.
+    slider->setSliderDown(true);
+    const int held = slider->value();
+    TrayClient::Status status = client.status();
+    status.requested.pl1W = held == 12 ? 30 : 12;
+    window.applyStatus(status);
+    QCOMPARE(slider->value(), held);
+
+    // Let go, and it follows again: the console has to end up agreeing with the
+    // machine.
+    slider->setSliderDown(false);
+    window.applyStatus(status);
+    QCOMPARE(slider->value(), status.requested.pl1W);
+
+    // And a value just sent is waited for rather than overwritten by the reply that
+    // was already in flight — but only for a few replies, because the machine may
+    // answer with a different number and the console still has to agree with it.
+    box->setValue(20);
+    status.requested.pl1W = 41;
+    for (int i = 0; i < 5; ++i)
+        window.applyStatus(status);
+    QCOMPARE(slider->value(), 41);
 }
 
 void TrayWindowTest::theWindowKeepsOneSizeForEveryTab()

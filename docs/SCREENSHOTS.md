@@ -62,9 +62,11 @@ the height of its largest tab.
 Below the panel's own controls there is a group for each external monitor that
 answers DDC/CI, titled by its socket and its model — the socket because a model is
 not always a name, and two identical titles would be two sliders nobody can tell
-apart. Its slider is sent when it is let go rather than while it moves: a write over
-that bus is about 300 ms. A monitor that stops answering keeps its position and
-greys out.
+apart. Its slider follows the hand, as the panel's does, but the screen answers a moment
+behind: a write over that bus is about 300 ms, and a drag asking for twenty values
+reaches the monitor as one or two — the daemon keeps the latest and drops what it
+has been overtaken by. A monitor that stops answering keeps its position and greys
+out.
 
 ### Settings — about the program rather than the machine
 

@@ -63,6 +63,14 @@ the project is, not what it used to be.
   arrive as signals. The daemon owns it rather than the console for the same reason
   it owns the panel: the automation that will follow the light lives here, and the
   console asks.
+- **A gesture is collapsed rather than queued, and the console does not fight the
+  hand.** The bus cannot serve a slider: twenty values arrive faster than one write
+  finishes. So the daemon holds one pending value per monitor and replaces it, and
+  what reaches the bus is the latest — a drag costs a write or two. On the console's
+  side, a control with a hand on it is not repainted from a status reply, and neither
+  is one waiting for the confirmation of a value it just sent: the answer in hand is
+  half a second old, and repainting from it is what makes a slider snap back under
+  the fingers.
 - **A write to a monitor is confirmed by reading, never by its own answer.** One of
   the panels measured here reports a failure and applies the value anyway. So a
   write means "sent", the next read decides, and the library's own verification —

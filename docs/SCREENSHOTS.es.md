@@ -65,9 +65,11 @@ es la de su pestaña más grande.
 Debajo de los controles del propio panel hay un grupo por cada monitor externo que
 responda a DDC/CI, titulado con su conector y su modelo: el conector porque un modelo
 no siempre es un nombre, y dos títulos iguales serían dos deslizadores que nadie
-distingue. Su deslizador se envía al soltarlo y no mientras se mueve: una escritura
-por ese bus son unos 300 ms. Un monitor que deja de responder se atenúa y se queda en
-su valor.
+distingue. Su deslizador sigue a la mano, como el del panel, pero la pantalla responde con un
+momento de retraso: una escritura por ese bus son unos 300 ms, y un gesto que pide
+veinte valores llega al monitor como uno o dos — el demonio guarda el último y
+descarta los que han quedado atrás. Un monitor que deja de responder se atenúa y se
+queda en su valor.
 
 ### Ajustes — sobre el programa, no sobre la máquina
 

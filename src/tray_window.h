@@ -2,6 +2,8 @@
 #pragma once
 
 #include "metrics_ring.h"
+
+#include <QHash>
 #include "theme.h"
 #include "tray_client.h"
 
@@ -36,6 +38,9 @@ class QTimer;
 // The one thing this window writes by itself is the tray's own autostart
 // entry. Everything else goes through the daemon, on the commands `sombra`
 // sends, so there is exactly one writer of the settings file.
+// Defined where the window is built: a slider and a field that move together.
+class Tuner;
+
 class TrayWindow : public QWidget {
     Q_OBJECT
 
@@ -131,6 +136,14 @@ private slots:
     void onConnectionChanged(bool connected);
 
 private:
+    // Moves one control to what the daemon reports, unless a hand is on it or it is
+    // waiting for the confirmation of a value just sent. One rule for every slider in
+    // the window: every reply is up to a second old and a monitor answers half a
+    // second late, and in both cases what the status says is older than the hand
+    // holding the control.
+    void follow(Tuner *tuner, const QString &key, int reported);
+    void noteSent(const QString &key, int value);
+
     void build();
     // One size for every tab: the largest, capped by the display. Called once,
     // from the first showEvent, and the frame is fixed there — the window
@@ -179,6 +192,19 @@ private:
     // What the daemon last said the depth was, so that a spin box being lowered can
     // tell "shortening it" from "the daemon told us a smaller number".
     int m_retentionDays = kRetentionDefaultDays;
+    // What was last asked of each monitor, until the daemon reports it back. The
+    // bus takes about half a second to confirm, and without this the status of that
+    // half-second would drag the slider back under the hand.
+    // What was last asked of a control, and for how many more status replies to keep
+    // waiting for it. Bounded because the machine may legitimately answer with a
+    // different number — a level above the ceiling arrives clamped — and the console
+    // has to end up agreeing with the machine rather than with the last gesture.
+    struct Sent {
+        int value = 0;
+        int patience = 0;
+    };
+    static constexpr int kSentPatience = 3;
+    QHash<QString, Sent> m_sent;
     bool m_sized = false;
     bool m_connected = false;
     // Set while the line is holding a refusal, which is what keeps a status
