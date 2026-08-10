@@ -307,13 +307,17 @@ fixed colours: the palette belongs to the application and the panel is coloured
 by the desktop, and the two disagree exactly when the desktop is light with a
 dark bar.
 
-The icon itself is a sun behind a persiana, and it answers three things at a
-glance. The persiana says which mode is running — shut for the coolest envelope,
-open for the widest. The sun says whether the daemon is answering: warm, or grey
-with no persiana at all. The plate turns red while the emergency guard is
-clamping. The two conditions the picture cannot carry, a control overwritten by
-another process and sensors that could not be read, are named in the tooltip
-along with the mode, the package temperature and the fan speed.
+The icon itself is a cloud over a sun, and it answers three things at a glance.
+Where the cloud sits says which mode is running — the whole of the picture for
+the coolest envelope, half the sun in between, gone for the widest. Warm against
+grey says whether the mode is known at all, and in the coolest envelope, where
+there is no sun to colour, that falls to the cloud. A daemon that is not
+answering and a reply with no mode in it are the same grey picture: the icon
+speaks about the mode, and neither of them knows what the mode is. The plate
+turns red while the emergency guard is clamping. The two conditions the picture
+cannot carry, a control overwritten by another process and sensors that could not
+be read, are named in the tooltip along with the mode, the package temperature
+and the fan speed.
 
 There is one console per session: started while another is running, it asks that
 one to open its window and exits. Two of them would mean two icons in the panel

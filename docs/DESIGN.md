@@ -153,21 +153,29 @@ itself.
   none about power. The colours are fixed rather than palette colours, because
   the palette is the application's and the panel is the desktop's.
 - **The panel icon carries its own plate.** It is the launcher icon's picture, a
-  sun behind a persiana, and a warm sun cannot be a flat glyph: measured against
+  cloud over a sun, and a warm sun cannot be a flat glyph: measured against
   a light panel it comes to 1.5:1 where 3.5 is the floor, and the only single
   tone that clears both panels is a dark ochre, which does not read as a sun. On
   a plate the sun is seen against the plate, and the one contrast that involves
   the desktop is the plate's own, which clears 3.5:1 either way. The plate is
   flat where the launcher's is a gradient, whose dark end measures 1.3:1 against
   a dark bar and dissolves into it.
-- **Three channels, and the guard is the plate.** The persiana says which mode is
-  running, the sun's colour says whether the daemon answers, and the plate turns
-  red under the emergency guard. Colouring the sun red instead would separate it
-  from the blue plate by hue alone at 1.2:1 — the one cue that survives neither a
-  small size nor a colour-blind eye. The panel icon shows three slats where the
-  launcher shows five: at 22 pixels a pitch of five is under two pixels and the
-  shut end of the range merges into one dark block, which is the mode ceasing to
-  be legible at the only size that matters.
+- **Three channels, and the guard is the plate.** Where the cloud sits says which
+  mode is running, warm against grey says whether the mode is known at all, and
+  the plate turns red under the emergency guard. Colouring the sun red instead
+  would separate it from the blue plate by hue alone at 1.2:1 — the one cue that
+  survives neither a small size nor a colour-blind eye. In the coolest envelope
+  the sun is not drawn: rays coming out around the cloud would be a mode with the
+  light still on, so there the second channel is the cloud's own colour. A daemon
+  that is not answering and a reply with no mode in it are one picture, because
+  the icon speaks about the mode and neither of them knows what the mode is;
+  which of the two it is goes in the tooltip.
+- **The cloud is held off the sun by a band of the plate's colour.** At 22 pixels
+  a shared edge between a light cloud and a warm sun is a single blended pixel and
+  the two stop reading as two objects. Eleven units of the 256-unit grid: below
+  about seven the band is thinner than half a pixel at that size and disappears
+  into the antialiasing, above about fourteen it reads as an outline drawn round a
+  sticker.
 - **A condition the picture cannot carry goes in the tooltip.** A control
   overwritten by another process and sensors that could not be read are both on
   the wire, and the window shows both as banners — but the window has to be opened
@@ -201,6 +209,12 @@ itself.
   process — so without re-reading the file, a console open all day sits in
   yesterday's colours. Where no scheme is written, the portal's answer picks one
   of two palettes of ours, and the settings tab can override the choice outright.
+- **The title bar is left alone.** It is Qt's own on this desktop, because the
+  compositor offers to draw one and Qt 6.4 does not ask it to, and it takes its
+  colours when the window is created. A change of scheme therefore reaches the
+  widgets at once and the bar at the next opening. Rebuilding the window to
+  refresh the bar was tried and took the process down with it, and one close and
+  one click on the panel icon is a cheaper answer than that.
 - **What is not attempted is imitating the desktop's widgets** — corner radii,
   container tints. That is a stylesheet chasing a moving target, and the colours
   are the part that makes a window look out of place.

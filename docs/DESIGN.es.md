@@ -164,22 +164,30 @@ cambia de modo por su cuenta.
   fijados y no se toman de la paleta, porque la paleta es de la aplicación y el
   panel es del escritorio.
 - **El icono del panel lleva su propia placa.** Es la imagen del icono de la
-  aplicación, un sol detrás de una persiana, y un sol cálido no puede ser un glifo
+  aplicación, una nube sobre un sol, y un sol cálido no puede ser un glifo
   plano: contra un panel claro se queda en 1.5:1 cuando el mínimo es 3.5, y el
   único tono uniforme que lo supera en los dos paneles es un ocre oscuro que ya no
   se lee como un sol. Con una placa, el sol se ve contra ella, y lo único que se
   compara con el escritorio es la placa misma, que supera 3.5:1 en ambos casos. La
   placa es lisa donde la del icono de la aplicación es un degradado, cuyo extremo
   oscuro mide 1.3:1 contra una barra oscura y se disuelve en ella.
-- **Tres canales, y la protección de emergencia es la placa.** La persiana dice qué
-  modo está en marcha, el color del sol dice si el demonio responde, y la placa se
-  pone roja bajo la protección de emergencia. Si en su lugar se pusiera rojo el
-  sol, lo separaría de la placa azul solo el tono, a 1.2:1, la única señal que no
-  sobrevive ni a un tamaño pequeño ni a un ojo daltónico. El icono del panel
-  muestra tres lamas donde el de la aplicación muestra cinco: a 22 píxeles, cinco
-  lamas dan un paso de menos de dos píxeles y el extremo cerrado del recorrido se
-  funde en un solo bloque oscuro, y ahí el modo deja de ser legible en el único
-  tamaño que importa.
+- **Tres canales, y la protección de emergencia es la placa.** La posición de la
+  nube dice qué modo está en marcha, cálido frente a gris dice si el modo se conoce
+  siquiera, y la placa se pone roja bajo la protección de emergencia. Si en su
+  lugar se pusiera rojo el sol, lo separaría de la placa azul solo el tono, a
+  1.2:1, la única señal que no sobrevive ni a un tamaño pequeño ni a un ojo
+  daltónico. En el margen más frío el sol no se dibuja: unos rayos saliendo
+  alrededor de la nube serían un modo con la luz todavía encendida, así que allí el
+  segundo canal es el color de la nube misma. Un demonio que no responde y una
+  respuesta sin modo son una sola imagen, porque el icono habla del modo y ninguno
+  de los dos casos sabe cuál es; cuál de ellos ha ocurrido lo dice la ayuda
+  emergente.
+- **La nube se separa del sol con una franja del color de la placa.** A 22 píxeles
+  el borde común entre una nube clara y un sol cálido es un único píxel mezclado, y
+  en lugar de dos objetos queda uno. Son 11 unidades de la retícula de 256: por
+  debajo de siete la franja es más fina que medio píxel a ese tamaño y desaparece
+  en el suavizado, por encima de catorce se lee como un contorno dibujado alrededor
+  de una pegatina.
 - **Una condición que la imagen no puede llevar va en la ayuda emergente.** Tanto
   un control sobrescrito por otro proceso como sensores que no se pudieron leer
   llegan desde el demonio, y la ventana los muestra como avisos, pero primero hay
@@ -216,6 +224,12 @@ cambia de modo por su cuenta.
   con los colores de ayer. Donde no hay esquema escrito, la respuesta del portal
   elige entre dos paletas propias, y la pestaña de ajustes puede anular esa
   elección por completo.
+- **La barra de título se deja en paz.** En este escritorio es la de Qt, porque el
+  compositor ofrece dibujarla y Qt 6.4 no se lo pide, y toma sus colores cuando se
+  crea la ventana. Un cambio de esquema llega por tanto a los widgets al instante y
+  a la barra en la siguiente apertura. Reconstruir la ventana para refrescar la
+  barra se probó y se llevó el proceso por delante; cerrar una vez y hacer un clic
+  en el icono del panel sale más barato.
 - **Lo que no se intenta es imitar los widgets del escritorio**, sus esquinas
   redondeadas ni el tinte de sus contenedores. Eso es una hoja de estilos
   persiguiendo un blanco en movimiento, y lo que desentona en una ventana son

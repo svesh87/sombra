@@ -3,8 +3,8 @@
 
 #include <QIcon>
 
-// The panel icon: the application's own picture, a sun behind a persiana, drawn
-// here and borrowing nothing from its surroundings.
+// The panel icon: the application's own picture, a cloud over a sun, drawn here
+// and borrowing nothing from its surroundings.
 //
 // Publishing a standard theme name would be the polite thing to do: the panel
 // would draw the glyph of the icon theme in force and recolour it to match
@@ -27,16 +27,26 @@
 //
 // What a glance has to answer, on three independent channels:
 //   * the plate says whether the emergency guard is clamping — blue, or red;
-//   * the sun says whether the daemon is answering — warm, or grey;
-//   * the persiana says which mode is running: shut for the coolest envelope,
-//     open for the widest, and absent when there is no mode to show.
+//   * where the cloud sits says which mode is running: the whole of the picture
+//     for the coolest envelope, half the sun in between, gone for the widest;
+//   * warm or grey says whether the mode is known at all.
 //
 // The guard is the plate rather than the sun because a red sun and a blue plate
 // measure within 1.2:1 of each other and would separate by hue alone, which is
 // the one cue that survives neither a small size nor a colour-blind eye.
 //
+// In the coolest envelope the sun is not drawn — a cloud with rays coming out
+// around it is a mode with the light still on — so there that channel is the
+// cloud's own colour, near-white while the mode is known and grey when it is not.
+// The sun carries it the same way wherever it is drawn, warm against grey.
+//
 // `modeIndex` is the mode's position in the table, from the coolest envelope to
-// the widest, and `modeCount` the size of that table. The opening is a fraction
-// of the two, so a table of a different size still reads as a position in it. A
-// negative index means the mode is not known yet.
+// the widest, and `modeCount` the size of that table. The ends of the table are
+// the ends of the scale, so a table of another size still reads as a position in
+// it; there are three modes, so in practice each has a seat of its own.
+//
+// A negative index, an empty table and a daemon that is not answering are one
+// picture: the icon speaks about the mode, and none of the three knows what the
+// mode is. Which of them it is belongs to the tooltip and to the console's status
+// line, where there are words for it.
 QIcon trayIcon(bool connected, bool guardEngaged, int modeIndex, int modeCount);

@@ -319,14 +319,17 @@ de la propia consola y no llega al icono del panel, que se dibuja con colores
 fijos: la paleta es de la aplicación y el panel lo colorea el escritorio, y ambos
 discrepan justo cuando el escritorio es claro con una barra oscura.
 
-El icono es un sol detrás de una persiana y responde a tres cosas de un vistazo.
-La persiana dice qué modo está en marcha: cerrada en el margen más frío, abierta
-en el más amplio. El sol dice si el demonio responde: cálido, o gris y entonces
-sin persiana alguna. La placa se pone roja mientras la protección de emergencia
-limita la potencia. Las dos condiciones que la imagen no puede llevar, un control
-sobrescrito por otro proceso y sensores que no se pudieron leer, se nombran en la
-ayuda emergente junto con el modo, la temperatura del paquete y las revoluciones
-del ventilador.
+El icono es una nube sobre un sol y responde a tres cosas de un vistazo. La
+posición de la nube dice qué modo está en marcha: en el margen más frío ocupa toda
+la imagen, en el intermedio cubre la mitad del sol, en el más amplio no está.
+Cálido frente a gris dice si el modo se conoce siquiera, y en el margen más frío,
+donde no hay sol que colorear, ese color lo lleva la nube. Un demonio que no
+responde y una respuesta sin modo dan la misma imagen gris: el icono habla del
+modo, y ninguno de los dos casos sabe cuál es. La placa se pone roja mientras la
+protección de emergencia limita la potencia. Las dos condiciones que la imagen no
+puede llevar, un control sobrescrito por otro proceso y sensores que no se
+pudieron leer, se nombran en la ayuda emergente junto con el modo, la temperatura
+del paquete y las revoluciones del ventilador.
 
 Hay una consola por sesión: si se arranca mientras otra está en marcha, le pide
 a la otra que abra su ventana y termina. Dos consolas serían dos iconos en el

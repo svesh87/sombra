@@ -6,6 +6,8 @@
 #include <QPalette>
 #include <QTest>
 
+#include <algorithm>
+
 namespace {
 
 // What the panel actually receives. The icon is compared as pixels because
@@ -17,8 +19,8 @@ QImage rendered(const QIcon &icon)
 }
 
 // The light that gets through: warm pixels, which the sun and its rays are and
-// neither the blue plate nor the dark slats can be. Not usable while the guard
-// is clamping, because the plate is warm then too.
+// neither the blue plate nor the cloud can be. Not usable while the guard is
+// clamping, because the plate is warm then too.
 int sunlight(const QImage &image)
 {
     int count = 0;
@@ -32,22 +34,47 @@ int sunlight(const QImage &image)
     return count;
 }
 
-// The persiana itself: opaque and dark on every channel, which nothing else in
-// the picture is. This is the measure that also works under the guard's red
-// plate. Transparency is checked first, because the corners outside the plate
-// are transparent black and would otherwise count as slat.
-int slatPixels(const QImage &image)
+// The cloud itself: bright and neutral on every channel, which nothing else in
+// the picture is — the plate is dark in both of its colours, the sun is warm, and
+// the grey the cloud takes when the mode is unknown is still darker than this
+// floor. This is the measure that also works under the guard's red plate.
+// Transparency is checked first, because the corners outside the plate are
+// transparent black and would otherwise count as nothing at all.
+int cloudPixels(const QImage &image)
 {
     int count = 0;
     for (int y = 0; y < image.height(); ++y) {
         for (int x = 0; x < image.width(); ++x) {
             const QColor pixel = image.pixelColor(x, y);
-            if (pixel.alpha() > 128 && pixel.red() < 80 && pixel.green() < 80
-                && pixel.blue() < 90)
+            if (pixel.alpha() <= 128)
+                continue;
+            const int low = std::min({ pixel.red(), pixel.green(), pixel.blue() });
+            const int high = std::max({ pixel.red(), pixel.green(), pixel.blue() });
+            if (low > 180 && high - low < 40)
                 ++count;
         }
     }
     return count;
+}
+
+// Where the cloud is, as opposed to how much of it there is. The rim is blended
+// with whatever lies under it, so a picture drawn over another plate colour counts
+// a pixel or two differently; the seat is what has to hold still.
+QRect cloudBounds(const QImage &image)
+{
+    QRect bounds;
+    for (int y = 0; y < image.height(); ++y) {
+        for (int x = 0; x < image.width(); ++x) {
+            const QColor pixel = image.pixelColor(x, y);
+            if (pixel.alpha() <= 128)
+                continue;
+            const int low = std::min({ pixel.red(), pixel.green(), pixel.blue() });
+            const int high = std::max({ pixel.red(), pixel.green(), pixel.blue() });
+            if (low > 180 && high - low < 40)
+                bounds |= QRect(x, y, 1, 1);
+        }
+    }
+    return bounds;
 }
 
 } // namespace
@@ -60,8 +87,8 @@ private slots:
     void everyModeLooksDifferent();
     void theTwoStatesThatAreNotModesLookDifferentAgain();
     void theColourSchemeChangesNothing();
-    void anUnknownModeCountIsDrawnRatherThanGuessed();
-
+    void nothingKnownAboutTheModeIsOnePicture();
+    void aTableOfAnySizeReadsAsAPositionInIt();
 };
 
 void TrayIconTest::nothingIsLeftForAPanelToSubstitute()
@@ -92,12 +119,16 @@ void TrayIconTest::everyModeLooksDifferent()
     QVERIFY(quiet != full);
 
     // And the difference is a position in the table rather than an arbitrary
-    // glyph: the cooler the envelope, the further the persiana is shut, so less
-    // light gets through and more of the picture is slat.
-    QVERIFY2(sunlight(quiet) < sunlight(work), "the cooler mode has to be the darker one");
-    QVERIFY(sunlight(work) < sunlight(full));
-    QVERIFY(slatPixels(quiet) > slatPixels(work));
-    QVERIFY(slatPixels(work) > slatPixels(full));
+    // glyph: the cooler the envelope, the more of the sun the cloud has taken.
+    // In the coolest one the sun is not drawn at all, so no light gets through.
+    QCOMPARE(sunlight(quiet), 0);
+    QVERIFY2(sunlight(work) < sunlight(full), "the cooler mode has to be the darker one");
+    QVERIFY(sunlight(work) > 0);
+
+    // The cloud is where the mode is: over the whole picture, over the sun, gone.
+    QVERIFY(cloudPixels(quiet) > 0);
+    QVERIFY(cloudPixels(work) > 0);
+    QCOMPARE(cloudPixels(full), 0);
 }
 
 void TrayIconTest::theTwoStatesThatAreNotModesLookDifferentAgain()
@@ -110,16 +141,19 @@ void TrayIconTest::theTwoStatesThatAreNotModesLookDifferentAgain()
     QVERIFY(running != absent);
     QVERIFY(guard != absent);
 
-    // Nothing is answering, so there is no mode to show and the persiana is
-    // gone. The picture says the sun is unattended rather than shut out.
-    QCOMPARE(slatPixels(absent), 0);
-    QVERIFY(slatPixels(running) > 0);
+    // Nothing is answering, so there is no mode to show: the picture is the grey
+    // one, and the sun in it is not warm.
+    QCOMPARE(sunlight(absent), 0);
+    QVERIFY(cloudPixels(absent) > 0);
 
     // The channels are independent: the guard changes the plate and leaves the
-    // mode where it was, so a clamped machine still says which envelope it is in.
-    QCOMPARE(slatPixels(guard), slatPixels(running));
-    QVERIFY(slatPixels(trayIcon(true, true, 0, 3).pixmap(22, 22).toImage())
-            > slatPixels(guard));
+    // cloud where it was, so a clamped machine still says which envelope it is in.
+    // Only the count of rim pixels moves, because the rim is blended with a plate
+    // that is now a different colour.
+    QCOMPARE(cloudBounds(guard), cloudBounds(running));
+    QVERIFY(qAbs(cloudPixels(guard) - cloudPixels(running)) <= 4);
+    QVERIFY(rendered(trayIcon(true, true, 0, 3)) != guard);
+    QVERIFY(rendered(trayIcon(true, true, 2, 3)) != guard);
 }
 
 void TrayIconTest::theColourSchemeChangesNothing()
@@ -145,23 +179,41 @@ void TrayIconTest::theColourSchemeChangesNothing()
     QCOMPARE(onLight, onDark);
 }
 
-void TrayIconTest::anUnknownModeCountIsDrawnRatherThanGuessed()
+void TrayIconTest::nothingKnownAboutTheModeIsOnePicture()
 {
-    // Before the first status reply there is no table and no position in it, so
-    // there is no persiana either — but the sun is warm, which is what separates
-    // "answering, mode not known yet" from "nothing is answering".
-    const QImage unknown = rendered(trayIcon(true, false, -1, 0));
-    QVERIFY(!unknown.isNull());
-    QVERIFY(unknown != rendered(trayIcon(true, false, 0, 3)));
-    QCOMPARE(slatPixels(unknown), 0);
-    QVERIFY(unknown != rendered(trayIcon(false, false, -1, 0)));
-    QVERIFY(sunlight(unknown) > sunlight(rendered(trayIcon(false, false, -1, 0))));
+    // A daemon that is not answering, a reply with no mode in it, and an empty
+    // table are one picture. The icon speaks about the mode, and none of the
+    // three knows what the mode is; which of them it is belongs to the tooltip.
+    const QImage absent = rendered(trayIcon(false, false, -1, 0));
+    const QImage noMode = rendered(trayIcon(true, false, -1, 3));
+    const QImage noTable = rendered(trayIcon(true, false, 0, 0));
 
-    // A table of another size still reads as a position in it, and the last mode
-    // opens the persiana fully whatever the count.
-    QCOMPARE(rendered(trayIcon(true, false, 3, 4)), rendered(trayIcon(true, false, 2, 3)));
-    // An index past the end is the last mode rather than an overflowing fill.
+    QVERIFY(!absent.isNull());
+    QCOMPARE(noMode, absent);
+    QCOMPARE(noTable, absent);
+
+    // And it is not any of the modes: the grey says so where a mode would be warm.
+    QVERIFY(absent != rendered(trayIcon(true, false, 0, 3)));
+    QVERIFY(absent != rendered(trayIcon(true, false, 1, 3)));
+    QVERIFY(absent != rendered(trayIcon(true, false, 2, 3)));
+    QVERIFY(sunlight(rendered(trayIcon(true, false, 1, 3))) > sunlight(absent));
+
+    // The guard is still the plate, even with nothing known about the mode.
+    QVERIFY(rendered(trayIcon(false, true, -1, 0)) != absent);
+}
+
+void TrayIconTest::aTableOfAnySizeReadsAsAPositionInIt()
+{
+    // The ends of the table are the ends of the scale whatever its size, and
+    // everything between them is the one seat that says "some way in". There are
+    // three modes, so each of them has a seat of its own.
+    QCOMPARE(rendered(trayIcon(true, false, 0, 5)), rendered(trayIcon(true, false, 0, 3)));
+    QCOMPARE(rendered(trayIcon(true, false, 4, 5)), rendered(trayIcon(true, false, 2, 3)));
+    QCOMPARE(rendered(trayIcon(true, false, 2, 5)), rendered(trayIcon(true, false, 1, 3)));
+    // An index past the end is the last mode rather than a seat off the plate.
     QCOMPARE(rendered(trayIcon(true, false, 9, 3)), rendered(trayIcon(true, false, 2, 3)));
+    // A table of one is the whole of the scale, so its mode is the widest.
+    QCOMPARE(rendered(trayIcon(true, false, 0, 1)), rendered(trayIcon(true, false, 2, 3)));
 }
 
 QTEST_MAIN(TrayIconTest)

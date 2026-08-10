@@ -1,24 +1,35 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
   <defs>
-    <linearGradient id="tile" x1="0" y1="0" x2="1" y2="1">
+    <!-- Spans the plate in user space, so the band that holds the cloud off the
+         sun can be filled with it and land on the colour the plate has there.
+         Measured from the shape it fills, a second gradient would start over
+         inside the cloud. -->
+    <linearGradient id="tile" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="256" y2="256">
       <stop offset="0" stop-color="#608cc8"/>
       <stop offset="1" stop-color="#203460"/>
     </linearGradient>
   </defs>
   <rect x="0" y="0" width="256" height="256" rx="56" ry="56" fill="url(#tile)"/>
-  <line x1="200.1" y1="157.8" x2="224.1" y2="167.8" stroke="#ffd666" stroke-width="12" stroke-linecap="round"/>
-  <line x1="157.8" y1="200.1" x2="167.8" y2="224.1" stroke="#ffd666" stroke-width="12" stroke-linecap="round"/>
-  <line x1="98.2" y1="200.1" x2="88.2" y2="224.1" stroke="#ffd666" stroke-width="12" stroke-linecap="round"/>
-  <line x1="55.9" y1="157.8" x2="31.9" y2="167.8" stroke="#ffd666" stroke-width="12" stroke-linecap="round"/>
-  <line x1="55.9" y1="98.2" x2="31.9" y2="88.2" stroke="#ffd666" stroke-width="12" stroke-linecap="round"/>
-  <line x1="98.2" y1="55.9" x2="88.2" y2="31.9" stroke="#ffd666" stroke-width="12" stroke-linecap="round"/>
-  <line x1="157.8" y1="55.9" x2="167.8" y2="31.9" stroke="#ffd666" stroke-width="12" stroke-linecap="round"/>
-  <line x1="200.1" y1="98.2" x2="224.1" y2="88.2" stroke="#ffd666" stroke-width="12" stroke-linecap="round"/>
-  <circle cx="128" cy="128" r="66" fill="#ffd666"/>
-  <rect x="32" y="40" width="192" height="14" rx="7.0" ry="7.0" fill="#1e222a"/>
-  <rect x="32" y="80" width="192" height="14" rx="7.0" ry="7.0" fill="#1e222a"/>
-  <rect x="32" y="120" width="192" height="14" rx="7.0" ry="7.0" fill="#1e222a"/>
-  <rect x="32" y="160" width="192" height="14" rx="7.0" ry="7.0" fill="#1e222a"/>
-  <rect x="32" y="200" width="192" height="14" rx="7.0" ry="7.0" fill="#1e222a"/>
+  <line x1="195.1" y1="134.5" x2="217.3" y2="143.7" stroke="#ffd666" stroke-width="12" stroke-linecap="round"/>
+  <line x1="160.5" y1="169.1" x2="169.7" y2="191.3" stroke="#ffd666" stroke-width="12" stroke-linecap="round"/>
+  <line x1="111.5" y1="169.1" x2="102.3" y2="191.3" stroke="#ffd666" stroke-width="12" stroke-linecap="round"/>
+  <line x1="76.9" y1="134.5" x2="54.7" y2="143.7" stroke="#ffd666" stroke-width="12" stroke-linecap="round"/>
+  <line x1="76.9" y1="85.5" x2="54.7" y2="76.3" stroke="#ffd666" stroke-width="12" stroke-linecap="round"/>
+  <line x1="111.5" y1="50.9" x2="102.3" y2="28.7" stroke="#ffd666" stroke-width="12" stroke-linecap="round"/>
+  <line x1="160.5" y1="50.9" x2="169.7" y2="28.7" stroke="#ffd666" stroke-width="12" stroke-linecap="round"/>
+  <line x1="195.1" y1="85.5" x2="217.3" y2="76.3" stroke="#ffd666" stroke-width="12" stroke-linecap="round"/>
+  <circle cx="136" cy="110" r="54" fill="#ffd666"/>
+  <g fill="url(#tile)">
+    <circle cx="78" cy="164" r="55"/>
+    <circle cx="126" cy="150" r="49"/>
+    <circle cx="168" cy="168" r="41"/>
+    <rect x="17" y="157" width="178" height="68" rx="34" ry="34"/>
+  </g>
+  <g fill="#f4f7fb">
+    <circle cx="78" cy="164" r="44"/>
+    <circle cx="126" cy="150" r="38"/>
+    <circle cx="168" cy="168" r="30"/>
+    <rect x="28" y="168" width="156" height="46" rx="23" ry="23"/>
+  </g>
 </svg>
