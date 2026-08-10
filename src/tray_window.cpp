@@ -204,6 +204,7 @@ public:
     Tuner *base = nullptr;
     Tuner *response = nullptr;
     Tuner *floor = nullptr;
+    Tuner *ceiling = nullptr;
     QLabel *backlightState = nullptr;
 
     // The two controls that are about the console rather than about the machine.
@@ -686,8 +687,13 @@ void TrayWindow::build()
                       &m_ui->response);
     addBacklightTuner(tr("Never darker than:"), QStringLiteral("floor"),
                       tr("Nothing goes below this — not the automation, and not a slip of the "
-                         "hand either. There is no ceiling: that is 100 %."),
+                         "hand either."),
                       &m_ui->floor);
+    addBacklightTuner(tr("Never brighter than:"), QStringLiteral("ceiling"),
+                      tr("And nothing above this, on the same terms. It is the whole scale "
+                         "unless you move it, and it is there for a screen that is unpleasant at "
+                         "its own maximum."),
+                      &m_ui->ceiling);
     m_ui->autoBrightness->setToolTip(tr("Whether the backlight follows the ambient light sensor. "
                                         "Switching it on or off never moves the backlight by "
                                         "itself."));
@@ -796,7 +802,7 @@ void TrayWindow::build()
     // Applied while dragging and written when the drag ends: the value is a
     // setting rather than an experiment, and a slider must not write a file
     // thirty times on the way across.
-    for (Tuner *tuner : { m_ui->response, m_ui->floor }) {
+    for (Tuner *tuner : { m_ui->response, m_ui->floor, m_ui->ceiling }) {
         connect(tuner, &Tuner::changed, this, [this]() { sendBacklightSettings(false); });
         connect(tuner, &Tuner::settled, this, [this]() { sendBacklightSettings(true); });
     }
@@ -906,6 +912,7 @@ void TrayWindow::applyStatus(const TrayClient::Status &status)
         m_ui->base->setValue(static_cast<int>(status.brightnessBase));
     m_ui->response->setValue(status.brightnessResponsePct);
     m_ui->floor->setValue(status.brightnessFloorPct);
+    m_ui->ceiling->setValue(status.brightnessCeilingPct);
     if (!status.brightnessAvailable) {
         m_ui->backlightState->setText(tr("This machine has no backlight control."));
     } else if (status.autoBrightness) {
@@ -1097,9 +1104,10 @@ void TrayWindow::sendBacklightSettings(bool durable)
 {
     if (m_updating)
         return;
-    const QString assignments = QStringLiteral("response_pct=%1 floor_pct=%2")
+    const QString assignments = QStringLiteral("response_pct=%1 floor_pct=%2 ceiling_pct=%3")
                                         .arg(m_ui->response->value())
-                                        .arg(m_ui->floor->value());
+                                        .arg(m_ui->floor->value())
+                                        .arg(m_ui->ceiling->value());
     sendCommand(durable ? QStringLiteral("config set brightness ") + assignments
                         : QStringLiteral("brightness set ") + assignments);
 }

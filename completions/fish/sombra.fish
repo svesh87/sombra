@@ -40,7 +40,7 @@ complete -c sombra -n '__fish_seen_subcommand_from set' \
 complete -c sombra -n '__fish_seen_subcommand_from brightness; and not __fish_seen_subcommand_from on off level base set' \
     -a 'on off level base set'
 complete -c sombra -n '__fish_seen_subcommand_from brightness; and __fish_seen_subcommand_from set' \
-    -a 'response_pct= floor_pct= curve='
+    -a 'response_pct= floor_pct= ceiling_pct= curve='
 
 complete -c sombra -n '__fish_seen_subcommand_from config; and not __fish_seen_subcommand_from show set save default_mode reset' \
     -a 'show set save default_mode reset'

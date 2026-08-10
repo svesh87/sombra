@@ -23,12 +23,17 @@
 //   response      how far the automation may move. One number, symmetric
 //                 around the base until an end of the scale cuts it.
 //   floor         the level nothing goes below — not the automation, and not a
-//                 slip of the hand either. There is no ceiling: that is 100.
+//                 slip of the hand either.
+//   ceiling       the same bound from above, 100 unless it is moved. It exists
+//                 because a screen can be too bright to work in front of as
+//                 easily as too dark, and because external panels differ in how
+//                 much light they make of the same per cent.
 //
-// Worked through, with a response of 30 and the neutral light at 25 lux:
+// Worked through, with a response of 30, the neutral light at 25 lux and the
+// ceiling left at 100:
 //
 //   you set 80 % in a room the curve scores at −3   base = 83
-//   the room brightens and the curve scores +21     target = 100 (capped)
+//   the room brightens and the curve scores +21     target = 100 (the ceiling)
 //   the room returns to what it was                 target = 80, exactly
 //
 // The obvious alternative — keep the level as the base and let the curve pick a
@@ -88,6 +93,10 @@ inline constexpr int kBrightnessDefaultResponsePct = 30;
 // point of the floor is that a screen driven into unreadable is a failure and
 // not a saving.
 inline constexpr int kBrightnessDefaultFloorPct = 5;
+// And nothing above this. The default is the whole scale, so out of the box the
+// ceiling changes nothing; it is there for the screen that is unpleasant at its
+// own maximum.
+inline constexpr int kBrightnessDefaultCeilingPct = 100;
 
 // One point of the response curve.
 struct BrightnessPoint {
@@ -108,8 +117,15 @@ struct BrightnessPoint {
 struct BrightnessSettings {
     int responsePct = kBrightnessDefaultResponsePct;
     int floorPct = kBrightnessDefaultFloorPct;
+    int ceilingPct = kBrightnessDefaultCeilingPct;
     QList<BrightnessPoint> curve;
 };
+
+// The bounds that bind everybody: the floor from below, the ceiling from above.
+// One function because there is one rule, and because settings assembled by hand
+// can hold a ceiling under the floor — in which case the floor wins, that being
+// the bound a screen cannot be given up.
+int brightnessClamp(const BrightnessSettings &settings, int level);
 
 // Applies one "key=value" of the settings vocabulary, on the same terms as
 // applyModeSetting(): one function for the file and for the socket, an unknown
@@ -136,15 +152,16 @@ BrightnessSettings builtinBrightnessSettings();
 int brightnessContribution(const BrightnessSettings &settings, std::optional<quint32> light);
 
 // The level you asked for with the contribution of the moment taken back out,
-// so that the same light later reproduces the same level. A level below the
-// floor never becomes a base: the floor is what actually got applied, and a
-// base derived from a level nobody can see is a state with no home on screen.
+// so that the same light later reproduces the same level. A level outside the
+// bounds never becomes a base: what got applied is what the base is derived
+// from, and a base derived from a level nobody can see is a state with no home
+// on screen.
 int brightnessBaseFor(const BrightnessSettings &settings, int level,
                       std::optional<quint32> light);
 
 // Where the automation may put the backlight, for display. Cut by the floor and
-// by the end of the scale, so it is what will happen rather than what the
-// arithmetic wanted.
+// by the ceiling, so it is what will happen rather than what the arithmetic
+// wanted.
 struct BrightnessWindow {
     int low = 0;
     int high = 0;

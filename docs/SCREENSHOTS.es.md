@@ -50,9 +50,9 @@ firmware y las revoluciones máximas.
 
 ![La pestaña Retroiluminación](screenshots/console-backlight.png)
 
-Cuatro deslizadores, todos en por ciento: el brillo de siempre, la referencia
+Cinco deslizadores, todos en por ciento: el brillo de siempre, la referencia
 desde la que trabaja la automatización, cuánto puede la luz de la habitación mover
-la retroiluminación en cada sentido, y el suelo que sujeta tanto a la
+la retroiluminación en cada sentido, y el suelo y el techo, que sujetan tanto a la
 automatización como a un resbalón de la mano. La referencia está atenuada aquí
 porque la automatización está apagada, y entonces es un número sobre el que nadie
 actúa.

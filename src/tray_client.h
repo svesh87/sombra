@@ -68,6 +68,7 @@ public:
         // sit before the first answer arrives.
         int brightnessResponsePct = kBrightnessDefaultResponsePct;
         int brightnessFloorPct = kBrightnessDefaultFloorPct;
+        int brightnessCeilingPct = kBrightnessDefaultCeilingPct;
         // The band those two produce, which is what the window shows: "between
         // 50 and 100 per cent" is a sentence, "a response of thirty" is not.
         int brightnessWindowLow = kBrightnessDefaultFloorPct;

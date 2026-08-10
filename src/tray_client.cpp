@@ -191,9 +191,12 @@ TrayClient::Status TrayClient::parseStatus(const QJsonObject &object)
                                            .toInt(status.brightnessResponsePct);
     status.brightnessFloorPct = brightness.value(QLatin1String("floor_pct"))
                                         .toInt(status.brightnessFloorPct);
+    status.brightnessCeilingPct = brightness.value(QLatin1String("ceiling_pct"))
+                                          .toInt(status.brightnessCeilingPct);
     status.brightnessWindowLow = brightness.value(QLatin1String("window_low"))
                                          .toInt(status.brightnessFloorPct);
-    status.brightnessWindowHigh = brightness.value(QLatin1String("window_high")).toInt(100);
+    status.brightnessWindowHigh = brightness.value(QLatin1String("window_high"))
+                                          .toInt(status.brightnessCeilingPct);
     return status;
 }
 

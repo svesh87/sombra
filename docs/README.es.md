@@ -353,7 +353,7 @@ sombra brightness on
 sombra brightness off             # se recuerda entre reinicios
 sombra brightness level 80        # lo mismo que mover el control a mano
 sombra brightness base 72         # el nivel alrededor del cual trabaja la automatización
-sombra brightness set response_pct=35 floor_pct=20
+sombra brightness set response_pct=35 floor_pct=20 ceiling_pct=90
 sombra config set brightness response_pct=35 floor_pct=20   # queda escrito
 ```
 
@@ -371,8 +371,9 @@ El modelo en una línea: **la luz suma o resta al nivel que usted fija.**
   base del 80 % significa que una habitación oscura puede bajarlo al 50 % y una
   luminosa subirlo al 100 %.
 - **El mínimo es el nivel por debajo del cual no baja nada**, ni la
-  automatización ni un descuido de la mano. No hay techo, porque el techo es
-  100 %.
+  automatización ni un descuido de la mano. **El techo es el mismo límite por
+  arriba**: mientras nadie lo mueva es la escala entera, y está para la pantalla
+  que resulta molesta en su propio máximo.
 - **No oscila.** El objetivo se redondea a escalones gruesos, cada frontera
   lleva un margen de histéresis, un escalón nuevo tiene que mantenerse varios
   segundos antes de que pase nada, y el movimiento en sí es una transición
@@ -381,7 +382,7 @@ El modelo en una línea: **la luz suma o resta al nivel que usted fija.**
   retroiluminación en absoluto, y encenderla o apagarla no mueve la
   retroiluminación por sí solo.
 
-El nivel, la base, la reacción y el mínimo son cuatro deslizadores en la
+El nivel, la base, la reacción, el mínimo y el techo son cinco deslizadores en la
 consola, todos en por ciento, porque «¿está bien así?» es un juicio que se hace
 a ojo, en la habitación a la que va destinado. La lectura del sensor no está en
 pantalla: lo que mide la habitación es asunto del demonio.

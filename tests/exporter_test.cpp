@@ -77,6 +77,7 @@ class ExporterTest : public QObject {
 
 private slots:
     void csvHeaderMatchesTheRowWidth();
+    void everyMonitorSlotHasItsOwnColumns();
     void csvRendersEveryValueAndEverySetpoint();
     void absentReadingsAreEmptyNotZero();
     void jsonRowIsValidAndNullsAbsentReadings();
@@ -93,6 +94,44 @@ void ExporterTest::csvHeaderMatchesTheRowWidth()
     const int fields = exporter::csvRow(populated(1)).count(QLatin1Char(',')) + 1;
     QCOMPARE(fields, columns);
     QCOMPARE(exporter::csvRow(blind(1)).count(QLatin1Char(',')) + 1, columns);
+}
+
+void ExporterTest::everyMonitorSlotHasItsOwnColumns()
+{
+    const QStringList names = exporter::csvHeader().split(QLatin1Char(','));
+    QVERIFY(names.contains(QStringLiteral("brightness_ceiling")));
+    QVERIFY(names.contains(QStringLiteral("monitors")));
+    for (int i = 1; i <= kMonitorSlots; ++i) {
+        QVERIFY(names.contains(QStringLiteral("monitor%1_level").arg(i)));
+        QVERIFY(names.contains(QStringLiteral("monitor%1_base").arg(i)));
+        QVERIFY(names.contains(QStringLiteral("monitor%1_floor").arg(i)));
+        QVERIFY(names.contains(QStringLiteral("monitor%1_ceiling").arg(i)));
+        QVERIFY(names.contains(QStringLiteral("monitor%1_response").arg(i)));
+        QVERIFY(names.contains(QStringLiteral("monitor%1_id").arg(i)));
+    }
+
+    Sample sample = populated(1);
+    clearMonitorSlots(sample);
+    sample.brightnessCeiling = 90;
+    sample.monitors = 1;
+    sample.monitorSlots[1].level = 40;
+    sample.monitorSlots[1].base = 45;
+    sample.monitorSlots[1].id = 0x5a;
+
+    const QStringList fields = exporter::csvRow(sample).split(QLatin1Char(','));
+    QCOMPARE(fields.size(), names.size());
+    const auto value = [&](const QString &column) {
+        return fields.at(names.indexOf(column));
+    };
+    QCOMPARE(value(QStringLiteral("brightness_ceiling")), QStringLiteral("90"));
+    QCOMPARE(value(QStringLiteral("monitors")), QStringLiteral("1"));
+    QCOMPARE(value(QStringLiteral("monitor2_level")), QStringLiteral("40"));
+    QCOMPARE(value(QStringLiteral("monitor2_base")), QStringLiteral("45"));
+    QCOMPARE(value(QStringLiteral("monitor2_id")), QStringLiteral("90"));
+    // An empty slot is empty rather than zero, and its fingerprint is zero
+    // rather than empty: no monitor here is a fact.
+    QCOMPARE(value(QStringLiteral("monitor1_level")), QString());
+    QCOMPARE(value(QStringLiteral("monitor1_id")), QStringLiteral("0"));
 }
 
 void ExporterTest::csvRendersEveryValueAndEverySetpoint()

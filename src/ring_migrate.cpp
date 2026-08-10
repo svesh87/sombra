@@ -96,10 +96,55 @@ struct SampleV2 {
 
     uint8_t reserved[14];
 };
+
+// Version 4. The last 64-byte layout: everything the current record has up to
+// and including brightnessFloor, and nothing after it. Byte-identical to the
+// current record's prefix, which is why the upgrade is one memcpy.
+struct SampleV4 {
+    uint32_t ts;
+    int16_t pkgTemp;
+    int16_t boardTemp;
+    int16_t nvmeTemp;
+    uint16_t fanRpm;
+    uint16_t pkgPower;
+    uint16_t corePower;
+    uint16_t uncorePower;
+    uint16_t cpuMhz;
+    uint16_t gpuMhz;
+    uint16_t load1;
+    uint16_t pkgThrottle;
+    uint16_t coreThrottle;
+
+    uint8_t displays;
+    uint8_t modeId;
+    uint8_t pl1W;
+    uint8_t pl2W;
+    uint8_t maxPerfPct;
+    uint8_t noTurbo;
+    uint8_t epp;
+    uint8_t hwpBoost;
+    uint8_t profile;
+    uint16_t gtMaxMhz;
+    uint8_t fanMode;
+    uint8_t chargeLimit;
+    uint8_t flags;
+    uint8_t mark;
+
+    uint32_t light;
+    uint8_t brightness;
+    uint8_t brightnessBase;
+    uint8_t brightnessResponse;
+    uint8_t brightnessFloor;
+
+    uint8_t reserved[13];
+};
 #pragma pack(pop)
 
 static_assert(sizeof(SampleV1) == 64, "a released record was 64 bytes and stays that way");
 static_assert(sizeof(SampleV2) == 64, "a released record was 64 bytes and stays that way");
+static_assert(sizeof(SampleV4) == 64, "a released record was 64 bytes and stays that way");
+static_assert(offsetof(SampleV4, reserved) == offsetof(Sample, brightnessCeiling),
+              "the current record has to be version 4 plus fields appended after it");
 
 SampleV2 upgrade(const SampleV1 &in)
 {
@@ -163,6 +208,19 @@ Sample upgrade(const SampleV2 &in)
     return out;
 }
 
+Sample upgrade(const SampleV4 &in)
+{
+    Sample out {};
+    // Everything version 4 had sits at the same offsets, and the assert above is
+    // what keeps that true.
+    std::memcpy(&out, &in, offsetof(SampleV4, reserved));
+    // The ceiling was 100 for everybody then, but nobody wrote that down, and a
+    // number nobody measured has no business in the data.
+    out.brightnessCeiling = kAbsentPercent;
+    clearMonitorSlots(out);
+    return out;
+}
+
 // The chain, applied to one record. Each version enters at its own step and
 // falls through the rest.
 Sample toCurrent(uint16_t version, const char *record)
@@ -177,16 +235,34 @@ Sample toCurrent(uint16_t version, const char *record)
         std::memcpy(&v1, record, sizeof(v1));
         return upgrade(upgrade(v1));
     }
-    SampleV2 v2 {};
-    std::memcpy(&v2, record, sizeof(v2));
-    return upgrade(v2);
+    if (version == 2) {
+        SampleV2 v2 {};
+        std::memcpy(&v2, record, sizeof(v2));
+        return upgrade(v2);
+    }
+    SampleV4 v4 {};
+    std::memcpy(&v4, record, sizeof(v4));
+    return upgrade(v4);
 }
 
 } // namespace
 
 bool canMigrateRing(uint16_t version)
 {
-    return version == 1 || version == 2;
+    return version == 1 || version == 2 || version == 4;
+}
+
+uint16_t ringRecordSize(uint16_t version)
+{
+    if (version == kRingVersion)
+        return sizeof(Sample);
+    // Every released layout before this one was 64 bytes. The question is never
+    // "does the header agree with the record this build compiles" — it is "does
+    // it agree with the version that wrote it", and confusing the two sends every
+    // older ring to the .bak slot instead of through the migration.
+    if (canMigrateRing(version))
+        return 64;
+    return 0;
 }
 
 QList<Sample> migratedSamples(const QString &path, QString *note)
@@ -200,15 +276,15 @@ QList<Sample> migratedSamples(const QString &path, QString *note)
     RingHeader head {};
     if (file.read(reinterpret_cast<char *>(&head), sizeof(head)) != sizeof(head))
         return carried;
-    if (head.magic != kRingMagic || head.recordSize != sizeof(Sample) || head.capacity == 0)
+    const uint16_t stride = ringRecordSize(head.version);
+    if (head.magic != kRingMagic || stride == 0 || head.recordSize != stride
+        || head.capacity == 0) {
         return carried;
-    if (head.version != kRingVersion && !canMigrateRing(head.version))
-        return carried;
+    }
 
     // A file shorter than its header claims lost its tail to a truncated
     // write. The slots that are gone are simply not read.
-    const uint64_t inFile =
-            (static_cast<uint64_t>(file.size()) - sizeof(RingHeader)) / sizeof(Sample);
+    const uint64_t inFile = (static_cast<uint64_t>(file.size()) - sizeof(RingHeader)) / stride;
     // `slots` would be the Qt keyword.
     const uint64_t present = std::min<uint64_t>(head.capacity, inFile);
     if (present == 0)
@@ -220,10 +296,12 @@ QList<Sample> migratedSamples(const QString &path, QString *note)
         const uint64_t slot = (oldest + i) % head.capacity;
         if (slot >= present)
             continue;
-        if (!file.seek(sizeof(RingHeader) + slot * sizeof(Sample)))
+        if (!file.seek(sizeof(RingHeader) + slot * stride))
             continue;
+        // The buffer is the largest record there is; only the source version's
+        // worth of it is read, and only that much is ever looked at.
         char record[sizeof(Sample)] = {};
-        if (file.read(record, sizeof(record)) != sizeof(record))
+        if (file.read(record, stride) != stride)
             continue;
         const Sample sample = toCurrent(head.version, record);
         // A slot that was never written has no timestamp, and carrying it over

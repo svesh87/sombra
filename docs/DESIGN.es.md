@@ -51,9 +51,12 @@ archivo dice cómo es el proyecto, no cómo fue.
   quiere con esta luz, y el demonio le resta la aportación de la habitación en
   ese momento para obtener la base. Eso es lo que hace que la misma luz devuelva
   el mismo nivel. Un número fija cuánto puede moverlo la habitación en cada
-  sentido, un mínimo fija el nivel por debajo del cual no baja nadie, y techo no
-  hay: es el 100 %. El mínimo obliga también a la persona, porque una pantalla
-  llevada hasta lo ilegible es un fallo y no un ahorro.
+  sentido, y un mínimo y un techo fijan los niveles por debajo y por encima de los
+  cuales no anda nadie. Ambos obligan también a la persona: una pantalla llevada a
+  ilegible, o a molesta, es un fallo y no un ahorro. El techo es la escala entera
+  mientras nadie lo mueva, y existe porque una pantalla puede ser demasiado
+  brillante para sentarse delante, y porque los paneles externos hacen distinta
+  cantidad de luz con el mismo tanto por ciento.
 - **La base se puede fijar directamente, y no solo deducirse.** Al mover el
   brillo, la persona dice qué quiere con la luz del momento, y la base sale de
   ahí; esa es la dirección natural y falla en una sola cosa: ajustar para una
@@ -62,7 +65,7 @@ archivo dice cómo es el proyecto, no cómo fue.
   el archivo de estado y no en los ajustes: es lo último que la persona estuvo
   mirando, no un número que configuró.
 - **No hay perfiles de brillo.** Una habitación, un juego de ajustes: una
-  reacción, un mínimo y una curva. Un perfil sería un nombre para un juego de
+  reacción, un mínimo, un techo y una curva. Un perfil sería un nombre para un juego de
   esos números, y nunca hubo un segundo juego al que cambiar.
 - **La curva se calibra con la telemetría, no se elige a ojo.** Traduce los lux
   a una posición de 0 a 100, y la posición en la que no aporta nada corresponde
@@ -276,6 +279,14 @@ cambia de modo por su cuenta.
   cada uno; cada paso se escribe una vez y luego se congela, así que una versión
   nueva cuesta una estructura y una función. Los campos que la disposición
   antigua no tenía se graban como ausentes, nunca como ceros.
+- **El registro son 128 bytes, la mitad de ellos en reserva, y lo arriesgado aquí
+  es cambiar ese tamaño.** Un campo nuevo exige una versión de todos modos: en su
+  sitio, un registro antiguo tiene ceros y lo que hace falta es ausencia. La
+  reserva evita otra cosa, que el tamaño vuelva a cambiar, y es el tamaño lo que
+  convierte «¿esto es un anillo?» en una pregunta sobre la versión de la cabecera y
+  no sobre el registro con el que se compiló esta versión. Responderla con
+  `sizeof(Sample)` funciona exactamente mientras todas las versiones midan lo
+  mismo, y el día que una no lo haga aparta una semana de muestras.
 - **Un anillo que esta compilación no sabe leer se guarda, no se borra, y nunca
   detiene al demonio.** Una disposición de una compilación más nueva tras una
   vuelta atrás, una que nunca se publicó, una cabecera estropeada por un corte

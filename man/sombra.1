@@ -108,7 +108,9 @@ The backlight settings, applied at once and written only by
 .B response_pct
 is how far the room may move the backlight either way from that baseline,
 .B floor_pct
-is the level nothing goes below, and
+is the level nothing goes below,
+.B ceiling_pct
+the level nothing goes above, and
 .B curve
 is the
 .IR lux : percent
@@ -135,6 +137,7 @@ reach it.
 The backlight settings, written down:
 .BR response_pct ,
 .BR floor_pct ,
+.BR ceiling_pct ,
 .BR curve .
 There are no brightness profiles: the room is one room, and what varies in it
 is the light rather than the preference.

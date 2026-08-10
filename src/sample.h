@@ -6,10 +6,15 @@
 // One telemetry record, appended once per second.
 //
 // The layout is fixed because the record size is what turns a retention period
-// into a file size: at 1 Hz, seven days is kRingCapacity records, and 64 bytes
-// each keeps the ring under 40 MB. Fields are integers in units chosen so that
-// nothing needs floating point and nothing is averaged — averaging would hide
-// exactly the peaks the log exists to show.
+// into a file size: at 1 Hz, seven days is kRingCapacity records, and 128 bytes
+// each puts that week at about 74 MiB. The record was 64 bytes while every field
+// fit; it is 128 now because the screens brought a per-screen set of numbers with
+// them, and half the record is deliberately spare — growing it again is the one
+// change to this file that puts existing rings at risk.
+//
+// Fields are integers in units chosen so that nothing needs floating point and
+// nothing is averaged — averaging would hide exactly the peaks the log exists to
+// show.
 //
 //   temperatures  decidegrees Celsius  (805 = 80.5 °C)
 //   power         centiwatts           (2350 = 23.50 W)
@@ -84,7 +89,32 @@ enum SampleFlag : uint8_t {
     FlagAutoBrightness = 1u << 5,
 };
 
+// External connectors this machine has, and therefore slots in a sample:
+// DP-1, DP-2 and HDMI-A-1. The internal panel is not one of them — it is driven
+// through sysfs and has its own fields. A connector that appears beyond these
+// three (a DP-MST hub invents them) is counted in `monitors` and gets no slot:
+// the slot has to mean the same connector in every sample, or a session cannot
+// be read at all.
+inline constexpr int kMonitorSlots = 3;
+
 #pragma pack(push, 1)
+// One external monitor, in the same units as the panel's own fields. Nested
+// rather than six parallel arrays so that a new property of a screen is one edit
+// in one place, and so the layout can be read.
+struct MonitorSlot {
+    uint8_t level;    // percent of the monitor's own scale, kAbsentPercent when silent
+    uint8_t base;     // the level with the light's contribution removed
+    uint8_t floor;    // the bounds are per monitor: panels differ in how much
+    uint8_t ceiling;  // light they make of the same per cent
+    uint8_t response; // how far the automation may move this screen
+    // Which monitor is in the slot, as one byte derived from its identity. Not
+    // an identifier — a change of hardware in the same connector. Panels get
+    // swapped mid-session, and without this the slot would silently mix two of
+    // them into one trace. Zero means the slot is empty.
+    uint8_t id;
+};
+static_assert(sizeof(MonitorSlot) == 6, "a monitor slot is six bytes of the record");
+
 struct Sample {
     uint32_t ts;          // unix seconds; 0 marks a slot that was never written
     int16_t pkgTemp;      // coretemp "Package id 0"
@@ -154,9 +184,43 @@ struct Sample {
     // that needs another file to be read is not self-contained.
     uint8_t brightnessResponse;
     uint8_t brightnessFloor;
+    // The bound from above, recorded for the same reason as the floor: what the
+    // automation was allowed to do has to be in the record, not in a settings
+    // file that has moved on by the time the session is read.
+    uint8_t brightnessCeiling;
 
-    uint8_t reserved[13];
+    // The external monitors. Their parameters are in the record rather than only
+    // in the settings, on the same terms as the panel's: a record that needs
+    // another file to be read is not self-contained.
+    MonitorSlot monitorSlots[kMonitorSlots];
+    // How many external monitors answered DDC this tick. Read together with
+    // `displays` it answers the question neither can alone: a screen is plugged
+    // in and says nothing. kAbsentPercent while nothing has been asked yet.
+    uint8_t monitors;
+    // One bit per slot, bit N for slot N: the automation is following the light
+    // on that screen. Its own byte rather than the two bits left in `flags`,
+    // because there are three slots and two bits.
+    uint8_t monitorFlags;
+
+    uint8_t reserved[56];
 };
 #pragma pack(pop)
 
-static_assert(sizeof(Sample) == 64, "the ring geometry depends on a 64-byte record");
+static_assert(sizeof(Sample) == 128, "the ring geometry depends on a 128-byte record");
+
+// Sets every monitor slot to absent. A sample arrives zeroed, and zero is a legal
+// brightness, a legal floor and a legal response, so absence has to be written in
+// before anything else fills these.
+inline void clearMonitorSlots(Sample &sample)
+{
+    for (MonitorSlot &slot : sample.monitorSlots) {
+        slot.level = kAbsentPercent;
+        slot.base = kAbsentPercent;
+        slot.floor = kAbsentPercent;
+        slot.ceiling = kAbsentPercent;
+        slot.response = kAbsentPercent;
+        slot.id = 0;
+    }
+    sample.monitors = kAbsentPercent;
+    sample.monitorFlags = 0;
+}

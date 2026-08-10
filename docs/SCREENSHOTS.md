@@ -48,11 +48,11 @@ four answers: the three curves the firmware carries, and full speed.
 
 ![The Backlight tab](screenshots/console-backlight.png)
 
-Four sliders, all in per cent: the ordinary brightness control, the baseline the
+Five sliders, all in per cent: the ordinary brightness control, the baseline the
 automation works from, how far the room may move the backlight either way, and the
-floor that binds the automation and a slip of the hand alike. The baseline is
-greyed out here because the automation is off, and then it is a number nothing
-acts on.
+floor and the ceiling, which bind the automation and a slip of the hand alike. The
+baseline is greyed out here because the automation is off, and then it is a number
+nothing acts on.
 
 ### Settings — about the program rather than the machine
 

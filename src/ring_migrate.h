@@ -36,6 +36,13 @@ QList<Sample> migratedSamples(const QString &path, QString *note);
 // True for a version this can convert into the current layout.
 bool canMigrateRing(uint16_t version);
 
+// How many bytes a record of that version occupies, or 0 for a version nothing
+// here knows. The record has not always been one size, so "is this a ring" is a
+// question about the version in the header and never about `sizeof(Sample)`:
+// comparing against the size this build compiles sends every older ring to the
+// set-aside slot and loses what was in it.
+uint16_t ringRecordSize(uint16_t version);
+
 // Moves a file out of the way and returns the name it was given. Used for a
 // ring this build cannot read: a version from a newer build after a rollback, a
 // layout that was never released, or a file whose header is damaged. The bytes

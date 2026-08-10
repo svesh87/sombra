@@ -52,6 +52,8 @@ private slots:
     void theSameLightReproducesTheLevelThatWasSet();
     void aLevelBelowTheFloorNeverBecomesTheBase();
     void theFloorAndTheTopOfTheScaleBoundTheResult();
+    void theCeilingBoundsEverythingTheFloorDoesFromTheOtherSide();
+    void aCeilingUnderTheFloorGivesWayToIt();
     void aWiderResponseMovesFurtherForTheSameLight();
     void theFirstDecisionAdoptsAPositionWithoutMoving();
     void steadyLightProducesNoWritesAtAll();
@@ -211,6 +213,63 @@ void BrightnessMapTest::theFloorAndTheTopOfTheScaleBoundTheResult()
     const BrightnessWindow window = brightnessWindow(settings, 90);
     QCOMPARE(window.low, 60);
     QCOMPARE(window.high, 100);
+}
+
+void BrightnessMapTest::theCeilingBoundsEverythingTheFloorDoesFromTheOtherSide()
+{
+    BrightnessSettings settings = testSettings();
+    settings.ceilingPct = 60;
+    BrightnessState state;
+    state.base = 50;
+
+    // The brightest room the curve knows adds the whole response, and the
+    // ceiling is what actually happens.
+    decideBrightness(settings, kEvening, state);
+    moves(settings, state, kCeiling, 20);
+    QCOMPARE(state.step, 60);
+
+    // The window shown to the person is cut by it too.
+    const BrightnessWindow window = brightnessWindow(settings, 50);
+    QCOMPARE(window.low, 20);
+    QCOMPARE(window.high, 60);
+
+    // A level above the ceiling never becomes a base: what got applied is what
+    // the base is derived from, exactly as with the floor.
+    QCOMPARE(brightnessBaseFor(settings, 90, kEvening), 60);
+    QCOMPARE(brightnessClamp(settings, 90), 60);
+    QCOMPARE(brightnessClamp(settings, 1), settings.floorPct);
+}
+
+void BrightnessMapTest::aCeilingUnderTheFloorGivesWayToIt()
+{
+    // Through the settings vocabulary: the bound just given wins and the other
+    // one is moved out of its way, with a line saying so.
+    BrightnessSettings settings = testSettings();
+    QString error;
+    QStringList clamped;
+    QVERIFY(applyBrightnessSetting(settings, QStringLiteral("ceiling_pct"),
+                                   QStringLiteral("40"), &error, &clamped));
+    QVERIFY(applyBrightnessSetting(settings, QStringLiteral("floor_pct"),
+                                   QStringLiteral("70"), &error, &clamped));
+    QCOMPARE(settings.floorPct, 70);
+    QCOMPARE(settings.ceilingPct, 70);
+    QVERIFY2(clamped.join(QLatin1Char(';')).contains(QStringLiteral("ceiling_pct raised")),
+             qPrintable(clamped.join(QLatin1Char(';'))));
+
+    clamped.clear();
+    QVERIFY(applyBrightnessSetting(settings, QStringLiteral("ceiling_pct"),
+                                   QStringLiteral("30"), &error, &clamped));
+    QCOMPARE(settings.ceilingPct, 30);
+    QCOMPARE(settings.floorPct, 30);
+    QVERIFY2(clamped.join(QLatin1Char(';')).contains(QStringLiteral("floor_pct lowered")),
+             qPrintable(clamped.join(QLatin1Char(';'))));
+
+    // And a struct assembled by hand with the bounds crossed still answers
+    // rather than running off the end of std::clamp.
+    BrightnessSettings crossed = testSettings();
+    crossed.floorPct = 80;
+    crossed.ceilingPct = 10;
+    QCOMPARE(brightnessClamp(crossed, 50), 80);
 }
 
 void BrightnessMapTest::aWiderResponseMovesFurtherForTheSameLight()

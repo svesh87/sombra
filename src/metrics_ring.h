@@ -21,7 +21,11 @@ inline constexpr uint32_t kRingMagic = 0x52424d4f;  // "OMBR" little-endian
 //
 // Version 3 is not in the chain and never will be: it existed in a working
 // tree and was never released, so a file claiming it is not a known layout.
-inline constexpr uint16_t kRingVersion = 4;
+//
+// Version 5 is the first with a record that is not 64 bytes. Anything comparing a
+// header's recordSize against sizeof(Sample) is therefore wrong from here on: the
+// question is always "does it match the version that wrote it".
+inline constexpr uint16_t kRingVersion = 5;
 
 #pragma pack(push, 1)
 struct RingHeader {

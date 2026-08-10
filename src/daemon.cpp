@@ -275,12 +275,12 @@ void Daemon::noticeManualBrightness()
     // contribution of this moment taken back out. Coming back to the same room
     // then comes back to the same level.
     //
-    // The floor applies to them as well. It is the one bound that binds
-    // everybody, because a screen driven into unreadable is a failure whoever
-    // did the driving — and a level that was overridden must not become a base
-    // nobody can see on screen.
+    // The floor and the ceiling apply to them as well. They are the bounds that
+    // bind everybody, because a screen driven into unreadable — or into painful —
+    // is a failure whoever did the driving, and a level that was overridden must
+    // not become a base nobody can see on screen.
     const int asked = m_backlight.toPercent(*current);
-    const int applied = std::clamp(asked, m_brightnessSettings.floorPct, 100);
+    const int applied = brightnessClamp(m_brightnessSettings, asked);
     stopBrightnessFade();
     m_brightness.step = BrightnessState::kUnset;
     m_brightness.pending = BrightnessState::kUnset;
@@ -302,7 +302,7 @@ QString Daemon::applyBrightnessLevel(int percent)
 {
     if (!m_backlight.available())
         return QStringLiteral("err the backlight is not available");
-    const int applied = std::clamp(percent, m_brightnessSettings.floorPct, 100);
+    const int applied = brightnessClamp(m_brightnessSettings, percent);
     stopBrightnessFade();
     if (!m_backlight.writeRaw(m_backlight.toRaw(applied)))
         return QStringLiteral("err the backlight could not be written");
@@ -328,9 +328,9 @@ QString Daemon::applyBrightnessBase(int percent)
     // of the moment. That is the reverse of `brightness level`, where the level
     // is given and the baseline is derived — and it is the direction somebody
     // wants when the light is not what they are tuning for.
-    const int base = std::clamp(percent, m_brightnessSettings.floorPct, 100);
+    const int base = brightnessClamp(m_brightnessSettings, percent);
     const int contribution = brightnessContribution(m_brightnessSettings, m_lightSensor.read());
-    const int level = std::clamp(base + contribution, m_brightnessSettings.floorPct, 100);
+    const int level = brightnessClamp(m_brightnessSettings, base + contribution);
 
     stopBrightnessFade();
     if (!m_backlight.writeRaw(m_backlight.toRaw(level)))
@@ -355,6 +355,7 @@ void Daemon::updateBrightness(Sample &sample)
     // marker here as much as it does for the readings.
     sample.brightnessResponse = kAbsentPercent;
     sample.brightnessFloor = kAbsentPercent;
+    sample.brightnessCeiling = kAbsentPercent;
 
     if (!m_backlight.available())
         return;
@@ -363,6 +364,7 @@ void Daemon::updateBrightness(Sample &sample)
     // would have been allowed to do.
     sample.brightnessResponse = static_cast<uint8_t>(m_brightnessSettings.responsePct);
     sample.brightnessFloor = static_cast<uint8_t>(m_brightnessSettings.floorPct);
+    sample.brightnessCeiling = static_cast<uint8_t>(m_brightnessSettings.ceilingPct);
 
     // Read the panel before deciding anything: our own write would overwrite a
     // hand correction before it had been seen.
@@ -508,12 +510,13 @@ QString Daemon::applyBrightnessCommand(const QStringList &parts)
         }
         m_brightnessSettings = edited;
 
-        // A changed floor can leave the panel below it, and the floor binds
+        // A changed bound can leave the panel outside it, and the bounds bind
         // everybody. Re-deriving the base keeps the level the person is looking
         // at meaning what it says.
         if (const auto percent = m_backlight.readPercent()) {
-            if (*percent < edited.floorPct)
-                applyBrightnessLevel(edited.floorPct);
+            const int bounded = brightnessClamp(edited, *percent);
+            if (bounded != *percent)
+                applyBrightnessLevel(bounded);
             else
                 m_state.brightnessBase =
                         brightnessBaseFor(edited, *percent, m_lightSensor.read());
@@ -650,6 +653,7 @@ QString Daemon::configJson() const
     QJsonObject brightness;
     brightness[QStringLiteral("response_pct")] = m_brightnessSettings.responsePct;
     brightness[QStringLiteral("floor_pct")] = m_brightnessSettings.floorPct;
+    brightness[QStringLiteral("ceiling_pct")] = m_brightnessSettings.ceilingPct;
     // Lux, like everywhere a light level leaves this process.
     brightness[QStringLiteral("curve")] = points.join(QStringLiteral(", "));
 
@@ -897,6 +901,7 @@ QString Daemon::statusJson() const
     // is a sentence and "a response of thirty" is not.
     brightness[QStringLiteral("response_pct")] = m_brightnessSettings.responsePct;
     brightness[QStringLiteral("floor_pct")] = m_brightnessSettings.floorPct;
+    brightness[QStringLiteral("ceiling_pct")] = m_brightnessSettings.ceilingPct;
     if (m_state.brightnessBase != DaemonState::kBrightnessBaseUnset) {
         const BrightnessWindow window =
                 brightnessWindow(m_brightnessSettings, m_state.brightnessBase);
@@ -1010,6 +1015,9 @@ void Daemon::tick()
 {
     const uint32_t now = static_cast<uint32_t>(QDateTime::currentSecsSinceEpoch());
     Sample sample = m_sensors.read(now, m_monotonic.elapsed());
+    // Nothing asks the monitors anything yet, and a slot of zeros would read as a
+    // screen sitting at nought per cent. Absence has to be written in.
+    clearMonitorSlots(sample);
 
     Setpoints requested = requestedSetpoints();
     if (sample.pkgTemp == kAbsentTemp) {

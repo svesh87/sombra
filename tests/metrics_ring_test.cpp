@@ -87,6 +87,51 @@ void writeLegacyRing(const QString &path, uint16_t version)
     QCOMPARE(out.write(file), qint64(file.size()));
 }
 
+// The last 64-byte layout, version 4, written the same way and for the same
+// reason: by offsets, so the test does not agree with the code by construction.
+//
+// This one matters more than the others. The record used to be 64 bytes for every
+// released version, so a check written as "recordSize == sizeof(Sample)" passed by
+// accident; with a 128-byte record it fails for every older ring and would send a
+// week of samples to the set-aside slot.
+void writeVersionFourRing(const QString &path)
+{
+    constexpr int kRecord = 64;
+    const int capacity = 8;
+
+    QByteArray file(sizeof(RingHeader) + capacity * kRecord, '\0');
+    RingHeader header {};
+    header.magic = kRingMagic;
+    header.version = 4;
+    header.recordSize = kRecord;
+    header.capacity = capacity;
+    header.seq = 2;
+    std::memcpy(file.data(), &header, sizeof(header));
+
+    for (int i = 0; i < 2; ++i) {
+        char record[kRecord] = {};
+        const auto put = [&record](int offset, const auto &value) {
+            std::memcpy(record + offset, &value, sizeof(value));
+        };
+        put(0, uint32_t(2000 + i));  // ts
+        put(4, int16_t(795));        // pkgTemp
+        put(10, uint16_t(3100));     // fanRpm
+        put(28, uint8_t(3));         // displays
+        put(29, uint8_t(1));         // modeId
+        put(30, uint8_t(20));        // pl1W
+        put(43, uint32_t(19400));    // light, millilux in four bytes by then
+        put(47, uint8_t(65));        // brightness
+        put(48, uint8_t(68));        // brightnessBase
+        put(49, uint8_t(30));        // brightnessResponse
+        put(50, uint8_t(5));         // brightnessFloor
+        std::memcpy(file.data() + sizeof(RingHeader) + i * kRecord, record, kRecord);
+    }
+
+    QFile out(path);
+    QVERIFY(out.open(QIODevice::WriteOnly));
+    QCOMPARE(out.write(file), qint64(file.size()));
+}
+
 } // namespace
 
 class MetricsRingTest : public QObject {
@@ -104,6 +149,8 @@ private slots:
     void keepsTheRecordsAcrossAChangeOfCapacity();
     void carriesVersionOneSamplesForward();
     void carriesVersionTwoSamplesForward();
+    void carriesVersionFourSamplesForward();
+    void aRecordSizeThatDisagreesWithItsVersionIsNotARing();
     void markNewestStampsTheLastRecord();
     void readOnlyMappingRefusesWrites();
     void refusesZeroCapacity();
@@ -118,11 +165,14 @@ void MetricsRingTest::init()
 {
     m_path = m_dir.path() + QStringLiteral("/metrics.ring");
     QFile::remove(m_path);
+    // The set-aside slot too: cases that assert nothing was set aside are
+    // otherwise answered by the leftovers of the case before them.
+    QFile::remove(m_path + QStringLiteral(".bak"));
 }
 
 void MetricsRingTest::geometryIsFixedAndFileSizeFollowsFromIt()
 {
-    QCOMPARE(sizeof(Sample), size_t(64));
+    QCOMPARE(sizeof(Sample), size_t(128));
     QCOMPARE(sizeof(RingHeader), size_t(64));
 
     MetricsRing ring;
@@ -362,6 +412,56 @@ void MetricsRingTest::carriesVersionTwoSamplesForward()
     // An absent reading stays absent rather than becoming the largest lux
     // value in the file.
     QCOMPARE(ring.at(1).light, kAbsentLight);
+}
+
+void MetricsRingTest::carriesVersionFourSamplesForward()
+{
+    writeVersionFourRing(m_path);
+
+    MetricsRing ring;
+    QVERIFY(ring.open(m_path, 16));
+    QCOMPARE(ring.count(), uint64_t(2));
+    QVERIFY2(ring.note().contains(QStringLiteral("version 4")), qPrintable(ring.note()));
+    // Carried, not set aside. The whole point: the samples are still here.
+    QVERIFY(!QFileInfo::exists(m_path + QStringLiteral(".bak")));
+
+    const Sample first = ring.at(0);
+    QCOMPARE(first.ts, uint32_t(2000));
+    QCOMPARE(first.fanRpm, uint16_t(3100));
+    QCOMPARE(first.displays, uint8_t(3));
+    QCOMPARE(first.light, uint32_t(19400));
+    QCOMPARE(first.brightness, uint8_t(65));
+    QCOMPARE(first.brightnessBase, uint8_t(68));
+    QCOMPARE(first.brightnessResponse, uint8_t(30));
+    QCOMPARE(first.brightnessFloor, uint8_t(5));
+
+    // What version 4 did not have is absent rather than zero: zero is a legal
+    // ceiling and a legal brightness, and nobody wrote these down at the time.
+    QCOMPARE(first.brightnessCeiling, kAbsentPercent);
+    QCOMPARE(first.monitors, kAbsentPercent);
+    for (const MonitorSlot &slot : first.monitorSlots) {
+        QCOMPARE(slot.level, kAbsentPercent);
+        QCOMPARE(slot.base, kAbsentPercent);
+        QCOMPARE(slot.floor, kAbsentPercent);
+        QCOMPARE(slot.ceiling, kAbsentPercent);
+        QCOMPARE(slot.response, kAbsentPercent);
+        QCOMPARE(slot.id, uint8_t(0));
+    }
+    QCOMPARE(first.monitorFlags, uint8_t(0));
+}
+
+void MetricsRingTest::aRecordSizeThatDisagreesWithItsVersionIsNotARing()
+{
+    // A file claiming the current version with a 64-byte record is not something
+    // this build wrote, and reading it as if it were would misread every field.
+    // It keeps its bytes, the same as any other unreadable ring.
+    writeVersionFourRing(m_path);
+    setHeaderVersion(m_path, kRingVersion);
+
+    MetricsRing ring;
+    QVERIFY(ring.open(m_path, 16));
+    QCOMPARE(ring.count(), uint64_t(0));
+    QVERIFY(QFileInfo::exists(m_path + QStringLiteral(".bak")));
 }
 
 void MetricsRingTest::markNewestStampsTheLastRecord()

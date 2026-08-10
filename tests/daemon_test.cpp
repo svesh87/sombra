@@ -62,6 +62,7 @@ private slots:
     void theFadeMovesInSeveralStepsRatherThanOne();
     void aHandCorrectionBecomesTheNewBase();
     void theFloorBindsEverybodyIncludingThePerson();
+    void theCeilingBindsEverybodyTheSameWay();
     void selectingAModeDoesNotMoveTheBacklight();
     void brightnessChoicesSurviveARestart();
     void brightnessCommandsAreValidated();
@@ -794,8 +795,8 @@ void DaemonTest::theFloorBindsEverybodyIncludingThePerson()
     // asked for, so there is no hidden number behind the screen.
     QVERIFY(daemon.state().brightnessBase >= 30);
 
-    // There is no ceiling. A hand at the top of the scale stays at the top,
-    // and the automation may take the screen there in a bright room.
+    // The ceiling is 100 out of the box, so a hand at the top of the scale stays
+    // at the top and the automation may take the screen there in a bright room.
     setBacklightByHand(FakeSysfs::kBacklightMax);
     daemon.tick();
     for (int i = 0; i < 20; ++i) {
@@ -803,6 +804,54 @@ void DaemonTest::theFloorBindsEverybodyIncludingThePerson()
         finishFade(daemon);
     }
     QCOMPARE(backlightRaw(), FakeSysfs::kBacklightMax);
+}
+
+void DaemonTest::theCeilingBindsEverybodyTheSameWay()
+{
+    Daemon daemon(options());
+    QVERIFY(daemon.start());
+    QCOMPARE(daemon.handleCommand(QStringLiteral("config set brightness ceiling_pct=60")),
+             QStringLiteral("ok"));
+    daemon.handleCommand(QStringLiteral("brightness on"));
+    setLight(25000);
+    daemon.tick();
+
+    // Asked for the whole scale, given the ceiling — and the reply says which.
+    QCOMPARE(daemon.handleCommand(QStringLiteral("brightness level 100")),
+             QStringLiteral("ok 60"));
+    QVERIFY(daemon.state().brightnessBase <= 60);
+
+    // A hand at the top of the scale is pulled back down to it, the same way the
+    // floor pulls a hand up.
+    setBacklightByHand(FakeSysfs::kBacklightMax);
+    daemon.tick();
+    QVERIFY(daemon.lastSample().brightness <= 60);
+
+    // In force means in the record.
+    QCOMPARE(daemon.lastSample().brightnessCeiling, uint8_t(60));
+
+    // The brightest room the curve knows does not take the screen past it.
+    setLight(400000);
+    for (int i = 0; i < 30; ++i) {
+        daemon.tick();
+        finishFade(daemon);
+    }
+    QVERIFY(backlightRaw() <= FakeSysfs::kBacklightMax * 60 / 100);
+
+    // And it is in both answers, beside the floor.
+    const QJsonObject status =
+            QJsonDocument::fromJson(daemon.handleCommand(QStringLiteral("status")).mid(3).toUtf8())
+                    .object()
+                    .value(QStringLiteral("brightness"))
+                    .toObject();
+    QCOMPARE(status.value(QStringLiteral("ceiling_pct")).toInt(), 60);
+    const QJsonObject configured =
+            QJsonDocument::fromJson(
+                    daemon.handleCommand(QStringLiteral("config show")).mid(3).toUtf8())
+                    .object()
+                    .value(QStringLiteral("brightness"))
+                    .toObject();
+    QCOMPARE(configured.value(QStringLiteral("ceiling_pct")).toInt(), 60);
 }
 
 void DaemonTest::selectingAModeDoesNotMoveTheBacklight()

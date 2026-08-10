@@ -158,7 +158,7 @@ private slots:
     void savesTheChangedNumbersIntoTheModeThatIsNamed();
     void theFanIsOneControlWithFourAnswers();
     void theBacklightSwitchIsOneAction();
-    void theBacklightIsThreeControlsInPerCent();
+    void theBacklightIsFourControlsInPerCent();
     void theAutostartSwitchOwnsItsOwnEntry();
     void theConsoleAppearanceIsAChoiceOfThree();
     void oneResetCoversEverySettingThereIs();
@@ -581,7 +581,7 @@ void TrayWindowTest::theBacklightSwitchIsOneAction()
                     .contains(QStringLiteral("yours alone")));
 }
 
-void TrayWindowTest::theBacklightIsThreeControlsInPerCent()
+void TrayWindowTest::theBacklightIsFourControlsInPerCent()
 {
     TestDaemon daemon(m_tree->root(), m_work.path());
     QVERIFY(daemon.waitUntilListening());
@@ -610,7 +610,16 @@ void TrayWindowTest::theBacklightIsThreeControlsInPerCent()
     QVERIFY(loadBrightnessSettings(configPath(), &saved));
     QCOMPARE(saved.responsePct, 45);
 
-    // The band is what the window says out loud, in per cent.
+    // The band is what the window says out loud, in per cent, and it is bounded
+    // from both sides: the floor and the ceiling are one mechanism seen twice.
+    auto *ceiling = window.findChild<QSpinBox *>(QStringLiteral("ceiling_box"));
+    QVERIFY(ceiling);
+    QCOMPARE(ceiling->value(), kBrightnessDefaultCeilingPct);
+    ceiling->setValue(70);
+    QTRY_COMPARE(client.status().brightnessCeilingPct, 70);
+    QVERIFY(loadBrightnessSettings(configPath(), &saved));
+    QCOMPARE(saved.ceilingPct, 70);
+
     floor->setValue(25);
     QTRY_COMPARE(client.status().brightnessFloorPct, 25);
     client.poll();
@@ -876,8 +885,8 @@ void TrayWindowTest::everyControlThatSendsACommandExplainsItself()
                                 QStringLiteral("revert"),    QStringLiteral("reset_all"),
                                 QStringLiteral("auto_brightness"), QStringLiteral("level"),
                                 QStringLiteral("base"),      QStringLiteral("response"),
-                                QStringLiteral("floor"),     QStringLiteral("appearance"),
-                                QStringLiteral("autostart") };
+                                QStringLiteral("floor"),     QStringLiteral("ceiling"),
+                                QStringLiteral("appearance"), QStringLiteral("autostart") };
     for (const QString &name : named) {
         auto *control = window.findChild<QWidget *>(name);
         QVERIFY2(control, qPrintable(name));

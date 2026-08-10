@@ -158,7 +158,13 @@ bool MetricsRing::prepareExisting(const QString &path, uint64_t capacity, QList<
             && file.read(reinterpret_cast<char *>(&head), sizeof(head)) == sizeof(head);
     file.close();
 
-    const bool isRing = readable && head.magic == kRingMagic && head.recordSize == sizeof(Sample);
+    // The record size is checked against the version in the header, not against
+    // the one this build compiles: those two are no longer the same number for
+    // every version, and confusing them would set aside a ring that migrates
+    // perfectly well.
+    const uint16_t stride = ringRecordSize(head.version);
+    const bool isRing = readable && head.magic == kRingMagic && stride != 0
+            && head.recordSize == stride;
     // Nothing to do for a ring this build wrote at this size: it is mapped as
     // it stands, and reading it out only to write it back would be work for
     // the sake of it.

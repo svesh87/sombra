@@ -82,6 +82,7 @@ BrightnessSettings builtinBrightnessSettings()
     BrightnessSettings settings;
     settings.responsePct = kBrightnessDefaultResponsePct;
     settings.floorPct = kBrightnessDefaultFloorPct;
+    settings.ceilingPct = kBrightnessDefaultCeilingPct;
     // Lux, and measured on this machine rather than guessed:
     //
     //   0.3   the darkest reading of a recorded night
@@ -133,6 +134,31 @@ bool applyBrightnessSetting(BrightnessSettings &settings, const QString &key,
     }
     if (key == QLatin1String("floor_pct")) {
         settings.floorPct = clampReported(number, 0, 100, what, clamped);
+        // The bound just given wins and the other one gives way, because the
+        // person naming a number means that number. Saying so out loud matters:
+        // a ceiling that moved on its own is otherwise found much later.
+        if (settings.ceilingPct < settings.floorPct) {
+            if (clamped) {
+                clamped->append(QStringLiteral("%1: ceiling_pct raised to %2 to stay above "
+                                               "the floor")
+                                        .arg(what)
+                                        .arg(settings.floorPct));
+            }
+            settings.ceilingPct = settings.floorPct;
+        }
+        return true;
+    }
+    if (key == QLatin1String("ceiling_pct")) {
+        settings.ceilingPct = clampReported(number, 0, 100, what, clamped);
+        if (settings.floorPct > settings.ceilingPct) {
+            if (clamped) {
+                clamped->append(QStringLiteral("%1: floor_pct lowered to %2 to stay under "
+                                               "the ceiling")
+                                        .arg(what)
+                                        .arg(settings.ceilingPct));
+            }
+            settings.floorPct = settings.ceilingPct;
+        }
         return true;
     }
 
@@ -179,6 +205,7 @@ QString brightnessSettingsSection(const BrightnessSettings &settings)
     text += QStringLiteral("[brightness]\n");
     text += QStringLiteral("response_pct=%1\n").arg(settings.responsePct);
     text += QStringLiteral("floor_pct=%1\n").arg(settings.floorPct);
+    text += QStringLiteral("ceiling_pct=%1\n").arg(settings.ceilingPct);
     // Lux, and the one place a light level is written down for a person to
     // read. The parser takes the same text back.
     text += QStringLiteral("curve=%1\n").arg(points.join(QStringLiteral(", ")));
@@ -221,20 +248,29 @@ int brightnessContribution(const BrightnessSettings &settings, std::optional<qui
     return scaled >= 0 ? (scaled + 50) / 100 : -((-scaled + 50) / 100);
 }
 
+int brightnessClamp(const BrightnessSettings &settings, int level)
+{
+    // std::clamp is undefined when the bounds cross, and these two arrive from a
+    // file and from tests that build the struct by hand. The floor is the one
+    // that holds: a screen driven into unreadable is the failure it exists for.
+    const int high = std::max(settings.floorPct, settings.ceilingPct);
+    return std::clamp(level, settings.floorPct, high);
+}
+
 int brightnessBaseFor(const BrightnessSettings &settings, int level,
                       std::optional<quint32> light)
 {
-    // The floor first: what got applied is what the base is derived from, and a
+    // The bounds first: what got applied is what the base is derived from, and a
     // level nobody can see would make a base nobody can explain.
-    const int applied = std::clamp(level, settings.floorPct, 100);
+    const int applied = brightnessClamp(settings, level);
     return applied - brightnessContribution(settings, light);
 }
 
 BrightnessWindow brightnessWindow(const BrightnessSettings &settings, int base)
 {
     BrightnessWindow window;
-    window.low = std::clamp(base - settings.responsePct, settings.floorPct, 100);
-    window.high = std::clamp(base + settings.responsePct, settings.floorPct, 100);
+    window.low = brightnessClamp(settings, base - settings.responsePct);
+    window.high = brightnessClamp(settings, base + settings.responsePct);
     return window;
 }
 
@@ -253,14 +289,14 @@ BrightnessDecision decideBrightness(const BrightnessSettings &settings,
     if (!light || settings.curve.isEmpty())
         return decision;
 
-    const int wanted = std::clamp(state.base + brightnessContribution(settings, light),
-                                  settings.floorPct, 100);
+    const int wanted = brightnessClamp(settings,
+                                       state.base + brightnessContribution(settings, light));
 
     // Snap to the grid first, then keep it inside what is permitted: the floor
-    // and the top of the scale are legitimate resting places even when they are
-    // not on the grid.
+    // and the ceiling are legitimate resting places even when they are not on
+    // the grid.
     int candidate = (wanted + kBrightnessStepPct / 2) / kBrightnessStepPct * kBrightnessStepPct;
-    candidate = std::clamp(candidate, settings.floorPct, 100);
+    candidate = brightnessClamp(settings, candidate);
 
     if (state.step == BrightnessState::kUnset) {
         // Adopt the position without moving. This is what makes switching the
@@ -269,7 +305,7 @@ BrightnessDecision decideBrightness(const BrightnessSettings &settings,
         state.step = candidate;
         state.pending = BrightnessState::kUnset;
         state.pendingTicks = 0;
-        decision.target = std::clamp(state.base, settings.floorPct, 100);
+        decision.target = brightnessClamp(settings, state.base);
         return decision;
     }
 

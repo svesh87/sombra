@@ -3,6 +3,7 @@
 
 #include "setpoints.h"
 
+#include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
 
@@ -71,7 +72,13 @@ QString csvHeader()
             "pkg_throttle,core_throttle,mode_id,pl1_w,pl2_w,max_perf_pct,turbo,epp,hwp_boost,"
             "profile,gt_max_mhz,fan_mode,charge_limit,on_ac,guard,mismatch,degraded,live,mark,"
             "light_lux,brightness,brightness_base,auto_brightness,brightness_response,"
-            "brightness_floor,displays");
+            "brightness_floor,displays,brightness_ceiling,monitors,"
+            "monitor1_level,monitor1_base,monitor1_floor,monitor1_ceiling,monitor1_response,"
+            "monitor1_id,"
+            "monitor2_level,monitor2_base,monitor2_floor,monitor2_ceiling,monitor2_response,"
+            "monitor2_id,"
+            "monitor3_level,monitor3_base,monitor3_floor,monitor3_ceiling,monitor3_response,"
+            "monitor3_id");
 }
 
 QString csvRow(const Sample &s)
@@ -117,8 +124,24 @@ QString csvRow(const Sample &s)
         // column that moves breaks every script that reads these files by
         // position, and a new column at the end breaks none.
         field(optional8(s.displays), 0),
+        field(optional8(s.brightnessCeiling), 0),
+        field(optional8(s.monitors), 0),
     };
-    return fields.join(QLatin1Char(','));
+    QStringList all = fields;
+    // One group of six per slot, in slot order, so a column's position says
+    // which screen it belongs to. Which connector a slot is stands in the
+    // documentation: it is fixed by the hardware and does not move.
+    for (int i = 0; i < kMonitorSlots; ++i) {
+        const MonitorSlot &slot = s.monitorSlots[i];
+        all.append(field(optional8(slot.level), 0));
+        all.append(field(optional8(slot.base), 0));
+        all.append(field(optional8(slot.floor), 0));
+        all.append(field(optional8(slot.ceiling), 0));
+        all.append(field(optional8(slot.response), 0));
+        // Zero is "no monitor here", and that is a fact rather than a gap.
+        all.append(QString::number(slot.id));
+    }
+    return all.join(QLatin1Char(','));
 }
 
 QString jsonRow(const Sample &s)
@@ -161,6 +184,23 @@ QString jsonRow(const Sample &s)
     row[QStringLiteral("brightness_response")] = jsonValue(optional8(s.brightnessResponse));
     row[QStringLiteral("brightness_floor")] = jsonValue(optional8(s.brightnessFloor));
     row[QStringLiteral("displays")] = jsonValue(optional8(s.displays));
+    row[QStringLiteral("brightness_ceiling")] = jsonValue(optional8(s.brightnessCeiling));
+    row[QStringLiteral("monitors")] = jsonValue(optional8(s.monitors));
+    QJsonArray monitors;
+    for (int i = 0; i < kMonitorSlots; ++i) {
+        const MonitorSlot &slot = s.monitorSlots[i];
+        QJsonObject entry;
+        entry[QStringLiteral("level")] = jsonValue(optional8(slot.level));
+        entry[QStringLiteral("base")] = jsonValue(optional8(slot.base));
+        entry[QStringLiteral("floor")] = jsonValue(optional8(slot.floor));
+        entry[QStringLiteral("ceiling")] = jsonValue(optional8(slot.ceiling));
+        entry[QStringLiteral("response")] = jsonValue(optional8(slot.response));
+        entry[QStringLiteral("id")] = slot.id;
+        monitors.append(entry);
+    }
+    // An array here where the CSV has eighteen columns: JSON has somewhere to put
+    // a group, and a reader of JSON is not counting positions.
+    row[QStringLiteral("monitor_slots")] = monitors;
     return QString::fromUtf8(QJsonDocument(row).toJson(QJsonDocument::Compact));
 }
 

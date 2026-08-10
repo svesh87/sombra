@@ -340,7 +340,7 @@ sombra brightness on
 sombra brightness off             # remembered across a reboot
 sombra brightness level 80        # the same as moving the control yourself
 sombra brightness base 72         # the level the automation works around
-sombra brightness set response_pct=35 floor_pct=20
+sombra brightness set response_pct=35 floor_pct=20 ceiling_pct=90
 sombra config set brightness response_pct=35 floor_pct=20   # written down
 ```
 
@@ -358,7 +358,9 @@ set.**
   the same amount either way. A reaction of 30 around a baseline of 80 % means
   a dark room can pull it to 50 % and a bright one push it to 100 %.
 - **The floor is the level nothing goes below** — not the automation, and not a
-  slip of the hand either. There is no ceiling, because that is 100 %.
+  slip of the hand either. **The ceiling is the same bound from above**, the whole
+  scale until you move it, and it is what to reach for on a screen that is
+  unpleasant at its own maximum.
 - **It does not hunt.** The target is snapped to coarse steps, each boundary
   carries a hysteresis margin, a new step has to hold for several seconds before
   anything happens, and the move itself is a fade rather than a jump. Steady
@@ -366,8 +368,8 @@ set.**
 - **Off is off.** Switched off, the daemon does not write the backlight at all,
   and neither switching it on nor off moves the backlight by itself.
 
-The level, the baseline, the reaction and the floor are four sliders in the
-console, all in per cent, because "is this right" is a judgement made by eye in
+The level, the baseline, the reaction, the floor and the ceiling are five
+sliders in the console, all in per cent, because "is this right" is a judgement made by eye in
 the room it is meant for. The sensor reading is not on screen: what the room
 measures is the daemon's business.
 

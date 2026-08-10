@@ -49,9 +49,12 @@ the project is, not what it used to be.
   states what is wanted in this light, and the daemon takes the room's
   contribution of that moment back out of it to get the baseline. That is what
   makes the same light return the same level. One number says how far the room
-  may move it either way, a floor says what nothing goes below, and there is no
-  ceiling — that is 100 %. The floor binds the person as well, because a screen
-  driven into unreadable is a failure and not a saving.
+  may move it either way, and a floor and a ceiling say what nothing goes below
+  or above. Both bind the person as well, because a screen driven into unreadable
+  — or into painful — is a failure and not a saving. The ceiling is the whole
+  scale until somebody moves it, and it exists because a screen can be too bright
+  to sit in front of, and because external panels differ in how much light they
+  make of the same per cent.
 - **The baseline can be set outright, not only derived.** Moving the brightness
   says what is wanted in the light of the moment and the baseline follows from it;
   that is the natural direction and it fails at exactly one thing — tuning for a
@@ -60,7 +63,7 @@ the project is, not what it used to be.
   the state file rather than the settings: it is what the person was last looking
   at, not a number they configured.
 - **There are no brightness profiles.** One room, one set of settings: a
-  response, a floor and a curve. A profile would be a name for a set of those
+  response, a floor, a ceiling and a curve. A profile would be a name for a set of those
   numbers, and there was never a second set to switch to.
 - **The curve is calibrated from telemetry, not chosen by eye.** It maps lux to
   a position from 0 to 100, and the position at which it contributes nothing
@@ -254,6 +257,14 @@ itself.
   them. Conversion is a chain of one-step upgrades, each written once and then
   frozen, so a new version costs one struct and one function. Fields the old
   layout did not have are recorded as absent, never as zero.
+- **The record is 128 bytes with half of it spare, and changing that size is the
+  risky edit.** A new field needs a version either way, because the bytes an old
+  record has in that place are zero and what is wanted there is absence. What the
+  spare room avoids is the size changing again — and the size is what makes "is
+  this a ring" a question about the version in the header rather than about the
+  record this build compiles. Answering it with `sizeof(Sample)` works for exactly
+  as long as every version is the same size, and then sets aside a week of samples
+  the day one is not.
 - **A ring this build cannot read is kept, not deleted, and it never stops the
   daemon.** A layout from a newer build after a rollback, one that was never
   released, a header damaged by a power cut: all of them are moved aside with
