@@ -80,6 +80,13 @@ there is not going to be one.
   skipping.
 - **The skin is judged by `board_c`.** `pkg_c` tracks it within a degree at a
   desk, and that is not the scenario where the question arises.
+- **Count the moves before proposing anything about the backlight.** Diff
+  `brightness` between consecutive rows where `auto_brightness` is 1: that is how
+  often the automation moved, and it is the number the person notices. A morning
+  by a window produced forty-three moves in twelve hours before the hysteresis was
+  measured against the unsnapped target instead of the snapped one; the same data
+  replayed gives fifteen. Replaying recorded light through the decision rules is
+  cheap and answers a question about constants that no amount of reasoning does.
 - **The backlight band is `brightness_base ± brightness_response`, and
   saturation at its edges is a signal.** Samples pinned at the top mean the
   automation wanted more room than `response_pct` allows; samples pinned at
@@ -140,6 +147,7 @@ which returns to the values compiled into the daemon.
 Live tuning is a different thing and does not survive a reboot:
 
 ```bash
+ombra brightness base 72           # the level the automation works around
 ombra set pl1=15 max_perf_pct=40   # immediate, not saved
 ombra set fan=max                  # or `ombra fan max`, the same setpoint
 ombra config save live to quiet    # keep it

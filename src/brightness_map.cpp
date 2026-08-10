@@ -281,11 +281,13 @@ BrightnessDecision decideBrightness(const BrightnessSettings &settings,
         return decision;
     }
 
-    // Hysteresis: a candidate that has not cleared the boundary by a margin is
-    // the same step as far as this is concerned. Without it a target sitting on
-    // a boundary would oscillate and the coarse grid would only look like it
-    // was working.
-    if (std::abs(candidate - state.step) * kBrightnessHysteresisDenominator
+    // Hysteresis, measured on the target before it was snapped. Measuring the
+    // snapped one is the same thing as measuring nothing: two adjacent steps are
+    // always a whole step apart, which clears any margin smaller than a step, so
+    // the grid alone decided and its boundary is a single point the light wanders
+    // across. Recorded light from a morning by a window crossed it forty-three
+    // times in twelve hours; against the unsnapped target, fifteen.
+    if (std::abs(wanted - state.step) * kBrightnessHysteresisDenominator
         < kBrightnessStepPct * kBrightnessHysteresisNumerator) {
         state.pending = BrightnessState::kUnset;
         state.pendingTicks = 0;

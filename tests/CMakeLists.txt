@@ -41,6 +41,10 @@ ombra_test(autostart_test LIBS ombra_tray)
 # reached the real one would answer differently on every machine.
 ombra_test(theme_test LIBS ombra_tray ENV "QT_QPA_PLATFORM=offscreen;DBUS_SESSION_BUS_ADDRESS=unix:path=/nonexistent/ombra-test-has-no-session-bus")
 ombra_test(tray_icon_test LIBS ombra_tray ENV "QT_QPA_PLATFORM=offscreen")
+# Pointed at the catalogues this build just compiled, not at the installed ones:
+# a suite that tested what is in /usr would be testing the last release.
+ombra_test(translations_test LIBS ombra_tray
+    ENV "QT_QPA_PLATFORM=offscreen;OMBRA_TRANSLATIONS_DIR=${CMAKE_BINARY_DIR}")
 ombra_test(tray_client_test LIBS ombra_tray ENV "QT_QPA_PLATFORM=offscreen")
 ombra_test(tray_window_test LIBS ombra_tray ENV "QT_QPA_PLATFORM=offscreen")
 add_dependencies(tray_client_test ombrad)

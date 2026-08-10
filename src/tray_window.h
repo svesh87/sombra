@@ -6,6 +6,9 @@
 
 #include <QWidget>
 
+class QResizeEvent;
+class QTimer;
+
 // The console.
 //
 // Four tabs — the readings, the mode, the backlight, the settings — and the
@@ -38,6 +41,11 @@ public:
     explicit TrayWindow(TrayClient &client, QWidget *parent = nullptr);
     ~TrayWindow() override;
 
+    // What the status line is saying, whole. The label itself holds only what fits
+    // in its width, so this is what a test — or anything else asking what the
+    // window said — has to look at.
+    QString statusText() const;
+
     // Resizes the window to the tab it is showing and unlocks the frame. For
     // the documentation pictures: on screen the console keeps one size, which
     // is the size of its largest tab.
@@ -62,6 +70,10 @@ public slots:
     // The backlight. The level is the ordinary brightness control; the other
     // two say how far the automation may move and what it may never go below.
     void sendBacklightLevel();
+    // The level the automation works around. Moving it is the way to set the
+    // baseline outright, rather than waiting for the light that would leave the
+    // wanted baseline behind after moving the brightness itself.
+    void sendBacklightBase();
     void sendBacklightSettings(bool durable);
 
     // Writes or removes the tray's own autostart entry.
@@ -85,6 +97,10 @@ signals:
     void modeSelected(const QString &modeId);
 
 protected:
+    // The status line is elided to the width it has, so it is re-elided whenever
+    // that width changes.
+    void resizeEvent(QResizeEvent *event) override;
+
     // The window sizes itself the first time it is shown, not when it is built:
     // see the implementation for why a freshly built console cannot know how
     // wide it needs to be.
@@ -102,14 +118,32 @@ private:
     // already fits what it has to fit, so dragging it can only produce empty
     // space or a scrollbar over content that had room.
     void fitToLargestTab();
+    // The height the window needs at a given width, which is what makes the
+    // width a choice rather than a guess: a translated label wraps where an
+    // English one did not, and a wider window is a shorter one.
+    int tallestTab(int width);
     void setCommandsEnabled(bool enabled);
     // Sends one command, refreshes, and shows the daemon's own reply. A console
     // is worth nothing if a refused command is silent.
     void sendCommand(const QString &command);
-    // Puts a line under the tabs, making room for it the first time. Hidden
-    // until then: a reply line kept visible from the start is a strip of empty
-    // space along the bottom of every tab.
-    void say(const QString &text);
+
+public:
+    // Puts a line on the status line. A refusal stays there until the next
+    // command; anything else goes back to the daemon's state after a few
+    // seconds, so the line is never a log and never an empty strip.
+    void report(const QString &text, bool refused);
+private:
+    // What the status line says when nothing has just happened, and what its
+    // tooltip says behind it: the short answer and the diagnosis.
+    QString connectionText() const;
+    QString connectionDetail() const;
+    // Puts `m_statusFull` on the line, elided to the room there is.
+    void paintStatus();
+    void showConnectionState();
+    // Gives every entry of the mode selectors an explanation of its own, built
+    // from that mode's saved numbers: a list of three names says nothing to
+    // somebody seeing it for the first time.
+    void describeModes();
     // Asks the daemon what it has saved. On demand rather than polled:
     // definitions change when somebody changes them.
     void reloadConfiguration();
@@ -124,6 +158,14 @@ private:
     // it.
     bool m_updating = false;
     bool m_sized = false;
+    bool m_connected = false;
+    // Set while the line is holding a refusal, which is what keeps a status
+    // update from wiping an answer nobody has read yet.
+    bool m_holdingRefusal = false;
+    QTimer *m_statusTimer = nullptr;
+    // What the status line is saying, before eliding. The label holds only what
+    // fits, and the tooltip holds this.
+    QString m_statusFull;
     // The mode list the selectors currently show. Rebuilding on every status
     // update would close a drop-down while it is being used.
     QStringList m_modeIds;

@@ -94,6 +94,14 @@ reboot; neither switching it on nor off moves the backlight by itself.
 Set the backlight, 0 to 100, exactly as moving the control would: the level
 becomes the baseline the automation works around, and the floor binds it.
 .TP
+.BI "brightness base " percent
+The level the automation works around, set outright. The backlight then follows
+from it and the light of the moment, which is the reverse of
+.B brightness level
+and the direction wanted when the light in the room is not the light being tuned
+for. Kept across a reboot, in the state file rather than the settings: it is what
+the person was last looking at rather than a setting.
+.TP
 .BI "brightness set " key = value " ..."
 The backlight settings, applied at once and written only by
 .BR "config set brightness" :

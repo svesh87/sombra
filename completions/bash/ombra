@@ -62,9 +62,9 @@ _ombra() {
     brightness)
         case ${words[cword - 1]} in
         brightness)
-            COMPREPLY=($(compgen -W "on off level set" -- "$cur"))
+            COMPREPLY=($(compgen -W "on off level base set" -- "$cur"))
             ;;
-        level) ;;
+        level | base) ;;
         *)
             COMPREPLY=($(compgen -W "response_pct= floor_pct= curve=" -- "$cur"))
             compopt -o nospace 2>/dev/null

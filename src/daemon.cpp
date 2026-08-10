@@ -320,6 +320,32 @@ QString Daemon::applyBrightnessLevel(int percent)
     return QStringLiteral("ok %1").arg(applied);
 }
 
+QString Daemon::applyBrightnessBase(int percent)
+{
+    if (!m_backlight.available())
+        return QStringLiteral("err the backlight is not available");
+    // The baseline is set outright, and the level follows from it and the light
+    // of the moment. That is the reverse of `brightness level`, where the level
+    // is given and the baseline is derived — and it is the direction somebody
+    // wants when the light is not what they are tuning for.
+    const int base = std::clamp(percent, m_brightnessSettings.floorPct, 100);
+    const int contribution = brightnessContribution(m_brightnessSettings, m_lightSensor.read());
+    const int level = std::clamp(base + contribution, m_brightnessSettings.floorPct, 100);
+
+    stopBrightnessFade();
+    if (!m_backlight.writeRaw(m_backlight.toRaw(level)))
+        return QStringLiteral("err the backlight could not be written");
+    if (const auto raw = m_backlight.readRaw())
+        m_backlight.noteObserved(*raw);
+
+    m_brightness.step = BrightnessState::kUnset;
+    m_brightness.pending = BrightnessState::kUnset;
+    m_brightness.pendingTicks = 0;
+    m_state.brightnessBase = base;
+    saveState();
+    return QStringLiteral("ok %1").arg(base);
+}
+
 void Daemon::updateBrightness(Sample &sample)
 {
     sample.light = kAbsentLight;
@@ -419,7 +445,7 @@ void Daemon::fadeBrightness()
 QString Daemon::applyBrightnessCommand(const QStringList &parts)
 {
     if (parts.isEmpty())
-        return QStringLiteral("err brightness needs on, off or profile");
+        return QStringLiteral("err brightness needs on, off, level, base or set");
     const QString what = parts.first().toLower();
 
     if (what == QLatin1String("on") || what == QLatin1String("off")) {
@@ -449,6 +475,18 @@ QString Daemon::applyBrightnessCommand(const QStringList &parts)
         if (percent < 0 || percent > 100)
             return QStringLiteral("err brightness level is outside 0..100");
         return applyBrightnessLevel(percent);
+    }
+
+    if (what == QLatin1String("base")) {
+        if (parts.size() < 2)
+            return QStringLiteral("err brightness base needs a percentage");
+        bool ok = false;
+        const int percent = parts.at(1).toInt(&ok);
+        if (!ok)
+            return QStringLiteral("err brightness base is not a number");
+        if (percent < 0 || percent > 100)
+            return QStringLiteral("err brightness base is outside 0..100");
+        return applyBrightnessBase(percent);
     }
 
     if (what == QLatin1String("set")) {
@@ -488,7 +526,7 @@ QString Daemon::applyBrightnessCommand(const QStringList &parts)
         return QStringLiteral("ok ") + clamped.join(QStringLiteral("; "));
     }
 
-    return QStringLiteral("err brightness takes on, off, level or set");
+    return QStringLiteral("err brightness takes on, off, level, base or set");
 }
 
 QString Daemon::applyLiveSetting(const QStringList &assignments)
@@ -840,10 +878,16 @@ QString Daemon::statusJson() const
     QJsonObject brightness;
     brightness[QStringLiteral("available")] = m_backlight.available();
     brightness[QStringLiteral("auto")] = m_state.autoBrightness;
-    brightness[QStringLiteral("level")] =
-            s.brightness == kAbsentPercent ? QJsonValue() : QJsonValue(s.brightness);
+    // Read now rather than taken from the last sample. The sample is telemetry
+    // and is a tick old; these two are what the console repaints its sliders
+    // from, and a slider that snaps back to the previous value for a second
+    // after being moved reads as the command having been refused.
+    const std::optional<int> level = m_backlight.readPercent();
+    brightness[QStringLiteral("level")] = level ? QJsonValue(*level) : QJsonValue();
     brightness[QStringLiteral("base")] =
-            s.brightnessBase == kAbsentPercent ? QJsonValue() : QJsonValue(s.brightnessBase);
+            m_state.brightnessBase == DaemonState::kBrightnessBaseUnset
+                    ? QJsonValue()
+                    : QJsonValue(m_state.brightnessBase);
     // Lux on the wire as well: the console shows nothing of the sensor, and a
     // diagnostic reading in millilux is a number nobody can picture.
     brightness[QStringLiteral("light_lux")] =

@@ -82,6 +82,12 @@ expect_file /usr/share/zsh/vendor-completions/_ombra -rw-r--r--
 expect_file /usr/share/fish/vendor_completions.d/ombra.fish -rw-r--r--
 # Manual pages are compressed by debhelper, which is the one place in this
 # package where that is the right trade: `man` decompresses them itself.
+# The console's catalogues. Compiled from the .ts files at build time, so their
+# absence here means the build step was dropped rather than that a translation is
+# missing.
+expect_file /usr/share/ombra/translations/ombra_ru.qm -rw-r--r--
+expect_file /usr/share/ombra/translations/ombra_es.qm -rw-r--r--
+
 expect_file /usr/share/man/man1/ombra.1.gz -rw-r--r--
 expect_file /usr/share/man/man1/ombra-tray.1.gz -rw-r--r--
 expect_file /usr/share/man/man8/ombrad.8.gz -rw-r--r--

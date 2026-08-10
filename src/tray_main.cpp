@@ -1,5 +1,6 @@
 // Copyright (c) 2026 Sergei Sveshnikov. MIT licensed, see LICENSE.
 #include "theme.h"
+#include "translations.h"
 #include "tray_client.h"
 #include "tray_icon.h"
 #include "tray_window.h"
@@ -51,7 +52,7 @@ QString summaryText(const TrayClient::Status &status)
                                                  status.modeId);
     if (status.packageC <= TrayClient::kNoReading)
         return mode;
-    return QStringLiteral("%1 — %2 °C, %3 RPM")
+    return QCoreApplication::translate("tray", "%1 — %2 °C, %3 RPM")
             .arg(mode, QString::number(status.packageC, 'f', 1),
                  status.fanRpm <= TrayClient::kNoReading
                          ? QStringLiteral("—")
@@ -122,7 +123,12 @@ bool saveScreenshots(const QString &directory, TrayWindow &window, QMenu &menu, 
         // is the one that knows why it normally keeps a single fixed size.
         window.fitToCurrentTab();
         QApplication::processEvents();
-        if (!write(QStringLiteral("console-%1.png").arg(tabs->tabText(i).toLower()),
+        // Named from the tab's object name rather than its title: the title is
+        // translated, and a picture called console-настройки.png is a picture no
+        // document links to. The `tab_` prefix keeps those names from colliding
+        // with the controls' and is not part of a file name.
+        const QString page = tabs->widget(i)->objectName().mid(4);
+        if (!write(QStringLiteral("console-%1.png").arg(page),
                    window.grab())) {
             return false;
         }
@@ -137,6 +143,9 @@ int main(int argc, char **argv)
     QApplication app(argc, argv);
     QApplication::setApplicationName(QStringLiteral("ombra-tray"));
     QApplication::setApplicationVersion(QStringLiteral("0.1.0"));
+    // Before anything is built, because a widget takes its text when it is
+    // constructed and nothing here retranslates itself afterwards.
+    translations::install(&app);
     // Governed by waitForTray() below: while there is no icon in a panel, a
     // closed console has to end the process, because nothing else could bring
     // it back.
@@ -177,13 +186,14 @@ int main(int argc, char **argv)
 
     QSystemTrayIcon tray;
     QMenu menu;
-    QAction *summary = menu.addAction(QStringLiteral("Waiting for the daemon"));
+    QAction *summary =
+            menu.addAction(QCoreApplication::translate("tray", "Waiting for the daemon"));
     summary->setEnabled(false);
     menu.addSeparator();
     // Mode entries are inserted in front of this separator as they arrive.
     QAction *modeAnchor = menu.addSeparator();
-    QAction *consoleAction = menu.addAction(QStringLiteral("Console"));
-    QAction *quitAction = menu.addAction(QStringLiteral("Quit"));
+    QAction *consoleAction = menu.addAction(QCoreApplication::translate("tray", "Console"));
+    QAction *quitAction = menu.addAction(QCoreApplication::translate("tray", "Quit"));
     QActionGroup modeGroup(&menu);
     modeGroup.setExclusive(true);
 
@@ -272,8 +282,10 @@ int main(int argc, char **argv)
                      });
     QObject::connect(&client, &TrayClient::connectionChanged, &app, [&](bool connected) {
         if (!connected) {
-            summary->setText(QStringLiteral("The daemon is not answering"));
-            tray.setToolTip(QStringLiteral("Ombra — the daemon is not answering"));
+            const QString absent = QCoreApplication::translate("tray",
+                                                               "The daemon is not answering");
+            summary->setText(absent);
+            tray.setToolTip(QStringLiteral("Ombra — ") + absent);
             tray.setIcon(trayIcon(false, false, -1, 0));
         }
     });

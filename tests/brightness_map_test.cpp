@@ -45,6 +45,8 @@ class BrightnessMapTest : public QObject {
     Q_OBJECT
 
 private slots:
+    void aBaselineSetOutrightReproducesItsLevel();
+    void aTargetJustOverAGridBoundaryDoesNotMoveTheStep();
     void theCurveIsASignedContributionAroundItsNeutralPoint();
     void theBaseIsTheLevelWithTheLightTakenOut();
     void theSameLightReproducesTheLevelThatWasSet();
@@ -76,6 +78,65 @@ QString BrightnessMapTest::writeConfig(const QString &contents) const
         file.write(contents.toUtf8());
     file.close();
     return path;
+}
+
+void BrightnessMapTest::aTargetJustOverAGridBoundaryDoesNotMoveTheStep()
+{
+    // The defect this is here for: the hysteresis used to be measured on the
+    // target after it had been snapped to the grid, where two adjacent steps are
+    // always a whole step apart and clear any margin smaller than one. So the
+    // margin never applied, the grid's boundary was a single point, and a light
+    // drifting across it moved the backlight every few seconds. A morning by a
+    // window produced forty-three moves in twelve hours.
+    BrightnessSettings settings = builtinBrightnessSettings();
+    settings.responsePct = 40;
+    settings.floorPct = 5;
+
+    BrightnessState state;
+    state.base = 72;
+
+    // Adopted without moving: 85 lux puts the target at 95, which is a step.
+    BrightnessDecision decision = decideBrightness(settings, 85100, state);
+    QVERIFY(!decision.move);
+    QCOMPARE(state.step, 95);
+
+    // 96 lux puts the target at 98 — over the halfway point to 100, so snapping
+    // alone would move it, and the margin says it has not gone far enough.
+    for (int tick = 0; tick < 4 * kBrightnessDwellTicks; ++tick) {
+        decision = decideBrightness(settings, 95800, state);
+        QVERIFY2(!decision.move, "a target inside the margin is the step it is in");
+    }
+    QCOMPARE(state.step, 95);
+
+    // 103 lux puts it at 100, which clears the margin. It still has to hold for
+    // the dwell, and then it moves.
+    for (int tick = 1; tick < kBrightnessDwellTicks; ++tick)
+        QVERIFY(!decideBrightness(settings, 103000, state).move);
+    decision = decideBrightness(settings, 103000, state);
+    QVERIFY(decision.move);
+    QCOMPARE(decision.target, 100);
+    QCOMPARE(state.step, 100);
+}
+
+void BrightnessMapTest::aBaselineSetOutrightReproducesItsLevel()
+{
+    const BrightnessSettings settings = builtinBrightnessSettings();
+    // Two rooms, one baseline. The point of the baseline is that it is the level
+    // the light is measured against, so returning to a light returns to a level.
+    const quint32 evening = 25000;   // millilux: the room the curve calls neutral
+    const quint32 bright = 103000;
+
+    const int base = 70;
+    const int inEvening = std::clamp(base + brightnessContribution(settings, evening),
+                                     settings.floorPct, 100);
+    const int inBright = std::clamp(base + brightnessContribution(settings, bright),
+                                    settings.floorPct, 100);
+    QVERIFY(inBright > inEvening);
+
+    // And the derivation is the inverse: the level reached in a light, taken back
+    // through that light, is the baseline it came from.
+    QCOMPARE(brightnessBaseFor(settings, inEvening, evening), base);
+    QCOMPARE(brightnessBaseFor(settings, inBright, bright), base);
 }
 
 void BrightnessMapTest::theCurveIsASignedContributionAroundItsNeutralPoint()

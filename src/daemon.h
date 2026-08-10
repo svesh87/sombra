@@ -128,6 +128,10 @@ private:
     // One path for the slider, for the brightness keys and for anything else
     // that moves the backlight: a level is a level whoever set it.
     QString applyBrightnessLevel(int percent);
+    // The baseline set outright, with the level following from it and the light.
+    // The reverse of applyBrightnessLevel(), and the direction wanted when the
+    // light in the room is not the light being tuned for.
+    QString applyBrightnessBase(int percent);
     // A hand correction is an instruction, and it is read before anything is
     // computed: our own write would otherwise overwrite it before it was seen.
     void noticeManualBrightness();

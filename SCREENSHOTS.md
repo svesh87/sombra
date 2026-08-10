@@ -70,18 +70,30 @@ the mode, the saved definitions, the live sliders — puts the same eight number
 in three places, because "applies now" and "written down" are two properties of
 one thing, not two things.
 
-The connection line sits outside the tabs: whether the daemon is answering is
-not something to go looking for on another tab. The daemon's reply to the last
-command appears under them, on the same terms — and only once there is one,
-because a reply line kept visible from the start is a strip of empty space along
-the bottom of every tab.
+One line under the tabs carries both what the daemon's state is and what it said
+to the last command, where every other window on the machine puts one. It is short
+on purpose — "Connected", or the reply itself — and it never wraps: a command
+echoed back with its assignments is longer than any sensible window, and a second
+line would come out of the tab above. What does not fit is elided, and the whole
+of it, along with the socket and the group, is in the tooltip: neither is something to go looking for on another tab, and
+two lines meant a strip of empty space under every tab for as long as nothing had
+been commanded yet. An accepted reply gives the line back after five seconds; a
+refusal stays until the next command, because it is the answer to something the
+person did and five seconds is not long enough to be sure it was read.
 
-### Now — what only reports
+The pictures are taken in English whatever the language of the machine taking
+them, and their file names come from the tabs' internal names rather than their
+titles — a picture called `console-настройки.png` is a picture no document links
+to.
 
-![The Now tab](screenshots/console-now.png)
+### Status — what only reports
 
-The readings, the indicators for the states worth knowing about, and the three
-verdict buttons. The line under *State* here is an indicator doing its job: the
+![The Status tab](screenshots/console-status.png)
+
+The readings in two columns — temperatures and the fan on one side, where the
+power is going on the other — the indicators for the states worth knowing about,
+and the three verdict buttons under *How is it working*: the question is whether
+the machine is behaving, and two of the three answers are about noise and speed. The line under *State* here is an indicator doing its job: the
 controls have been moved, so what is running is not one of the saved modes.
 
 Good, too loud and too slow stamp a judgement onto the current sample. They are
@@ -117,16 +129,29 @@ is what makes "it is too hot right now" one click rather than a command line.
 Its own tab, deliberately not beside the mode: selecting a thermal mode never
 moves the backlight, and nothing about the backlight reaches the thermal side.
 
-Three sliders, all in per cent. *Brightness* is the ordinary control and the
-level it leaves behind is the baseline everything else works around; *Reaction
-to light* is how far the room may move it either way; *Never darker than* is the
-floor, which binds the automation and a slip of the hand alike. There is no
-ceiling, because that is 100 %, and there are no profiles: one room, one set of
-settings.
+Four sliders, all in per cent. *Brightness* is the ordinary control, and the
+level it leaves behind is what the baseline is derived from; *Baseline* is that
+level set outright, which is what to reach for when the light in the room is not
+the light being tuned for; *Reaction to light* is how far the room may move the
+backlight either way from it; *Never darker than* is the floor, which binds the
+automation and a slip of the hand alike. There is no ceiling, because that is
+100 %, and there are no profiles: one room, one set of settings.
+
+The baseline is a control only while the automation is running. Switched off it
+is a number nothing acts on, so it is greyed out rather than left to be moved.
 
 Nothing about the sensor is on screen. What the room measures in lux is the
 daemon's business, and the curve that reads it is calibrated from recorded
 telemetry rather than judged on the spot.
+
+Every control explains itself on hover, and so does every entry of every list:
+what the long-term limit is against the short-term one, what `balance_power` means,
+what a fan curve actually does at 3700 RPM, and — for each mode — its own numbers
+and where it sits on the scale. A list of three names says nothing to somebody
+seeing it for the first time, and the mode descriptions are built from the saved
+definitions rather than written down, so a mode that is tuned takes its
+description with it. Those explanations used to be paragraphs in the window, which
+cost the controls height and doubled what there was to translate.
 
 Everything that sends a command greys out while nothing is answering, on every
 tab: a slider parked at its minimum is otherwise indistinguishable from a daemon

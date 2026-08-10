@@ -37,8 +37,8 @@ complete -c ombra -n '__fish_seen_subcommand_from fan' -a 'max auto'
 complete -c ombra -n '__fish_seen_subcommand_from set' \
     -a 'pl1= pl2= max_perf_pct= turbo= epp= hwp_boost= gt_max_mhz= profile= fan='
 
-complete -c ombra -n '__fish_seen_subcommand_from brightness; and not __fish_seen_subcommand_from on off level set' \
-    -a 'on off level set'
+complete -c ombra -n '__fish_seen_subcommand_from brightness; and not __fish_seen_subcommand_from on off level base set' \
+    -a 'on off level base set'
 complete -c ombra -n '__fish_seen_subcommand_from brightness; and __fish_seen_subcommand_from set' \
     -a 'response_pct= floor_pct= curve='
 

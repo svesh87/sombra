@@ -62,8 +62,13 @@
 // Percentage points of the panel scale. Coarse on purpose: this is the "wide
 // steps" the automation is allowed to move in.
 inline constexpr int kBrightnessStepPct = 5;
-// A third of a step, expressed so the comparison stays in integers:
-// 6 * distance >= 5 * step is distance >= step/2 + step/3.
+// How far the target has to be from the step in force before another step is
+// considered, as a fraction of a step and in integers so the comparison needs no
+// floating point: 6 * distance >= 5 * step is distance >= step/2 + step/3.
+//
+// Measured against the target as the curve produced it, not against the target
+// snapped to the grid. Snapping first makes this a no-op, because two adjacent
+// steps are a whole step apart and clear any margin below one.
 inline constexpr int kBrightnessHysteresisNumerator = 5;
 inline constexpr int kBrightnessHysteresisDenominator = 6;
 // Ticks a new step must survive before anything moves. The daemon ticks at

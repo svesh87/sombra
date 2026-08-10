@@ -67,9 +67,15 @@ done
 "$build/ombra" --socket "$socket" set pl1=17 >/dev/null
 "$build/ombra" --socket "$socket" mark good >/dev/null
 
+# English, whatever the language of the machine taking the pictures: the
+# documents around them are English, and a picture whose labels are not is a
+# picture that documents somebody's locale. LANGUAGE alone is not enough, because
+# Qt reads LC_ALL first.
+#
 # Offscreen and pointed at a session bus that does not exist: the console is a
 # widget being photographed, and it must not register an icon in the panel of
 # whoever is running this.
-QT_QPA_PLATFORM=offscreen \
+LC_ALL=C.UTF-8 LANGUAGE=en \
+    QT_QPA_PLATFORM=offscreen \
     DBUS_SESSION_BUS_ADDRESS=unix:path=/nonexistent/ombra-screenshots-have-no-bus \
     "$build/ombra-tray" --socket "$socket" --screenshot "$root/screenshots"

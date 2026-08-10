@@ -12,7 +12,7 @@ if(ENABLE_COVERAGE AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     add_link_options(--coverage)
 endif()
 
-find_package(Qt6 REQUIRED COMPONENTS Core Network DBus Widgets Test)
+find_package(Qt6 REQUIRED COMPONENTS Core Network DBus Widgets Test LinguistTools)
 
 set(OMBRA_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/src)
 set(OMBRA_WARNINGS -Wall -Wextra -Wpedantic -Werror)
@@ -59,6 +59,7 @@ add_library(ombra_tray STATIC
     src/theme.cpp
     src/tray_client.cpp
     src/tray_icon.cpp
+    src/translations.cpp
     src/tray_window.cpp
 )
 # DBus is here for one thing: asking the desktop portal whether it wants light
@@ -86,6 +87,13 @@ if(BUILD_TESTING)
 endif()
 
 include(GNUInstallDirs)
+
+# Where the console looks for its catalogues, and what it is told at compile time.
+# One place for both, because a mismatch between them is a translation that is
+# installed and never loaded.
+set(OMBRA_TRANSLATIONS_DIR ${CMAKE_INSTALL_DATAROOTDIR}/ombra/translations)
+target_compile_definitions(ombra_tray PRIVATE
+    OMBRA_TRANSLATIONS_PATH="${CMAKE_INSTALL_FULL_DATAROOTDIR}/ombra/translations")
 install(TARGETS ombrad ombra ombra-tray
         RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
 # No configuration is installed. The daemon carries its defaults compiled in
@@ -104,6 +112,29 @@ install(FILES completions/zsh/_ombra
         DESTINATION ${CMAKE_INSTALL_DATAROOTDIR}/zsh/vendor-completions)
 install(FILES completions/fish/ombra.fish
         DESTINATION ${CMAKE_INSTALL_DATAROOTDIR}/fish/vendor_completions.d)
+
+# The console's catalogues. Compiled here rather than committed: a .qm is a build
+# product, and the .ts files beside them are the source. `lupdate` is a target of
+# its own — running it is how new strings get into the .ts, and it is not part of
+# an ordinary build, because it rewrites files in the source tree.
+set(OMBRA_TS_FILES
+    translations/ombra_ru.ts
+    translations/ombra_es.ts)
+# The target form, which is what this Qt takes: it hooks the compilation of the
+# catalogues to the library's own build and gives `ombra_tray_lupdate` for
+# refreshing the .ts files by hand.
+# `src/tray_main.cpp` is named on top of the target's own sources: it belongs to
+# the executable rather than to this library, and the menu of the panel icon lives
+# in it.
+# The two files with translatable strings, named rather than taken from a target:
+# the window belongs to this library and the panel menu to the executable, and
+# lupdate needs both in one pass or the strings of the other become obsolete.
+qt_add_lupdate(ombra_tray TS_FILES ${OMBRA_TS_FILES}
+    SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/src/tray_window.cpp
+            ${CMAKE_CURRENT_SOURCE_DIR}/src/tray_main.cpp)
+qt_add_lrelease(ombra_tray TS_FILES ${OMBRA_TS_FILES}
+    QM_FILES_OUTPUT_VARIABLE OMBRA_QM_FILES)
+install(FILES ${OMBRA_QM_FILES} DESTINATION ${OMBRA_TRANSLATIONS_DIR})
 
 install(FILES man/ombra.1 man/ombra-tray.1 DESTINATION ${CMAKE_INSTALL_MANDIR}/man1)
 install(FILES man/ombrad.8 DESTINATION ${CMAKE_INSTALL_MANDIR}/man8)

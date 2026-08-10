@@ -52,7 +52,7 @@ _ombra() {
             ;;
         brightness)
             case $words[2] in
-            "") compadd on off level set ;;
+            "") compadd on off level base set ;;
             set) compadd -S '' response_pct= floor_pct= curve= ;;
             esac
             ;;

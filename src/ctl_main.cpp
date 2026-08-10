@@ -79,6 +79,7 @@ int runControl(const QStringList &arguments)
             "  fan max|auto               shorthand for set fan=<value>\n"
             "  brightness on|off          follow the ambient light sensor, or do not\n"
             "  brightness level <percent>  set the backlight, as the person would\n"
+            "  brightness base <percent>   the level the automation works around\n"
             "  brightness set <key>=<value> ...  response_pct, floor_pct, curve\n"
             "  charge <percent>           battery charge threshold\n"
             "  config show                what the daemon has saved, as JSON\n"

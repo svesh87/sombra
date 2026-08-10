@@ -157,7 +157,19 @@ written yet.
 ## Building and installing
 
 Requires CMake 3.16, a C++17 compiler and Qt 6 (Core, Network, DBus, Widgets,
-Test). Building the package additionally needs `debhelper` and `dpkg-dev`.
+Test, LinguistTools). On Debian and its derivatives that is:
+
+```bash
+sudo apt install build-essential cmake \
+    qt6-base-dev qt6-base-dev-tools libqt6svg6 \
+    qt6-l10n-tools qt6-tools-dev \
+    debhelper dpkg-dev lcov
+```
+
+`qt6-l10n-tools` and `qt6-tools-dev` are the translation tools — `lupdate`,
+`lrelease` and the CMake package that drives them. `debhelper` and `dpkg-dev` are
+for `make package`, and `lcov` for the coverage gate; building and running the
+binaries needs neither.
 
 ```bash
 make            # build
@@ -272,6 +284,15 @@ There are exactly three modes and they are edited in place, because the desktop
 panel has three slots and a fourth definition would live where the panel cannot
 reach it.
 
+The console speaks the language of the system, in Russian, English or Spanish.
+Only the console: `ombra --help`, the daemon's replies and the manual pages stay
+in English, because they are read in a terminal, quoted in documentation and
+searched for by their exact wording. That shows in one place — a reply on the
+status line is English inside a translated window — and it is the honest trade
+rather than an oversight. The catalogues are in
+`/usr/share/ombra/translations`, and an unknown language shows the source
+language, which is English.
+
 The console's *Settings* tab holds what is about the program rather than the
 machine: whether it starts with the session, what it looks like, and one button
 that puts every mode definition and every backlight setting back to the values
@@ -304,6 +325,7 @@ side.
 ombra brightness on
 ombra brightness off             # remembered across a reboot
 ombra brightness level 80        # the same as moving the control yourself
+ombra brightness base 72         # the level the automation works around
 ombra brightness set response_pct=35 floor_pct=20
 ombra config set brightness response_pct=35 floor_pct=20   # written down
 ```
@@ -314,7 +336,10 @@ set.**
 - **The level you set is the baseline.** Moving the brightness says what you
   want in this light. The daemon takes the room's contribution of that moment
   back out of it, and what is left is the baseline — which is what makes
-  returning to the same light return to the same brightness, exactly.
+  returning to the same light return to the same brightness, exactly. The
+  baseline can also be set outright, with `brightness base` or the slider beside
+  the brightness one, which is what to reach for when the light in the room is
+  not the light you are tuning for.
 - **The reaction says how far the room may move it**, in percentage points and
   the same amount either way. A reaction of 30 around a baseline of 80 % means
   a dark room can pull it to 50 % and a bright one push it to 100 %.
@@ -327,10 +352,10 @@ set.**
 - **Off is off.** Switched off, the daemon does not write the backlight at all,
   and neither switching it on nor off moves the backlight by itself.
 
-The level, the reaction and the floor are three sliders in the console, all in
-per cent, because "is this right" is a judgement made by eye in the room it is
-meant for. The sensor reading is not on screen: what the room measures is the
-daemon's business.
+The level, the baseline, the reaction and the floor are four sliders in the
+console, all in per cent, because "is this right" is a judgement made by eye in
+the room it is meant for. The sensor reading is not on screen: what the room
+measures is the daemon's business.
 
 The fourth number is the curve, which maps a light reading in lux to a position
 from 0 to 100 — 0 subtracts the whole reaction, 50 contributes nothing, 100 adds

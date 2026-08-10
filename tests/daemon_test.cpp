@@ -69,6 +69,7 @@ private slots:
     void theBacklightSettingsAreDurable();
     void theBacklightPathDegradesOnItsOwn();
     void configShowAnswersWithWhatIsSaved();
+    void theBaselineIsSetOutrightAndSurvivesARestart();
     void editingAModeIsDurableAndAppliesAtOnce();
     void modesAreEditedNotCreated();
     void aRefusedEditChangesNothingOnDiskOrInMemory();
@@ -1009,6 +1010,49 @@ void DaemonTest::configShowAnswersWithWhatIsSaved()
     // lit room, because the sensor reads well past a lit room.
     const QString curve = brightness.value(QStringLiteral("curve")).toString();
     QVERIFY2(curve.contains(QLatin1String("400:100")), qPrintable(curve));
+}
+
+void DaemonTest::theBaselineIsSetOutrightAndSurvivesARestart()
+{
+    Daemon daemon(options());
+    QString error;
+    QVERIFY2(daemon.start(&error), qPrintable(error));
+    QVERIFY(daemon.handleCommand(QStringLiteral("brightness on"))
+                    .startsWith(QLatin1String("ok")));
+
+    // Set outright, and the level follows from it and the light of the moment —
+    // the reverse of `brightness level`, where the level is given and the
+    // baseline is derived from it.
+    QCOMPARE(daemon.handleCommand(QStringLiteral("brightness base 64")), QStringLiteral("ok 64"));
+    QJsonObject brightness = statusOf(daemon).value(QLatin1String("brightness")).toObject();
+    QCOMPARE(brightness.value(QLatin1String("base")).toInt(), 64);
+    const int level = brightness.value(QLatin1String("level")).toInt();
+    QVERIFY2(level < 64, "the fake tree is a dark room, so the room subtracts");
+
+    // The floor binds the baseline as it binds everything else about the
+    // backlight: a screen driven into unreadable is a failure, not a saving.
+    QVERIFY(daemon.handleCommand(QStringLiteral("config set brightness floor_pct=40"))
+                    .startsWith(QLatin1String("ok")));
+    QCOMPARE(daemon.handleCommand(QStringLiteral("brightness base 5")), QStringLiteral("ok 40"));
+
+    // Refusals, each naming what was wrong with it.
+    QVERIFY(daemon.handleCommand(QStringLiteral("brightness base"))
+                    .contains(QLatin1String("percentage")));
+    QVERIFY(daemon.handleCommand(QStringLiteral("brightness base half"))
+                    .contains(QLatin1String("not a number")));
+    QVERIFY(daemon.handleCommand(QStringLiteral("brightness base 140"))
+                    .contains(QLatin1String("outside 0..100")));
+
+    // Kept in the state file, so a reboot does not lose the level the person
+    // works around. It is not a setting: it is what they were last looking at.
+    QVERIFY(daemon.handleCommand(QStringLiteral("brightness base 70"))
+                    .startsWith(QLatin1String("ok")));
+    daemon.shutdown();
+
+    Daemon restarted(options());
+    QVERIFY2(restarted.start(&error), qPrintable(error));
+    QCOMPARE(restarted.state().brightnessBase, 70);
+    restarted.shutdown();
 }
 
 void DaemonTest::editingAModeIsDurableAndAppliesAtOnce()

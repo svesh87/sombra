@@ -165,7 +165,10 @@ private slots:
     void repaintingFromAStatusSendsNothing();
     void saysSoWhenTheDaemonIsUnreachable();
     void theWindowKeepsOneSizeForEveryTab();
-    void theReplyLineTakesNoRoomUntilThereIsAReply();
+    void oneLineCarriesTheStateAndTheReplies();
+    void everyControlThatSendsACommandExplainsItself();
+    void everyChoiceInAListExplainsItself();
+    void theBaselineIsAControlOfItsOwn();
     void theTrayBinaryRunsAgainstADaemon();
     void aSecondConsoleOpensTheFirstOneInstead();
     void theTrayWaitsForALateTrayHost();
@@ -356,7 +359,7 @@ void TrayWindowTest::movingASliderTunesTheDaemonImmediately()
     QCOMPARE(client.status().requested.maxPerfPct, 50);
     QCOMPARE(client.status().requested.profile, Profile::Balanced);
     QCOMPARE(window.findChild<QSpinBox *>(QStringLiteral("pl1_box"))->value(), 15);
-    QVERIFY(window.findChild<QLabel *>(QStringLiteral("notice"))->text()
+    QVERIFY(window.statusText()
                     .contains(QStringLiteral("pl1=15")));
     // Applied at once and not written down: keeping it is a separate act with
     // a named destination.
@@ -440,16 +443,15 @@ void TrayWindowTest::theMarkButtonsStampTheCurrentSample()
     // The verdict buttons are dead until something answers, so the window has
     // to have seen a status before they can be clicked.
     client.poll();
-    auto *notice = window.findChild<QLabel *>(QStringLiteral("notice"));
 
     // A judgement made by ear is worthless unless it can be traced back to the
     // numbers that produced it, which is what stamping the sample buys.
     window.findChild<QPushButton *>(QStringLiteral("mark_good"))->click();
-    QCOMPARE(notice->text(), QStringLiteral("mark good → ok"));
+    QCOMPARE(window.statusText(), QStringLiteral("mark good → ok"));
     window.findChild<QPushButton *>(QStringLiteral("mark_too_loud"))->click();
-    QCOMPARE(notice->text(), QStringLiteral("mark too-loud → ok"));
+    QCOMPARE(window.statusText(), QStringLiteral("mark too-loud → ok"));
     window.findChild<QPushButton *>(QStringLiteral("mark_too_slow"))->click();
-    QCOMPARE(notice->text(), QStringLiteral("mark too-slow → ok"));
+    QCOMPARE(window.statusText(), QStringLiteral("mark too-slow → ok"));
 }
 
 void TrayWindowTest::movingAControlEmptiesTheModeSelector()
@@ -633,8 +635,7 @@ void TrayWindowTest::theAutostartSwitchOwnsItsOwnEntry()
 
     toggle->setChecked(true);
     QVERIFY(QFile::exists(autostart::entryPath()));
-    QVERIFY(window.findChild<QLabel *>(QStringLiteral("notice"))
-                    ->text()
+    QVERIFY(window.statusText()
                     .contains(QStringLiteral("next login")));
 
     toggle->setChecked(false);
@@ -652,8 +653,7 @@ void TrayWindowTest::theAutostartSwitchOwnsItsOwnEntry()
     qputenv("XDG_CONFIG_HOME", QByteArray("/proc/self/impossible"));
     toggle->setChecked(true);
     QVERIFY(!toggle->isChecked());
-    QVERIFY(window.findChild<QLabel *>(QStringLiteral("notice"))
-                    ->text()
+    QVERIFY(window.statusText()
                     .startsWith(QStringLiteral("autostart")));
 
     qputenv("XDG_CONFIG_HOME", config.path().toUtf8());
@@ -766,13 +766,14 @@ void TrayWindowTest::saysSoWhenTheDaemonIsUnreachable()
     TrayClient client(m_work.path() + QStringLiteral("/absent.sock"));
     TrayWindow window(client);
 
-    // The banner names the socket and the group, because "not answering" on
-    // its own leaves the person guessing which of the two usual causes it is.
-    auto *banner = window.findChild<QLabel *>(QStringLiteral("connection"));
+    // Short on the line and specific behind it: the socket and the group are
+    // what a diagnosis needs, and "not answering" is what a glance needs.
+    auto *banner = window.findChild<QLabel *>(QStringLiteral("status"));
     QVERIFY(!banner->isHidden());
-    QVERIFY(banner->text().contains(QStringLiteral("not answering")));
-    QVERIFY(banner->text().contains(client.socketPath()));
-    QVERIFY(banner->text().contains(QString::fromLatin1(kControlSocketGroup)));
+    QVERIFY(window.statusText().contains(QStringLiteral("not answering")));
+    QVERIFY(!window.statusText().contains(client.socketPath()));
+    QVERIFY(banner->toolTip().contains(client.socketPath()));
+    QVERIFY(banner->toolTip().contains(QString::fromLatin1(kControlSocketGroup)));
 
     // Nothing that would send a command is usable, so a slider parked at its
     // minimum cannot be read as a setpoint the daemon is holding.
@@ -782,48 +783,188 @@ void TrayWindowTest::saysSoWhenTheDaemonIsUnreachable()
 
     // A command that goes nowhere says so rather than looking like it worked.
     window.markGood();
-    QCOMPARE(window.findChild<QLabel *>(QStringLiteral("notice"))->text(),
+    QCOMPARE(window.statusText(),
              QStringLiteral("mark good → no reply"));
     // With no daemon there are no modes either, so there is nothing to save
     // into and the window says that rather than sending into the void.
     window.saveToMode();
-    QCOMPARE(window.findChild<QLabel *>(QStringLiteral("notice"))->text(),
+    QCOMPARE(window.statusText(),
              QStringLiteral("No modes to save into yet."));
 
     TestDaemon daemon(m_tree->root(), m_work.path());
     QVERIFY(daemon.waitUntilListening());
     TrayClient live(socketPath());
     TrayWindow second(live);
-    auto *connection = second.findChild<QLabel *>(QStringLiteral("connection"));
-    QVERIFY(connection->text().contains(QStringLiteral("not answering")));
+    auto *connection = second.findChild<QLabel *>(QStringLiteral("status"));
+    QVERIFY(second.statusText().contains(QStringLiteral("not answering")));
     live.poll();
-    QVERIFY(connection->text().contains(QStringLiteral("Connected")));
-    QVERIFY(connection->text().contains(live.socketPath()));
+    QVERIFY(second.statusText().contains(QStringLiteral("Connected")));
+    QVERIFY(connection->toolTip().contains(live.socketPath()));
     QVERIFY(second.findChild<QSlider *>(QStringLiteral("pl1_slider"))->isEnabled());
 }
 
-void TrayWindowTest::theReplyLineTakesNoRoomUntilThereIsAReply()
+void TrayWindowTest::oneLineCarriesTheStateAndTheReplies()
 {
-    TestDaemon daemon(m_tree->root(), m_work.path());
-    QVERIFY(daemon.waitUntilListening());
+    auto daemon = std::make_unique<TestDaemon>(m_tree->root(), m_work.path());
+    QVERIFY(daemon->waitUntilListening());
     TrayClient client(socketPath());
     TrayWindow window(client);
     client.poll();
     window.show();
     QTest::qWait(50);
 
-    auto *notice = window.findChild<QLabel *>(QStringLiteral("notice"));
-    QVERIFY(notice);
-    // Nothing said yet, so nothing takes room: a reply line kept visible from
-    // the start is a strip of empty space along the bottom of every tab.
-    QVERIFY(!notice->isVisible());
-    const int before = window.height();
+    auto *status = window.findChild<QLabel *>(QStringLiteral("status"));
+    QVERIFY(status);
+    const QString connected = window.statusText();
+    QVERIFY(connected.contains(QStringLiteral("Connected")));
+    const int height = window.height();
 
+    // An accepted command shows its reply and gives the line back by itself. The
+    // window does not change size for it: one line carries both, which is why
+    // there is no strip of empty space waiting for a reply that never came.
     window.markGood();
+    QVERIFY(window.statusText().contains(QStringLiteral("mark good")));
+    QCOMPARE(window.height(), height);
+
+    // A message longer than the window is elided rather than wrapped: a second
+    // line would come out of the tab above it. The whole of it is in the tooltip,
+    // and `statusText()` is what anything asking what the window said looks at.
+    const int oneLine = status->height();
+    window.report(QString(400, QLatin1Char('x')), false);
+    QCOMPARE(status->height(), oneLine);
+    QCOMPARE(window.height(), height);
+    QCOMPARE(status->toolTip(), window.statusText());
+    QVERIFY2(status->text().size() < window.statusText().size(),
+             "the line holds what fits and the whole of it is behind it");
+    QTRY_COMPARE_WITH_TIMEOUT(window.statusText(), connected, 8000);
+
+    // A command that goes nowhere is a refusal, and a refusal stays: it is the
+    // answer to something the person did, and a few seconds is not long enough
+    // to be sure it was read.
+    daemon.reset();
+    client.poll();
+    window.markGood();
+    const QString refusal = window.statusText();
+    QVERIFY2(refusal.contains(QStringLiteral("no reply")), qPrintable(refusal));
+    QTest::qWait(300);
+    QCOMPARE(window.statusText(), refusal);
+
+    // Not even a change of connection state wipes it. The next command does.
+    client.poll();
+    QCOMPARE(window.statusText(), refusal);
+    window.markTooLoud();
+    QVERIFY(window.statusText().contains(QStringLiteral("mark too-loud")));
+}
+
+void TrayWindowTest::everyControlThatSendsACommandExplainsItself()
+{
+    TestDaemon daemon(m_tree->root(), m_work.path());
+    QVERIFY(daemon.waitUntilListening());
+    TrayClient client(socketPath());
+    TrayWindow window(client);
+    client.poll();
+
+    // The explanations used to be paragraphs in the window, which cost height the
+    // controls needed and had to be translated twice over. They live on the
+    // controls now, so this is the test that keeps one from being forgotten.
+    const QStringList named = { QStringLiteral("mode"),      QStringLiteral("mode_at_boot"),
+                                QStringLiteral("pl1"),       QStringLiteral("pl2"),
+                                QStringLiteral("max_perf_pct"), QStringLiteral("gt_max_mhz"),
+                                QStringLiteral("epp"),       QStringLiteral("profile"),
+                                QStringLiteral("turbo"),     QStringLiteral("hwp_boost"),
+                                QStringLiteral("save"),      QStringLiteral("save_target"),
+                                QStringLiteral("revert"),    QStringLiteral("reset_all"),
+                                QStringLiteral("auto_brightness"), QStringLiteral("level"),
+                                QStringLiteral("base"),      QStringLiteral("response"),
+                                QStringLiteral("floor"),     QStringLiteral("appearance"),
+                                QStringLiteral("autostart") };
+    for (const QString &name : named) {
+        auto *control = window.findChild<QWidget *>(name);
+        QVERIFY2(control, qPrintable(name));
+        QVERIFY2(!control->toolTip().isEmpty(), qPrintable(name));
+    }
+
+    // And the paragraphs are gone: two labels that said what a tooltip says now.
+    const QList<QLabel *> labels = window.findChildren<QLabel *>();
+    for (const QLabel *label : labels) {
+        QVERIFY2(!label->text().contains(QStringLiteral("next login")),
+                 qPrintable(label->text()));
+        QVERIFY2(!label->text().contains(QStringLiteral("compiled into the daemon")),
+                 qPrintable(label->text()));
+    }
+}
+
+void TrayWindowTest::everyChoiceInAListExplainsItself()
+{
+    TestDaemon daemon(m_tree->root(), m_work.path());
+    QVERIFY(daemon.waitUntilListening());
+    TrayClient client(socketPath());
+    TrayWindow window(client);
+    client.poll();
     QTest::qWait(50);
-    QVERIFY(notice->isVisible());
-    QVERIFY2(window.height() > before, "the frame is fixed, so it has to make the room");
-    QVERIFY(notice->text().contains(QStringLiteral("mark good")));
+
+    // A list of three names says nothing to somebody seeing it for the first
+    // time, so every entry carries what it is: the modes their own numbers, the
+    // energy preferences and the fan curves what they mean.
+    auto *mode = window.findChild<QComboBox *>(QStringLiteral("mode"));
+    QCOMPARE(mode->count(), 3);
+    for (int i = 0; i < mode->count(); ++i) {
+        const QString hint = mode->itemData(i, Qt::ToolTipRole).toString();
+        QVERIFY2(!hint.isEmpty(), qPrintable(mode->itemText(i)));
+        // Built from the definition rather than written down, so a mode that is
+        // tuned takes its description with it.
+        QVERIFY2(hint.contains(QStringLiteral(" W")), qPrintable(hint));
+    }
+    QVERIFY(mode->itemData(0, Qt::ToolTipRole).toString().contains(QStringLiteral("coolest")));
+    QVERIFY(mode->itemData(2, Qt::ToolTipRole).toString().contains(QStringLiteral("widest")));
+
+    // The saved-into list is the same three modes and says the same things.
+    auto *target = window.findChild<QComboBox *>(QStringLiteral("save_target"));
+    QCOMPARE(target->itemData(0, Qt::ToolTipRole), mode->itemData(0, Qt::ToolTipRole));
+
+    for (const QString &name : { QStringLiteral("epp"), QStringLiteral("profile") }) {
+        auto *list = window.findChild<QComboBox *>(name);
+        QVERIFY(list);
+        for (int i = 0; i < list->count(); ++i) {
+            QVERIFY2(!list->itemData(i, Qt::ToolTipRole).toString().isEmpty(),
+                     qPrintable(name + QLatin1Char('/') + list->itemText(i)));
+        }
+    }
+}
+
+void TrayWindowTest::theBaselineIsAControlOfItsOwn()
+{
+    TestDaemon daemon(m_tree->root(), m_work.path());
+    QVERIFY(daemon.waitUntilListening());
+    TrayClient client(socketPath());
+    TrayWindow window(client);
+    client.poll();
+
+    auto *base = window.findChild<QSpinBox *>(QStringLiteral("base_box"));
+    QVERIFY(base);
+    // Nothing for it to do while the automation is off: the baseline is what the
+    // automation works around, and moving a number nothing acts on is a control
+    // that lies.
+    QVERIFY(!base->isEnabled());
+
+    window.findChild<QCheckBox *>(QStringLiteral("auto_brightness"))->setChecked(true);
+    client.poll();
+    QVERIFY(base->isEnabled());
+
+    // Set outright, and the level follows from it and the light of the moment —
+    // which is the direction the window could not offer before.
+    base->setValue(64);
+    // No waiting for a tick: the level and the baseline are read when the status
+    // is asked for, so the answer to a command is in the very next reply.
+    QCOMPARE(client.status().brightnessBase, 64.0);
+    const double level = client.status().brightness;
+    QVERIFY(level > TrayClient::kNoReading);
+
+    // The floor binds it, like everything else about the backlight.
+    QVERIFY(client.send(QStringLiteral("config set brightness floor_pct=40"))
+                    .startsWith(QLatin1String("ok")));
+    base->setValue(5);
+    QCOMPARE(client.status().brightnessBase, 40.0);
 }
 
 void TrayWindowTest::theTrayBinaryRunsAgainstADaemon()

@@ -8,13 +8,28 @@ ombra-tray \- experimentation console for the ombra daemon
 .RI [ --screenshot " " directory ]
 .RI [ --quit-after-ms " " ms ]
 .SH DESCRIPTION
-A panel icon and a window with four tabs: the readings, the thermal mode, the
+A panel icon and a window with four tabs: the status, the thermal mode, the
 backlight, and the settings of the console itself. What it adds over
 .BR ombra (1)
 is controls that apply the moment they move. Pick a mode and they take its
 numbers; move one and it applies at once, and the mode selector empties, because
 what is running is then no longer any of the three. One button writes the
 controls into a mode you name.
+.PP
+The window speaks the language of the system, in Russian, English or Spanish, from
+the catalogues in
+.IR /usr/share/ombra/translations .
+Only the window: this program's own
+.BR --help ,
+the replies of
+.BR ombrad (8)
+and these manual pages stay in English. An unknown language shows the source
+language, which is English.
+.PP
+Every control explains itself on hover, and one line under the tabs carries both
+the daemon's state and its reply to the last command, elided to the room it has
+with the whole of it in its tooltip. An accepted reply gives the line back after
+five seconds; a refusal stays until the next command.
 .PP
 Every number has a field beside its slider: a slider cannot be landed on a
 particular value, and these values are compared between sessions. The readings

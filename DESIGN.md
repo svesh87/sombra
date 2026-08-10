@@ -52,6 +52,13 @@ the project is, not what it used to be.
   may move it either way, a floor says what nothing goes below, and there is no
   ceiling — that is 100 %. The floor binds the person as well, because a screen
   driven into unreadable is a failure and not a saving.
+- **The baseline can be set outright, not only derived.** Moving the brightness
+  says what is wanted in the light of the moment and the baseline follows from it;
+  that is the natural direction and it fails at exactly one thing — tuning for a
+  light the room does not have right now. So there is a command and a control for
+  the baseline itself, and the level follows from it instead. The baseline lives in
+  the state file rather than the settings: it is what the person was last looking
+  at, not a number they configured.
 - **There are no brightness profiles.** One room, one set of settings: a
   response, a floor and a curve. A profile would be a name for a set of those
   numbers, and there was never a second set to switch to.
@@ -145,6 +152,22 @@ itself.
   themes here carry trios about volume, brightness, microphone and security, and
   none about power. The colours are fixed rather than palette colours, because
   the palette is the application's and the panel is the desktop's.
+- **The console is translated; the command line is not.** The window follows the
+  language of the system, from catalogues installed beside the binaries. The
+  command line, the daemon's replies and the manual pages stay in English, because
+  they are read in a terminal, quoted in documents and searched for by their exact
+  wording — a translated `err` line is a line nobody can look up. The cost is
+  visible in one place, a reply in English inside a translated window, and it is
+  accepted rather than worked around.
+- **An explanation belongs on the control it explains.** Paragraphs in the window
+  cost the controls the height they needed and doubled what there was to
+  translate, so what a control does is said in its tooltip. A test walks every
+  control that sends a command and fails if one has nothing to say.
+- **One line for the daemon's state and for its replies.** Two of them meant a
+  strip of empty space under every tab until the first command. An accepted reply
+  gives the line back after five seconds; a refusal holds it until the next
+  command, because it answers something the person did and a few seconds is not
+  long enough to be sure it was read.
 - **The console's colours come from the desktop, and follow it while the window
   is open.** A desktop that configures Qt applications writes them a colour
   scheme; the console reads that file and reads it again whenever the appearance
