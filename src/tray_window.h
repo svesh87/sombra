@@ -142,6 +142,11 @@ private:
     // second late, and in both cases what the status says is older than the hand
     // holding the control.
     void follow(Tuner *tuner, const QString &key, int reported);
+    // The rule itself, for the one control that is not a slider: whether the value
+    // the daemon reports may be painted over what is on screen. Takes the key and
+    // "a hand is on it" rather than a widget, because the depth field is a bare
+    // spin box and the rule is not about which widget it is.
+    bool mayFollow(const QString &key, int reported, bool held);
     void noteSent(const QString &key, int value);
 
     void build();
@@ -192,6 +197,10 @@ private:
     // What the daemon last said the depth was, so that a spin box being lowered can
     // tell "shortening it" from "the daemon told us a smaller number".
     int m_retentionDays = kRetentionDefaultDays;
+    // Started by every step of the depth field and restarted by the next one, so that
+    // a run of arrow clicks is one command and one question rather than one of each
+    // per step.
+    QTimer *m_retentionTimer = nullptr;
     // What was last asked of each monitor, until the daemon reports it back. The
     // bus takes about half a second to confirm, and without this the status of that
     // half-second would drag the slider back under the hand.

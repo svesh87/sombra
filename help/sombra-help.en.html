@@ -266,6 +266,19 @@ and nothing else — the entry <em>is</em> the state, which is what makes someth
 switched off stay off. It takes effect at the next login, because that is when the
 session reads autostart entries.</dd>
 
+<dt>Recording</dt>
+<dd>Whether the daemon appends a sample a second. Switched off it keeps what is
+already recorded and stops adding to it, and every reading on the other tabs goes on
+working: the ring is history, not the source of what is on screen.</dd>
+
+<dt>Keep</dt>
+<dd>How many days of history the ring holds, from one to thirty. It is the ring's own
+size rather than a limit checked as the file fills, so the file is that big from the
+moment it is made: about 11 MiB a day. The arrows apply the value once the clicking
+stops, so a run of them is one change rather than one per step. Shortening it
+discards the samples older than the new depth, which is why it asks first, and they
+cannot be brought back.</dd>
+
 <dt>Reset everything</dt>
 <dd>Every mode definition and every backlight setting back to the values compiled
 into the daemon. It asks first. The console's own appearance and the autostart entry

@@ -267,6 +267,19 @@ nada más: la entrada <em>es</em> el estado, y por eso lo que se apagó sigue ap
 Tiene efecto en el siguiente inicio de sesión, que es cuando la sesión lee las entradas
 de autoarranque.</dd>
 
+<dt>Grabación</dt>
+<dd>Si el demonio añade una muestra por segundo. Apagada conserva lo ya grabado y deja
+de añadir, y todas las lecturas de las otras pestañas siguen funcionando: el anillo es
+el historial, no la fuente de lo que se ve en pantalla.</dd>
+
+<dt>Guardar</dt>
+<dd>Cuántos días de historial guarda el anillo, de uno a treinta. Es el tamaño propio
+del anillo y no un límite que se comprueba mientras el archivo se llena, así que el
+archivo ocupa eso desde que se crea: unos 11 MiB al día. Las flechas aplican el valor
+cuando cesan los clics, de modo que una serie de ellos es un solo cambio y no uno por
+paso. Acortarlo descarta las muestras más antiguas que la nueva profundidad, y por eso
+pregunta antes; no se pueden recuperar.</dd>
+
 <dt>Restablecer todo</dt>
 <dd>Todas las definiciones de modo y todos los ajustes de la retroiluminación, de vuelta
 a los valores compilados en el demonio. Pregunta antes. La apariencia de la consola y el

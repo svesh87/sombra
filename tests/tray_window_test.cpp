@@ -9,9 +9,12 @@
 #include "theme.h"
 #include "tray_window.h"
 
+#include <QAbstractButton>
+#include <QApplication>
 #include <QCheckBox>
 #include <QClipboard>
 #include <QComboBox>
+#include <QMessageBox>
 #include <QCoreApplication>
 #include <QDeadlineTimer>
 #include <QDir>
@@ -34,6 +37,7 @@
 #include <QTabWidget>
 #include <QTemporaryDir>
 #include <QTest>
+#include <QTimer>
 
 #include <memory>
 
@@ -144,6 +148,37 @@ TrayClient::Status statusFrom(const QByteArray &json)
     return TrayClient::parseStatus(QJsonDocument::fromJson(json).object());
 }
 
+// Somebody has to answer the console's questions. A modal dialog runs an event loop
+// of its own, so the answer cannot come after the call that opens it: this watches
+// for one and presses the chosen button, and counts how many it has answered, which
+// is how a case can tell one question from three.
+class DialogAnswer {
+public:
+    explicit DialogAnswer(QMessageBox::StandardButton button)
+        : m_button(button)
+    {
+        m_timer.setInterval(10);
+        QObject::connect(&m_timer, &QTimer::timeout, [this]() {
+            auto *box = qobject_cast<QMessageBox *>(QApplication::activeModalWidget());
+            if (!box)
+                return;
+            if (QAbstractButton *button = box->button(m_button)) {
+                ++m_answered;
+                button->click();
+            }
+        });
+        m_timer.start();
+    }
+
+    void setButton(QMessageBox::StandardButton button) { m_button = button; }
+    int answered() const { return m_answered; }
+
+private:
+    QMessageBox::StandardButton m_button;
+    QTimer m_timer;
+    int m_answered = 0;
+};
+
 } // namespace
 
 class TrayWindowTest : public QObject {
@@ -173,6 +208,7 @@ private slots:
     void oneLineCarriesTheStateAndTheReplies();
     void theHelpButtonFindsAPageForEveryLanguage();
     void telemetryIsTwoControlsOnTheSettingsTab();
+    void theDepthFieldGoesOutOnTheArrowsAndAsksOncePerValue();
     void anExternalMonitorGetsAGroupOfItsOwn();
     void aStatusReplyDoesNotRepaintAControlUnderTheHand();
     void everyControlThatSendsACommandExplainsItself();
@@ -1221,8 +1257,59 @@ void TrayWindowTest::telemetryIsTwoControlsOnTheSettingsTab()
 
     // A deeper ring goes out without a question: nothing is lost by keeping more.
     days->setValue(kRetentionDefaultDays + 1);
-    days->editingFinished();
     QTRY_COMPARE(client.status().retentionDays, kRetentionDefaultDays + 1);
+}
+
+void TrayWindowTest::theDepthFieldGoesOutOnTheArrowsAndAsksOncePerValue()
+{
+    TestDaemon daemon(m_tree->root(), m_work.path());
+    QVERIFY(daemon.waitUntilListening());
+    TrayClient client(socketPath());
+    TrayWindow window(client);
+    client.poll();
+
+    auto *days = window.findChild<QSpinBox *>(QStringLiteral("retention_days"));
+    QVERIFY(days);
+    QTRY_COMPARE(days->value(), kRetentionDefaultDays);
+
+    // The arrows are the whole point of this case. They move the value without ever
+    // finishing an edit, which is what used to leave the field changed in the window
+    // and the daemon never told.
+    days->stepUp();
+    days->stepUp();
+    QTRY_COMPARE(client.status().retentionDays, kRetentionDefaultDays + 2);
+    QCOMPARE(days->value(), kRetentionDefaultDays + 2);
+
+    DialogAnswer answer(QMessageBox::Yes);
+
+    // Three steps down are one question and one command, not three of each: the field
+    // waits for the clicking to stop. Shortening is what the question is about, and
+    // asking it per step would make the way from thirty days to seven twenty-three
+    // dialogs long.
+    days->stepDown();
+    days->stepDown();
+    days->stepDown();
+    QTRY_COMPARE(client.status().retentionDays, kRetentionDefaultDays - 1);
+    QCOMPARE(answer.answered(), 1);
+
+    // A reply that was already in flight does not pull the field back. A step still
+    // waiting to be sent is a control under a hand, and the reply is older than it.
+    days->stepUp();
+    TrayClient::Status stale = client.status();
+    stale.retentionDays = kRetentionMaxDays;
+    window.applyStatus(stale);
+    QCOMPARE(days->value(), kRetentionDefaultDays);
+    QTRY_COMPARE(client.status().retentionDays, kRetentionDefaultDays);
+
+    // And a refused question leaves the depth where the daemon has it, not where the
+    // arrow left the field.
+    answer.setButton(QMessageBox::No);
+    days->stepDown();
+    QTRY_COMPARE(days->value(), kRetentionDefaultDays);
+    QCOMPARE(client.status().retentionDays, kRetentionDefaultDays);
+    MetricsSettings saved = builtinMetricsSettings();
+    QTRY_VERIFY(loadMetricsSettings(configPath(), &saved));
+    QCOMPARE(saved.retentionDays, kRetentionDefaultDays);
 }
 
 void TrayWindowTest::anExternalMonitorGetsAGroupOfItsOwn()

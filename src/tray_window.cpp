@@ -47,6 +47,15 @@ constexpr int kMeasureSizePx = 1600;
 // The fan selection that is not a curve. Numbered past the Profile enum so the
 // two can share one combo box without colliding.
 constexpr int kFanMaximumItem = 100;
+// How long after the last step of the depth field its value is sent. A spin box
+// has no gesture that ends: arrows step it one value at a time, and each step is
+// a value of its own. Without a wait, the way from 7 to 30 would rebuild the ring
+// twenty-three times, and the way back would ask about discarding samples at
+// every one of those steps.
+constexpr int kRetentionSettleMs = 400;
+// The key the depth field waits for its own confirmation under, in the same
+// register as the sliders'.
+const QString kRetentionKey = QStringLiteral("retention_days");
 
 // A reading the daemon could not take arrives as the sentinel. Rendering it as
 // a dash rather than as a number is the whole point of having a sentinel: a
@@ -801,6 +810,9 @@ void TrayWindow::build()
     m_ui->retentionDays->setObjectName(QStringLiteral("retention_days"));
     m_ui->retentionDays->setRange(kRetentionMinDays, kRetentionMaxDays);
     m_ui->retentionDays->setSuffix(tr(" days"));
+    // Same reason as inside the sliders' field: every keystroke would otherwise be
+    // a value, and typing "30" over "7" would pass through 3 on the way.
+    m_ui->retentionDays->setKeyboardTracking(false);
     m_ui->retentionDays->setToolTip(tr("How much history the ring holds. It is the ring's own "
                                        "size, so the file is that big from the moment it is "
                                        "made: about 11 MiB a day. Shortening it discards the "
@@ -882,10 +894,19 @@ void TrayWindow::build()
 
     connect(m_ui->help, &QToolButton::clicked, this, &TrayWindow::openHelp);
     connect(m_ui->metricsEnabled, &QCheckBox::toggled, this, &TrayWindow::sendMetricsEnabled);
-    // On the value, not on every keystroke: a spin box climbing from 7 to 30 would
-    // otherwise rebuild the ring twenty-three times.
-    connect(m_ui->retentionDays, &QSpinBox::editingFinished, this,
-            &TrayWindow::sendRetention);
+    // On the value rather than on the end of an edit: `editingFinished` arrives on
+    // Enter and on losing focus, and never on a click of the arrows, which left the
+    // field moving in the window and sending nothing. The wait is what makes a run
+    // of arrow clicks one value instead of one command each.
+    m_retentionTimer = new QTimer(this);
+    m_retentionTimer->setSingleShot(true);
+    m_retentionTimer->setInterval(kRetentionSettleMs);
+    connect(m_retentionTimer, &QTimer::timeout, this, &TrayWindow::sendRetention);
+    connect(m_ui->retentionDays, &QSpinBox::valueChanged, this, [this]() {
+        if (m_updating)
+            return;
+        m_retentionTimer->start();
+    });
     connect(m_ui->autostart, &QCheckBox::toggled, this, &TrayWindow::setAutostart);
     connect(goodButton, &QPushButton::clicked, this, &TrayWindow::markGood);
     connect(loudButton, &QPushButton::clicked, this, &TrayWindow::markTooLoud);
@@ -1005,7 +1026,15 @@ void TrayWindow::applyStatus(const TrayClient::Status &status)
     }
     m_ui->metricsEnabled->setChecked(status.metricsEnabled);
     m_retentionDays = status.retentionDays;
-    m_ui->retentionDays->setValue(status.retentionDays);
+    // Through the same rule as the sliders, and for the same reason: a field being
+    // stepped is a field under a hand, and a value on its way to the daemon has to
+    // survive the replies that were already in flight when it left. A step still
+    // waiting for the timer counts as held, because the arrows leave focus behind
+    // as soon as the pointer moves off them.
+    if (mayFollow(kRetentionKey, status.retentionDays,
+                  m_ui->retentionDays->hasFocus() || m_retentionTimer->isActive())) {
+        m_ui->retentionDays->setValue(status.retentionDays);
+    }
     if (!status.brightnessAvailable) {
         m_ui->backlightState->setText(tr("This machine has no backlight control."));
     } else if (status.autoBrightness) {
@@ -1253,11 +1282,8 @@ void TrayWindow::openHelp()
     }
 }
 
-void TrayWindow::follow(Tuner *tuner, const QString &key, int reported)
+bool TrayWindow::mayFollow(const QString &key, int reported, bool held)
 {
-    if (!tuner || reported < 0)
-        return;
-
     // A value was sent and the daemon has not reported it back yet. Repainting from
     // what it says in the meantime is what makes a slider crawl backwards: the panel
     // fades over about a second and reports the middle of it, and a monitor answers
@@ -1268,14 +1294,20 @@ void TrayWindow::follow(Tuner *tuner, const QString &key, int reported)
     if (sent != m_sent.end()) {
         if (reported == sent->value || --sent->patience <= 0)
             m_sent.erase(sent);
-        return;
+        return false;
     }
 
     // And a control with a hand on it is not repainted at all. The answer in hand is
     // older than the hand.
-    if (tuner->held())
+    return !held;
+}
+
+void TrayWindow::follow(Tuner *tuner, const QString &key, int reported)
+{
+    if (!tuner || reported < 0)
         return;
-    tuner->setValue(reported);
+    if (mayFollow(key, reported, tuner->held()))
+        tuner->setValue(reported);
 }
 
 void TrayWindow::noteSent(const QString &key, int value)
@@ -1365,6 +1397,9 @@ void TrayWindow::sendRetention()
             return;
         }
     }
+    // Noted before the command goes out, so that the replies already in flight do not
+    // pull the field back to the old depth and ask the question a second time.
+    noteSent(kRetentionKey, wanted);
     sendCommand(QStringLiteral("config set metrics retention_days=%1").arg(wanted));
 }
 
