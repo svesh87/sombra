@@ -8,10 +8,6 @@ set -e
 case "$1" in
 purge)
     rm -rf /var/lib/sombra
-    # The group is ours and grants nothing but access to the daemon's socket.
-    if getent group sombra >/dev/null 2>&1; then
-        delgroup --system sombra >/dev/null 2>&1 || true
-    fi
     ;;
 esac
 

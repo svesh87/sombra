@@ -189,13 +189,10 @@ int main(int argc, char **argv)
             "written back; durable mode definitions live in the daemon's configuration file."));
     parser.addHelpOption();
     parser.addVersionOption();
-    const QCommandLineOption socketOption(
-            QStringLiteral("socket"), QStringLiteral("Control socket."), QStringLiteral("path"),
-            QStringLiteral("/run/sombra/control.sock"));
-    const QCommandLineOption intervalOption(
-            QStringLiteral("interval-ms"),
-            QStringLiteral("How often to ask the daemon for readings."), QStringLiteral("ms"),
-            QStringLiteral("1000"));
+    const QCommandLineOption busOption(
+            QStringLiteral("bus-address"),
+            QStringLiteral("Bus the daemon answers on. Empty means the system bus."),
+            QStringLiteral("address"));
     // A test hook: it is what lets the suite run this binary against a test
     // daemon and still have it exit.
     const QCommandLineOption quitAfterOption(
@@ -210,10 +207,10 @@ int main(int argc, char **argv)
             QStringLiteral("Write tray-menu.png and one console-<tab>.png per tab to this "
                            "directory and exit."),
             QStringLiteral("directory"));
-    parser.addOptions({ socketOption, intervalOption, quitAfterOption, screenshotOption });
+    parser.addOptions({ busOption, quitAfterOption, screenshotOption });
     parser.process(app);
 
-    TrayClient client(parser.value(socketOption));
+    TrayClient client(parser.value(busOption));
     TrayWindow window(client);
 
     QSystemTrayIcon tray;
@@ -396,10 +393,6 @@ int main(int argc, char **argv)
     if (quitAfterMs > 0)
         QTimer::singleShot(quitAfterMs, &app, &QApplication::quit);
 
-    const int intervalMs = parser.value(intervalOption).toInt();
-    if (intervalMs > 0)
-        client.start(intervalMs);
-    else
-        client.start();
+    client.start();
     return app.exec();
 }

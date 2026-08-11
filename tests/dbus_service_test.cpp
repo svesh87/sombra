@@ -247,7 +247,6 @@ void DBusServiceTest::init()
     options.configPath = m_work->path() + QStringLiteral("/settings.conf");
     options.statePath = m_work->path() + QStringLiteral("/state");
     options.ringPath = m_work->path() + QStringLiteral("/metrics.ring");
-    options.socketPath = m_work->path() + QStringLiteral("/control.sock");
     options.ringCapacity = 64;
     m_daemon = std::make_unique<Daemon>(options);
     QString error;

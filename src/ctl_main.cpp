@@ -1,21 +1,30 @@
 // Copyright (c) 2026 Sergei Sveshnikov. MIT licensed, see LICENSE.
+#include "bus_client.h"
+#include "control_wire.h"
 #include "exporter.h"
 #include "metrics_ring.h"
 
 #include <QCommandLineParser>
 #include <QCoreApplication>
-#include <QLocalSocket>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QTextStream>
 
 // The scriptable face of the daemon. It is the only way to drive it before the
-// tray exists, and it stays afterwards because a text command is what a
+// console exists, and it stays afterwards because a text command is what a
 // measurement script can issue.
 //
-// Every command travels over the control socket except one. `export` reads the
-// telemetry ring straight off disk: the daemon keeps no history, the ring is a
-// file, and a week of samples has no business going through a line protocol.
-// That is why it is dispatched before the control parser runs — it carries
-// options of its own that the control side knows nothing about.
+// Every command travels over the bus except one. `export` reads the telemetry ring
+// straight off disk: the daemon keeps no history, the ring is a file, and a week of
+// samples has no business going through a message bus. That is why it is dispatched
+// before the control parser runs — it carries options of its own that the control
+// side knows nothing about.
+//
+// The words are the interface. What they mean on the bus is decided in one place,
+// `wire::callFor`, which the console uses as well: a person reading
+// "set pl1=30 → ok" on the console's status line has to be able to type the same
+// thing here.
 
 namespace {
 
@@ -101,10 +110,11 @@ int runControl(const QStringList &arguments)
             "                             read the telemetry ring; see `export --help`"));
     parser.addHelpOption();
     parser.addVersionOption();
-    const QCommandLineOption socketOption(
-            QStringLiteral("socket"), QStringLiteral("Control socket."), QStringLiteral("path"),
-            QStringLiteral("/run/sombra/control.sock"));
-    parser.addOption(socketOption);
+    const QCommandLineOption busOption(
+            QStringLiteral("bus-address"),
+            QStringLiteral("Bus the daemon answers on. Empty means the system bus."),
+            QStringLiteral("address"));
+    parser.addOption(busOption);
     parser.addPositionalArgument(QStringLiteral("command"),
                                  QStringLiteral("Command and its arguments."));
     parser.process(arguments);
@@ -118,38 +128,43 @@ int runControl(const QStringList &arguments)
         return 2;
     }
 
-    QLocalSocket socket;
-    socket.connectToServer(parser.value(socketOption));
-    if (!socket.waitForConnected(2000)) {
-        err << "cannot reach the daemon on " << parser.value(socketOption) << ": "
-            << socket.errorString() << '\n';
+    // What the words mean, worked out before anything is opened: a typo is not worth
+    // a connection.
+    const wire::Call call = wire::callFor(words);
+    if (!call.valid()) {
+        err << call.error << '\n';
+        return 2;
+    }
+
+    BusClient client(parser.value(busOption));
+    const QVariantMap properties = client.readAll();
+    if (properties.isEmpty()) {
+        err << "the daemon is not answering on " << wire::kService << '\n';
         return 1;
     }
 
-    socket.write(words.join(QLatin1Char(' ')).toUtf8());
-    socket.write("\n");
-    socket.flush();
-
-    if (!socket.waitForReadyRead(2000)) {
-        err << "no reply from the daemon\n";
-        return 1;
+    // The reading commands are properties, so they are already in hand. Printed as
+    // the payload alone, without a word of framing in front of it, because the answer
+    // has to go straight into a JSON parser.
+    const auto printJson = [&out](const QJsonDocument &document) {
+        out << QString::fromUtf8(document.toJson(QJsonDocument::Compact)) << '\n';
+        return 0;
+    };
+    switch (call.read) {
+    case wire::Call::Read::Status:
+        return printJson(QJsonDocument(wire::statusJsonFrom(properties)));
+    case wire::Call::Read::Configuration:
+        return printJson(QJsonDocument(QJsonObject::fromVariantMap(
+                properties.value(QStringLiteral("Configuration")).toMap())));
+    case wire::Call::Read::Monitors:
+        return printJson(QJsonDocument(
+                wire::statusJsonFrom(properties).value(QStringLiteral("monitors")).toArray()));
+    case wire::Call::Read::None:
+        break;
     }
-    const QString reply = QString::fromUtf8(socket.readLine()).trimmed();
+
+    const QString reply = client.call(call.method, call.arguments);
     const bool accepted = reply.startsWith(QLatin1String("ok"));
-
-    // The "ok" is protocol framing, and the two reading commands answer with a
-    // payload behind it. Printing the payload alone is what makes
-    // `sombra status | jq` and `sombra config show | jq` work without a caller
-    // stripping a word off the front of the answer.
-    if (accepted && reply.size() > 3) {
-        if (words.first() == QLatin1String("status")
-            || (words.first() == QLatin1String("config") && words.size() > 1
-                && words.at(1) == QLatin1String("show"))) {
-            out << reply.mid(3) << '\n';
-            return 0;
-        }
-    }
-
     out << reply << '\n';
     return accepted ? 0 : 1;
 }

@@ -1,4 +1,5 @@
 // Copyright (c) 2026 Sergei Sveshnikov. MIT licensed, see LICENSE.
+#include "fake_bus.h"
 #include "fake_sysfs.h"
 #include "tray_client.h"
 
@@ -17,60 +18,6 @@
 
 namespace {
 
-// The daemon runs as its own process here, which is what it is on the machine
-// as well. It cannot be an object in this process: the client blocks on the
-// socket waiting for its reply, and a daemon sharing the thread would never
-// reach its own event loop to answer.
-class TestDaemon {
-public:
-    TestDaemon(const QString &sysfsRoot, QString workDir)
-        : m_work(std::move(workDir))
-    {
-        m_process.start(binary(),
-                        { QStringLiteral("--no-dbus"), QStringLiteral("--root"), sysfsRoot,
-                          QStringLiteral("--ring"), m_work + QStringLiteral("/metrics.ring"),
-                          QStringLiteral("--socket"), socketPath(), QStringLiteral("--state"),
-                          m_work + QStringLiteral("/state"), QStringLiteral("--config"),
-                          m_work + QStringLiteral("/settings.conf"), QStringLiteral("--capacity"),
-                          QStringLiteral("64"), QStringLiteral("--interval-ms"),
-                          QStringLiteral("20") });
-    }
-
-    ~TestDaemon() { stop(); }
-
-    QString socketPath() const { return m_work + QStringLiteral("/control.sock"); }
-
-    bool waitUntilListening()
-    {
-        if (!m_process.waitForStarted(10000))
-            return false;
-        QDeadlineTimer deadline(10000);
-        while (!QFile::exists(socketPath()) && !deadline.hasExpired())
-            QTest::qWait(10);
-        return QFile::exists(socketPath());
-    }
-
-    // SIGTERM is how systemd stops it, and it restores the hardware and
-    // removes the socket on the way out.
-    void stop()
-    {
-        if (m_process.state() == QProcess::NotRunning)
-            return;
-        m_process.terminate();
-        m_process.waitForFinished(10000);
-    }
-
-    static QString binary()
-    {
-        return QDir::cleanPath(QCoreApplication::applicationDirPath()
-                               + QStringLiteral("/../sombrad"));
-    }
-
-private:
-    QString m_work;
-    QProcess m_process;
-};
-
 QJsonObject objectFrom(const QByteArray &json)
 {
     return QJsonDocument::fromJson(json).object();
@@ -82,23 +29,36 @@ class TrayClientTest : public QObject {
     Q_OBJECT
 
 private slots:
+    void initTestCase();
     void init();
 
     void parsesAFullStatus();
     void parsesAbsentReadingsAsTheSentinel();
     void parsesMalformedRepliesWithoutCrashing();
-    void pollsARunningDaemonAndReconnectsToANewOne();
-    void sendReturnsNothingWithoutADaemon();
+    void followsARunningDaemonAndNoticesANewOne();
+    void answersWithoutADaemonInsteadOfWaiting();
     void sendAndRefreshDrivesTheDaemonAndRepaints();
 
 private:
-    QString socketPath() const { return m_work.path() + QStringLiteral("/control.sock"); }
-
     QTemporaryDir m_work;
+    // One bus and one authority for the whole case file: what a case owns is the
+    // daemon on it.
+    PrivateBus m_bus;
+    std::unique_ptr<FakeAuthority> m_authority;
     // Rebuilt before every test: a shared tree would carry one case's writes
     // into the next.
     std::unique_ptr<FakeSysfs> m_tree;
 };
+
+void TrayClientTest::initTestCase()
+{
+    QString error;
+    QVERIFY2(m_bus.start(&error), qPrintable(error));
+    // Without something answering for polkit every command would be refused, which is
+    // not what these cases are about — the refusal itself is control_bus_test's.
+    m_authority = std::make_unique<FakeAuthority>();
+    QVERIFY2(m_authority->start(m_bus.address(), &error), qPrintable(error));
+}
 
 void TrayClientTest::init()
 {
@@ -252,71 +212,80 @@ void TrayClientTest::parsesMalformedRepliesWithoutCrashing()
     QCOMPARE(garbage.brightnessFloorPct, kBrightnessDefaultFloorPct);
 }
 
-void TrayClientTest::pollsARunningDaemonAndReconnectsToANewOne()
+void TrayClientTest::followsARunningDaemonAndNoticesANewOne()
 {
-    auto daemon = std::make_unique<TestDaemon>(m_tree->root(), m_work.path());
-    QVERIFY(daemon->waitUntilListening());
+    auto daemon = std::make_unique<TestDaemon>(m_tree->root(), m_work.path(), m_bus.address());
+    QString error;
+    QVERIFY2(daemon->waitUntilAnswering(&error), qPrintable(error));
 
-    TrayClient client(socketPath());
+    TrayClient client(m_bus.address());
     int updates = 0;
     connect(&client, &TrayClient::statusChanged, this,
             [&updates](const TrayClient::Status &) { ++updates; });
     QSignalSpy connectionSpy(&client, &TrayClient::connectionChanged);
 
-    client.start(20);
-    QTRY_VERIFY(updates >= 2);
+    client.start();
     QVERIFY(client.connected());
     QCOMPARE(connectionSpy.count(), 1);
     QCOMPARE(connectionSpy.first().first().toBool(), true);
     QCOMPARE(client.status().modeId, QStringLiteral("work"));
     QCOMPARE(client.status().requested.pl1W, 20);
-    QCOMPARE(client.status().packageC, 61.0);
-    QCOMPARE(client.socketPath(), socketPath());
 
-    // The daemon may restart under a running tray; the tray does not.
+    // Nothing is asked for once a second: the readings arrive because the daemon
+    // announces them as it takes them, and the first ones arrive with its first tick.
+    QTRY_COMPARE(client.status().packageC, 61.0);
+    const int settled = updates;
+    QTRY_VERIFY(updates > settled);
+
+    // The daemon may restart under a running console; the console does not. The name
+    // changing hands is what says so, and there is no timer looking for it.
     daemon.reset();
     QTRY_VERIFY(!client.connected());
     QCOMPARE(connectionSpy.count(), 2);
     QCOMPARE(connectionSpy.last().first().toBool(), false);
 
-    TestDaemon replacement(m_tree->root(), m_work.path());
-    QVERIFY(replacement.waitUntilListening());
+    TestDaemon replacement(m_tree->root(), m_work.path(), m_bus.address());
+    QVERIFY2(replacement.waitUntilAnswering(&error), qPrintable(error));
     QTRY_VERIFY(client.connected());
     QCOMPARE(connectionSpy.count(), 3);
     QCOMPARE(client.status().modeId, QStringLiteral("work"));
-
-    client.stop();
-    const int settled = updates;
-    QTest::qWait(100);
-    QCOMPARE(updates, settled);
 }
 
-void TrayClientTest::sendReturnsNothingWithoutADaemon()
+void TrayClientTest::answersWithoutADaemonInsteadOfWaiting()
 {
-    TrayClient client(m_work.path() + QStringLiteral("/absent.sock"));
-    QVERIFY(client.send(QStringLiteral("status")).isEmpty());
+    // A bus with nothing on it, which is what a console started before the daemon
+    // sees. Every command comes back at once rather than being waited on, and with
+    // nothing to say: what to call that is the window's business, and it has words
+    // for it that are about this daemon rather than about D-Bus.
+    TrayClient client(m_bus.address());
+    QVERIFY(client.send(QStringLiteral("mode quiet")).isEmpty());
     QVERIFY(!client.connected());
+    // A command that makes no sense is refused without a daemon being needed for it.
+    QVERIFY(client.send(QStringLiteral("levitate")).startsWith(QStringLiteral("err")));
 
     QSignalSpy connectionSpy(&client, &TrayClient::connectionChanged);
     client.poll();
     QVERIFY(!client.status().valid);
-    // Nothing changed, so nothing is announced: the interface is not repainted
-    // once a second while the daemon is absent.
+    // Nothing changed, so nothing is announced: the interface is not repainted while
+    // the daemon is absent.
     QCOMPARE(connectionSpy.count(), 0);
 }
 
 void TrayClientTest::sendAndRefreshDrivesTheDaemonAndRepaints()
 {
-    TestDaemon daemon(m_tree->root(), m_work.path());
-    QVERIFY(daemon.waitUntilListening());
+    TestDaemon daemon(m_tree->root(), m_work.path(), m_bus.address());
+    QString error;
+    QVERIFY2(daemon.waitUntilAnswering(&error), qPrintable(error));
 
-    TrayClient client(socketPath());
+    TrayClient client(m_bus.address());
     int updates = 0;
     connect(&client, &TrayClient::statusChanged, this,
             [&updates](const TrayClient::Status &) { ++updates; });
 
     QCOMPARE(client.sendAndRefresh(QStringLiteral("mode quiet")), QStringLiteral("ok quiet"));
-    QCOMPARE(updates, 1);
+    // The window is repainted from the answer rather than at the next tick: the daemon
+    // announces the change as it makes it, and the refresh reads it as well.
+    QVERIFY(updates > 0);
     QCOMPARE(client.status().modeId, QStringLiteral("quiet"));
 
     // Live tuning applies at once and shows up in the very next status.

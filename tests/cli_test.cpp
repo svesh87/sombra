@@ -1,4 +1,5 @@
 // Copyright (c) 2026 Sergei Sveshnikov. MIT licensed, see LICENSE.
+#include "fake_bus.h"
 #include "fake_sysfs.h"
 
 #include <QDeadlineTimer>
@@ -42,7 +43,14 @@ CliTest::Run CliTest::run(const QString &program, const QStringList &arguments, 
     process.start(program, arguments);
     if (!process.waitForStarted(5000))
         return {};
-    if (!process.waitForFinished(timeoutMs)) {
+    // Waited for with the event loop turning, not by blocking on it. What the child
+    // needs may be in this process: a command reaching the daemon is authorised by
+    // something standing in for polkit here, and a test asleep in `waitForFinished`
+    // would never answer it — three processes each waiting for the next.
+    QDeadlineTimer deadline(timeoutMs);
+    while (process.state() != QProcess::NotRunning && !deadline.hasExpired())
+        QTest::qWait(10);
+    if (process.state() != QProcess::NotRunning) {
         process.kill();
         process.waitForFinished(2000);
         return {};
@@ -65,7 +73,6 @@ void CliTest::daemonRefusesATreeItCannotManage()
                             { QStringLiteral("--no-dbus"), QStringLiteral("--root"), bare.path(),
                               QStringLiteral("--ring"),
                               work.path() + QStringLiteral("/metrics.ring"),
-                              QStringLiteral("--socket"), work.path() + QStringLiteral("/c.sock"),
                               QStringLiteral("--state"), work.path() + QStringLiteral("/state"),
                               QStringLiteral("--ticks"), QStringLiteral("1") });
     QCOMPARE(refused.code, 1);
@@ -76,7 +83,6 @@ void CliTest::daemonRefusesATreeItCannotManage()
             run(daemonBinary(),
                 { QStringLiteral("--no-dbus"), QStringLiteral("--root"), tree.root(),
                   QStringLiteral("--ring"), QStringLiteral("/proc/self/impossible.ring"),
-                  QStringLiteral("--socket"), work.path() + QStringLiteral("/c.sock"),
                   QStringLiteral("--state"), work.path() + QStringLiteral("/state"),
                   QStringLiteral("--config"), work.path() + QStringLiteral("/none.conf"),
                   QStringLiteral("--interval-ms"), QStringLiteral("10"),
@@ -95,8 +101,7 @@ void CliTest::daemonAppliesAModeAndExitsRestoring()
                            { QStringLiteral("--no-dbus"), QStringLiteral("--root"), tree.root(),
                              QStringLiteral("--ring"),
                              work.path() + QStringLiteral("/metrics.ring"),
-                             QStringLiteral("--socket"), work.path() + QStringLiteral("/c.sock"),
-                             QStringLiteral("--state"), work.path() + QStringLiteral("/state"),
+                                        QStringLiteral("--state"), work.path() + QStringLiteral("/state"),
                              QStringLiteral("--config"), work.path() + QStringLiteral("/none.conf"),
                              QStringLiteral("--capacity"), QStringLiteral("0"),
                              QStringLiteral("--interval-ms"), QStringLiteral("0"),
@@ -119,87 +124,90 @@ void CliTest::ctlDrivesTheRunningDaemon()
 {
     FakeSysfs tree;
     QTemporaryDir work;
-    const QString socket = work.path() + QStringLiteral("/control.sock");
+    PrivateBus bus;
+    QString error;
+    QVERIFY2(bus.start(&error), qPrintable(error));
+    // Something has to answer for polkit or every command would be refused. That the
+    // refusal works is control_bus_test's case; this one is about the words.
+    FakeAuthority authority;
+    QVERIFY2(authority.start(bus.address(), &error), qPrintable(error));
 
-    QProcess daemon;
-    daemon.start(daemonBinary(),
-                 { QStringLiteral("--no-dbus"), QStringLiteral("--root"), tree.root(),
-                   QStringLiteral("--ring"),
-                   work.path() + QStringLiteral("/metrics.ring"), QStringLiteral("--socket"),
-                   socket, QStringLiteral("--state"), work.path() + QStringLiteral("/state"),
-                   QStringLiteral("--config"), work.path() + QStringLiteral("/none.conf"),
-                   QStringLiteral("--capacity"), QStringLiteral("128"),
-                   QStringLiteral("--interval-ms"), QStringLiteral("20") });
-    QVERIFY(daemon.waitForStarted(5000));
+    TestDaemon daemon(tree.root(), work.path(), bus.address());
+    QVERIFY2(daemon.waitUntilAnswering(&error), qPrintable(error));
 
-    QDeadlineTimer deadline(10000);
-    while (!QFile::exists(socket) && !deadline.hasExpired())
-        QTest::qWait(20);
-    QVERIFY(QFile::exists(socket));
-
-    const Run status = run(ctlBinary(), { QStringLiteral("--socket"), socket,
-                                          QStringLiteral("status") });
+    const QStringList where { QStringLiteral("--bus-address"), bus.address() };
+    const Run status = run(ctlBinary(), where + QStringList { QStringLiteral("status") });
     QCOMPARE(status.code, 0);
-    // The payload alone, without the protocol's "ok": the answer has to go
-    // straight into a JSON parser.
+    // The payload alone, with no framing in front of it: the answer has to go straight
+    // into a JSON parser.
     QVERIFY(status.out.startsWith(QStringLiteral("{")));
-    QJsonParseError error {};
+    QJsonParseError parseError {};
     const QJsonObject parsed =
-            QJsonDocument::fromJson(status.out.trimmed().toUtf8(), &error).object();
-    QCOMPARE(error.error, QJsonParseError::NoError);
+            QJsonDocument::fromJson(status.out.trimmed().toUtf8(), &parseError).object();
+    QCOMPARE(parseError.error, QJsonParseError::NoError);
     QCOMPARE(parsed.value(QStringLiteral("mode")).toString(), QStringLiteral("work"));
+    // The whole shape, not only the one field: this output is an interface, and
+    // scripts and the tuning analysis read it.
+    for (const char *key : { "ts", "modes", "applied", "requested", "sensors", "brightness",
+                             "monitors", "metrics" }) {
+        QVERIFY2(parsed.contains(QLatin1String(key)), key);
+    }
 
-    QCOMPARE(run(ctlBinary(), { QStringLiteral("--socket"), socket, QStringLiteral("mode"),
-                                QStringLiteral("quiet") })
+    QCOMPARE(run(ctlBinary(), where + QStringList { QStringLiteral("mode"),
+                                                   QStringLiteral("quiet") })
                      .code,
              0);
-    QCOMPARE(run(ctlBinary(), { QStringLiteral("--socket"), socket, QStringLiteral("set"),
-                                QStringLiteral("pl1=14") })
+    QCOMPARE(run(ctlBinary(), where + QStringList { QStringLiteral("set"),
+                                                    QStringLiteral("pl1=14") })
                      .code,
              0);
-    QCOMPARE(run(ctlBinary(), { QStringLiteral("--socket"), socket, QStringLiteral("mark"),
-                                QStringLiteral("good") })
+    QCOMPARE(run(ctlBinary(), where + QStringList { QStringLiteral("mark"),
+                                                    QStringLiteral("good") })
                      .code,
              0);
-    // Keeping a live value is a named command with a named destination, and
-    // what it wrote is readable back through the same tool.
-    QCOMPARE(run(ctlBinary(), { QStringLiteral("--socket"), socket, QStringLiteral("config"),
-                                QStringLiteral("save"), QStringLiteral("live"),
-                                QStringLiteral("to"), QStringLiteral("quiet") })
+
+    // Keeping a live value is a named command with a named destination, and what it
+    // wrote is readable back through the same tool.
+    QCOMPARE(run(ctlBinary(), where + QStringList { QStringLiteral("config"),
+                                                    QStringLiteral("save"),
+                                                    QStringLiteral("live"),
+                                                    QStringLiteral("to"),
+                                                    QStringLiteral("quiet") })
                      .code,
              0);
-    // `config show` prints the payload alone, so it goes through jq without a
-    // caller stripping the protocol's "ok" off the front.
-    const Run shown = run(ctlBinary(), { QStringLiteral("--socket"), socket,
-                                         QStringLiteral("config"), QStringLiteral("show") });
+    const Run shown = run(ctlBinary(), where + QStringList { QStringLiteral("config"),
+                                                             QStringLiteral("show") });
     QCOMPARE(shown.code, 0);
-    const QJsonObject config = QJsonDocument::fromJson(shown.out.trimmed().toUtf8()).object();
-    QVERIFY(!config.isEmpty());
-    QVERIFY(config.value(QStringLiteral("stored")).toBool());
-    const QJsonArray savedModes = config.value(QStringLiteral("modes")).toArray();
+    QVERIFY(shown.out.startsWith(QStringLiteral("{")));
+    const QJsonObject configuration =
+            QJsonDocument::fromJson(shown.out.trimmed().toUtf8()).object();
+    QVERIFY(configuration.value(QStringLiteral("stored")).toBool());
+    const QJsonArray modes = configuration.value(QStringLiteral("modes")).toArray();
+    QCOMPARE(modes.size(), 3);
     bool sawTheSavedValue = false;
-    for (const QJsonValue &entry : savedModes) {
+    for (const QJsonValue &entry : modes) {
         if (entry.toObject().value(QStringLiteral("id")).toString() == QLatin1String("quiet"))
             sawTheSavedValue = entry.toObject().value(QStringLiteral("pl1_w")).toInt() == 14;
     }
     QVERIFY(sawTheSavedValue);
 
-    // A rejected command is a non-zero exit, so a script can branch on it.
-    QCOMPARE(run(ctlBinary(), { QStringLiteral("--socket"), socket, QStringLiteral("levitate") })
-                     .code,
-             1);
-    QCOMPARE(run(ctlBinary(), { QStringLiteral("--socket"), socket }).code, 2);
+    // The monitors are a reading rather than a call, and they print as JSON too.
+    const Run monitors = run(ctlBinary(), where + QStringList { QStringLiteral("monitor"),
+                                                                QStringLiteral("list") });
+    QCOMPARE(monitors.code, 0);
+    QVERIFY(monitors.out.startsWith(QStringLiteral("[")));
 
-    deadline = QDeadlineTimer(5000);
-    while (tree.read(FakeSysfs::platformProfile()) != QStringLiteral("quiet")
-           && !deadline.hasExpired())
-        QTest::qWait(20);
-    QCOMPARE(tree.read(FakeSysfs::platformProfile()), QStringLiteral("quiet"));
+    // A word the daemon does not know is refused by the tool, before a bus is
+    // touched at all, and a command with no words is a usage error.
+    QCOMPARE(run(ctlBinary(), where + QStringList { QStringLiteral("levitate") }).code, 2);
+    QCOMPARE(run(ctlBinary(), where).code, 2);
+    // And one it knows but refuses is an exit code with the reason on the line.
+    const Run refused = run(ctlBinary(), where + QStringList { QStringLiteral("mode"),
+                                                               QStringLiteral("teapot") });
+    QCOMPARE(refused.code, 1);
+    QVERIFY(refused.out.startsWith(QStringLiteral("err")));
 
-    // SIGTERM is how systemd stops it, and it has to end with the fan back on
-    // EC control.
-    daemon.terminate();
-    QVERIFY(daemon.waitForFinished(10000));
+    daemon.stop();
     QCOMPARE(tree.read(FakeSysfs::asus() + QStringLiteral("/pwm1_enable")), QStringLiteral("2"));
     QCOMPARE(tree.read(FakeSysfs::raplPackage()
                        + QStringLiteral("/constraint_0_power_limit_uw")),
@@ -208,12 +216,16 @@ void CliTest::ctlDrivesTheRunningDaemon()
 
 void CliTest::ctlReportsAnUnreachableDaemon()
 {
-    QTemporaryDir work;
-    const Run result = run(ctlBinary(), { QStringLiteral("--socket"),
-                                          work.path() + QStringLiteral("/absent.sock"),
+    // A bus with nothing on it. The tool says which name went unanswered rather than
+    // hanging or printing an empty object.
+    PrivateBus bus;
+    QString error;
+    QVERIFY2(bus.start(&error), qPrintable(error));
+    const Run result = run(ctlBinary(), { QStringLiteral("--bus-address"), bus.address(),
                                           QStringLiteral("status") });
     QCOMPARE(result.code, 1);
-    QVERIFY(result.err.contains(QStringLiteral("cannot reach")));
+    QVERIFY(result.err.contains(QStringLiteral("not answering")));
+    QVERIFY(result.err.contains(QStringLiteral("io.github.svesh87.Sombra")));
 }
 
 void CliTest::exportRendersTheRingInBothFormats()
@@ -224,8 +236,7 @@ void CliTest::exportRendersTheRingInBothFormats()
     QCOMPARE(run(daemonBinary(),
                  { QStringLiteral("--no-dbus"), QStringLiteral("--root"), tree.root(),
                    QStringLiteral("--ring"), ring,
-                   QStringLiteral("--socket"), work.path() + QStringLiteral("/c.sock"),
-                   QStringLiteral("--state"), work.path() + QStringLiteral("/state"),
+                    QStringLiteral("--state"), work.path() + QStringLiteral("/state"),
                    QStringLiteral("--config"), work.path() + QStringLiteral("/none.conf"),
                    QStringLiteral("--capacity"), QStringLiteral("64"),
                    QStringLiteral("--interval-ms"), QStringLiteral("10"),
@@ -257,7 +268,7 @@ void CliTest::exportRendersTheRingInBothFormats()
     const Run help = run(ctlBinary(), { QStringLiteral("export"), QStringLiteral("--help") });
     QCOMPARE(help.code, 0);
     QVERIFY(help.out.contains(QStringLiteral("--ring")));
-    QVERIFY(!help.out.contains(QStringLiteral("--socket")));
+    QVERIFY(!help.out.contains(QStringLiteral("--bus-address")));
 }
 
 void CliTest::exportRejectsBadInput()

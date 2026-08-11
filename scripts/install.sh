@@ -126,16 +126,6 @@ fi
 systemctl enable "$OUR_UNIT"
 systemctl restart "$OUR_UNIT"
 
-# The tray runs as a person, not as root, and reaches the daemon over a socket
-# owned by this group.
-user=${SUDO_USER:-}
-if [ -n "$user" ] && [ "$user" != root ]; then
-    if ! id -nG "$user" | tr ' ' '\n' | grep -qx sombra; then
-        usermod -aG sombra "$user"
-        echo "==> added $user to the sombra group — log out and back in for the tray"
-    fi
-fi
-
 echo
 systemctl --no-pager --lines=0 status "$OUR_UNIT" || true
 echo

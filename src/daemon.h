@@ -4,7 +4,6 @@
 #include "actuator.h"
 #include "backlight.h"
 #include "brightness_map.h"
-#include "control_socket.h"
 #include "daemon_state.h"
 #include "light_sensor.h"
 #include "metrics_ring.h"
@@ -16,6 +15,7 @@
 #include "sysfs.h"
 
 #include <QElapsedTimer>
+#include <QJsonObject>
 #include <QHash>
 #include <QFileSystemWatcher>
 #include <QObject>
@@ -25,16 +25,15 @@
 #include <optional>
 
 struct DaemonOptions {
-    // Only the kernel control surface is rooted. Settings, state, the ring and
-    // the socket are ordinary paths, given in full so that a test run and a
-    // service run differ only in their arguments.
+    // Only the kernel control surface is rooted. Settings, state and the ring are
+    // ordinary paths, given in full so that a test run and a service run differ
+    // only in their arguments.
     QString sysfsRoot = QStringLiteral("/");
     // Written by the daemon, not shipped by the package: the defaults are
     // compiled in, and this file appears the first time something is changed.
     QString configPath = QStringLiteral("/var/lib/sombra/settings.conf");
     QString statePath = QStringLiteral("/var/lib/sombra/state");
     QString ringPath = QStringLiteral("/var/lib/sombra/metrics.ring");
-    QString socketPath = QStringLiteral("/run/sombra/control.sock");
     // False keeps the monitor bus in the daemon's own thread, which is what the
     // suite wants: an answer that arrives before the next line is an answer a test
     // can assert on. Production runs it threaded, because a bus exchange is a third
@@ -88,7 +87,16 @@ public:
     void fadeBrightness();
     bool fading() const { return m_fadeTargetRaw >= 0; }
 
+    // The daemon's own entry point for everything that changes state, and the one
+    // place where a value is validated, clamped or refused. The bus turns a typed
+    // call into one of these lines rather than reaching past it: a second path into
+    // the same state would be a second set of rules.
     QString handleCommand(const QString &line);
+
+    // What the daemon is doing, and what it has saved. One description of the state,
+    // which the bus splits into properties and the command line prints as JSON.
+    QJsonObject statusObject() const;
+    QJsonObject configurationObject() const;
 
     const Sample &lastSample() const { return m_lastSample; }
     const QString &activeModeId() const { return m_state.mode; }
@@ -101,6 +109,9 @@ public:
 
 signals:
     void finished();
+    // Emitted at the end of every tick, so that whatever publishes the daemon's
+    // state does it on the daemon's own rhythm instead of polling.
+    void ticked();
     // Emitted after every applied change of mode, so the D-Bus layer can
     // announce it without polling.
     void modeChanged(const QString &id);
@@ -146,7 +157,6 @@ private:
     void reopenRing();
     void openRing();
     QString configJson() const;
-
     QString statusJson() const;
 
     // The backlight path. Kept apart from the setpoint path on purpose: the
@@ -191,7 +201,6 @@ private:
     // worker to look again — reading sysfs is microseconds, walking the buses is
     // most of a second.
     QStringList m_connectedConnectors;
-    std::unique_ptr<ControlSocket> m_socket;
     QFileSystemWatcher m_watcher;
     QTimer m_timer;
     QTimer m_fadeTimer;

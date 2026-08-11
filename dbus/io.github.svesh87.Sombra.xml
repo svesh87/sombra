@@ -1,0 +1,154 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  The daemon's own interface, and the only way anything drives it.
+
+  Readings that move every tick travel as one dictionary, `Readings`, whose value
+  is announced as changed once a second. Everything that changes when somebody
+  changes it is a property of its own, so that a change to the depth of the ring
+  does not arrive as part of a fan speed. Everything that changes state is a
+  method, and every one of them is checked against the polkit action
+  io.github.svesh87.Sombra.manage before it does anything.
+
+  The three power-profile names the daemon also answers on are a separate surface
+  and are not described here: they exist for the desktop's panel applet.
+
+  This file is the definition of the wire. The daemon's adaptor is written by hand,
+  because a method that waits for polkit has to delay its reply and a generated
+  adaptor cannot reach the message it is answering; a test reads the introspection
+  off a running daemon and compares it with this file, so the two cannot drift.
+-->
+<node>
+  <interface name="io.github.svesh87.Sombra">
+
+    <!-- The tick: temperatures, fan speed, power, frequencies, the light in the
+         room, and what the guard did with them. A reading the machine could not
+         take is a key that is not there. -->
+    <property name="Readings" type="a{sv}" access="read">
+      <annotation name="org.qtproject.QtDBus.QtTypeName" value="QVariantMap"/>
+    </property>
+
+    <property name="Mode" type="s" access="read"/>
+    <property name="Modes" type="aa{sv}" access="read">
+      <annotation name="org.qtproject.QtDBus.QtTypeName" value="QList&lt;QVariantMap&gt;"/>
+    </property>
+    <property name="LiveTuning" type="b" access="read"/>
+
+    <!-- The nine setpoints, as asked for and as the machine took them. They move
+         as a set — one mode switch, one live change — so they travel as one. -->
+    <property name="Requested" type="a{sv}" access="read">
+      <annotation name="org.qtproject.QtDBus.QtTypeName" value="QVariantMap"/>
+    </property>
+    <property name="Applied" type="a{sv}" access="read">
+      <annotation name="org.qtproject.QtDBus.QtTypeName" value="QVariantMap"/>
+    </property>
+
+    <!-- Nought means the battery charges to the top. -->
+    <property name="ChargeLimit" type="i" access="read"/>
+
+    <property name="BrightnessAvailable" type="b" access="read"/>
+    <property name="AutoBrightness" type="b" access="read"/>
+    <!-- Per cent, and -1 for "no reading": a nought here would be a dark screen. -->
+    <property name="BrightnessLevel" type="i" access="read"/>
+    <property name="BrightnessBase" type="i" access="read"/>
+    <property name="BrightnessResponsePct" type="i" access="read"/>
+    <property name="BrightnessFloorPct" type="i" access="read"/>
+    <property name="BrightnessCeilingPct" type="i" access="read"/>
+    <!-- The band the automation may move in, which exists once there is a
+         baseline to build it around, and is -1 until then. -->
+    <property name="BrightnessWindowLow" type="i" access="read"/>
+    <property name="BrightnessWindowHigh" type="i" access="read"/>
+
+    <!-- One entry per external monitor: id, model, connector, level, answering. -->
+    <property name="Monitors" type="aa{sv}" access="read">
+      <annotation name="org.qtproject.QtDBus.QtTypeName" value="QList&lt;QVariantMap&gt;"/>
+    </property>
+
+    <property name="MetricsEnabled" type="b" access="read"/>
+    <property name="RetentionDays" type="i" access="read"/>
+    <property name="SampleCount" type="t" access="read"/>
+
+    <!-- What the daemon has saved, as opposed to what it is running: the mode
+         definitions, the backlight settings and the curve, and where the file is. -->
+    <property name="Configuration" type="a{sv}" access="read">
+      <annotation name="org.qtproject.QtDBus.QtTypeName" value="QVariantMap"/>
+    </property>
+
+    <!-- Every method answers with the same sentence the command line prints, and
+         a refusal is a D-Bus error carrying that sentence. Clamping is not a
+         refusal: a value above a ceiling is applied at the ceiling and the answer
+         says so. -->
+    <method name="SetMode">
+      <arg name="id" type="s" direction="in"/>
+      <arg name="reply" type="s" direction="out"/>
+    </method>
+    <method name="SetLive">
+      <arg name="assignments" type="a{sv}" direction="in"/>
+      <annotation name="org.qtproject.QtDBus.QtTypeName.In0" value="QVariantMap"/>
+      <arg name="reply" type="s" direction="out"/>
+    </method>
+    <method name="ResetLive">
+      <arg name="reply" type="s" direction="out"/>
+    </method>
+
+    <method name="SetAutoBrightness">
+      <arg name="on" type="b" direction="in"/>
+      <arg name="reply" type="s" direction="out"/>
+    </method>
+    <method name="SetBrightnessLevel">
+      <arg name="percent" type="i" direction="in"/>
+      <arg name="reply" type="s" direction="out"/>
+    </method>
+    <method name="SetBrightnessBase">
+      <arg name="percent" type="i" direction="in"/>
+      <arg name="reply" type="s" direction="out"/>
+    </method>
+    <!-- Applied and not written down, which is what a slider being dragged wants.
+         Writing them down is Configure("brightness", …), a separate act: a drag
+         must not write a file thirty times on the way across. -->
+    <method name="SetBrightnessSettings">
+      <arg name="settings" type="a{sv}" direction="in"/>
+      <annotation name="org.qtproject.QtDBus.QtTypeName.In0" value="QVariantMap"/>
+      <arg name="reply" type="s" direction="out"/>
+    </method>
+
+    <!-- An empty id means every monitor that answers. -->
+    <method name="SetMonitorLevel">
+      <arg name="id" type="s" direction="in"/>
+      <arg name="percent" type="i" direction="in"/>
+      <arg name="reply" type="s" direction="out"/>
+    </method>
+
+    <method name="Mark">
+      <arg name="verdict" type="s" direction="in"/>
+      <arg name="reply" type="s" direction="out"/>
+    </method>
+    <method name="SetChargeLimit">
+      <arg name="percent" type="i" direction="in"/>
+      <arg name="reply" type="s" direction="out"/>
+    </method>
+
+    <!-- The saved side. `kind` is mode, brightness or metrics; for a mode the id
+         goes in the map under "id". -->
+    <method name="Configure">
+      <arg name="kind" type="s" direction="in"/>
+      <arg name="values" type="a{sv}" direction="in"/>
+      <annotation name="org.qtproject.QtDBus.QtTypeName.In1" value="QVariantMap"/>
+      <arg name="reply" type="s" direction="out"/>
+    </method>
+    <method name="SaveLiveAs">
+      <arg name="id" type="s" direction="in"/>
+      <arg name="reply" type="s" direction="out"/>
+    </method>
+    <method name="SetDefaultMode">
+      <arg name="id" type="s" direction="in"/>
+      <arg name="reply" type="s" direction="out"/>
+    </method>
+    <method name="ResetConfiguration">
+      <arg name="what" type="s" direction="in"/>
+      <arg name="reply" type="s" direction="out"/>
+    </method>
+    <method name="Reload">
+      <arg name="reply" type="s" direction="out"/>
+    </method>
+  </interface>
+</node>

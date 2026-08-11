@@ -20,7 +20,9 @@ Architecture: amd64
 # rather than left to allow it.
 Conflicts: ombra
 Replaces: ombra
-Depends: ${shlibs:Depends}, ${misc:Depends}
+# The control surface is a name on the system bus, and every command is checked
+# against a polkit action, so both are needed at run time rather than only handy.
+Depends: ${shlibs:Depends}, ${misc:Depends}, dbus, policykit-1 | polkitd
 Description: thermal, noise and backlight daemon for the ASUS Zenbook 14 UX3405MA
  A daemon that keeps an ASUS Zenbook 14 UX3405MA (Intel Core Ultra 9 185H)
  inside a chosen thermal envelope, and a tray console to switch between

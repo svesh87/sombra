@@ -3,23 +3,14 @@
 #
 # Handing ownership to this daemon means masking the vendor daemon, and that is
 # a deliberate act with a rollback procedure, not a side effect of `dpkg -i`.
-# So this script prepares the one thing that cannot be prepared later — the
-# group the tray needs — prints the commands that actually hand over
-# ownership, and stops there. dh_installsystemd is called with --no-enable
-# --no-start for the same reason.
+# So this script prints the commands that hand over ownership and stops there.
+# dh_installsystemd is called with --no-enable --no-start for the same reason.
+#
+# Nothing is prepared for the console: it reaches the daemon over the system bus,
+# and who may drive it is decided by the polkit action this package installs. The
+# person at this screen is allowed without being asked and without joining
+# anything.
 set -e
-
-case "$1" in
-configure)
-    # The daemon runs as root and the tray as an ordinary user; they meet on a
-    # unix socket owned by this group. It has to exist before the first start,
-    # because the unit's ExecStartPost hands the socket to it.
-    if ! getent group sombra >/dev/null 2>&1; then
-        addgroup --system sombra >/dev/null
-    fi
-    ;;
-abort-upgrade | abort-remove | abort-deconfigure) ;;
-esac
 
 #DEBHELPER#
 
@@ -34,10 +25,6 @@ the thermal controls, so handing them over is a deliberate step:
 
 (That is the vendor unit's real name; system76-power.service is only an alias
 of it, and masking the alias leaves the real unit enabled.)
-
-To use the tray, join the group and log back in:
-
-  sudo usermod -aG sombra "$USER"
 
 To hand the controls back:
 

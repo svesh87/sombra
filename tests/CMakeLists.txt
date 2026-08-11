@@ -2,8 +2,8 @@
 # surface in a temporary directory.
 
 function(sombra_test name)
-    cmake_parse_arguments(ARG "" "" "LIBS;ENV" ${ARGN})
-    add_executable(${name} ${name}.cpp)
+    cmake_parse_arguments(ARG "" "" "LIBS;ENV;SOURCES" ${ARGN})
+    add_executable(${name} ${name}.cpp ${ARG_SOURCES})
     target_link_libraries(${name} PRIVATE ${ARG_LIBS} Qt6::Test)
     target_include_directories(${name} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
     target_compile_options(${name} PRIVATE ${SOMBRA_WARNINGS})
@@ -28,9 +28,18 @@ sombra_test(backlight_test LIBS sombra_core)
 sombra_test(brightness_map_test LIBS sombra_core)
 sombra_test(daemon_state_test LIBS sombra_core)
 sombra_test(profile_bridge_test LIBS sombra_core)
-sombra_test(control_socket_test LIBS sombra_daemon)
 sombra_test(signal_pipe_test LIBS sombra_daemon)
 sombra_test(daemon_test LIBS sombra_daemon)
+# The wire: the split into properties and the words that name a call, both of which
+# have an inverse, which is what the cases check.
+sombra_test(control_wire_test LIBS sombra_core)
+# The daemon's own interface, end to end on a bus of the suite's own, with something
+# standing in for polkit so that the refusal path is exercised rather than assumed.
+sombra_test(control_bus_test LIBS sombra_daemon SOURCES fake_bus.cpp fake_bus.h)
+# The definition of the wire, read from the source tree: the case compares it with what
+# a running daemon says about itself.
+target_compile_definitions(control_bus_test PRIVATE
+    WIRE_XML="${CMAKE_SOURCE_DIR}/dbus/io.github.svesh87.Sombra.xml")
 
 # Claiming the real names on the real bus would disturb the running desktop, so
 # these run against a private bus started by dbus-run-session.
@@ -51,10 +60,11 @@ sombra_test(tray_icon_test LIBS sombra_tray
 # a suite that tested what is in /usr would be testing the last release.
 sombra_test(translations_test LIBS sombra_tray
     ENV "QT_QPA_PLATFORM=offscreen;SOMBRA_TRANSLATIONS_DIR=${CMAKE_BINARY_DIR}")
-sombra_test(tray_client_test LIBS sombra_tray ENV "QT_QPA_PLATFORM=offscreen")
+sombra_test(tray_client_test LIBS sombra_tray SOURCES fake_bus.cpp fake_bus.h
+    ENV "QT_QPA_PLATFORM=offscreen")
 # The help pages come from the source tree for the same reason the catalogues come
 # from the build tree: testing what is in /usr would be testing the last release.
-sombra_test(tray_window_test LIBS sombra_tray
+sombra_test(tray_window_test LIBS sombra_tray SOURCES fake_bus.cpp fake_bus.h
     ENV "QT_QPA_PLATFORM=offscreen;SOMBRA_HELP_DIR=${CMAKE_SOURCE_DIR}/help")
 add_dependencies(tray_client_test sombrad)
 add_dependencies(tray_window_test sombrad sombra-tray)
@@ -70,7 +80,7 @@ target_compile_options(sombra-fake-tree PRIVATE ${SOMBRA_WARNINGS})
 
 # The binaries themselves, so that option parsing and the exit paths are
 # covered by something other than reading them.
-sombra_test(cli_test LIBS sombra_core)
+sombra_test(cli_test LIBS sombra_core SOURCES fake_bus.cpp fake_bus.h)
 target_compile_definitions(cli_test PRIVATE
     DAEMON_BINARY="$<TARGET_FILE:sombrad>"
     CTL_BINARY="$<TARGET_FILE:sombra>"

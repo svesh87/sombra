@@ -6,7 +6,7 @@
 #include "autostart.h"
 #include "brightness_map.h"
 #include "help.h"
-#include "control_socket.h"
+#include "control_wire.h"
 #include "setpoints.h"
 
 #include <QCheckBox>
@@ -1458,10 +1458,10 @@ QString TrayWindow::connectionText() const
 QString TrayWindow::connectionDetail() const
 {
     if (m_connected)
-        return tr("The daemon is answering on %1.").arg(m_client.socketPath());
-    return tr("Nothing is answering on %1. The daemon may not be running, or you may not be in "
-              "the %2 group.")
-            .arg(m_client.socketPath(), QString::fromLatin1(kControlSocketGroup));
+        return tr("The daemon is answering on %1.").arg(QString::fromLatin1(wire::kService));
+    return tr("Nothing is answering on %1. The daemon is probably not running: "
+              "systemctl status sombrad says whether it is.")
+            .arg(QString::fromLatin1(wire::kService));
 }
 
 void TrayWindow::showConnectionState()

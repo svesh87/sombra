@@ -1,17 +1,13 @@
 // Copyright (c) 2026 Sergei Sveshnikov. MIT licensed, see LICENSE.
 #include "tray_client.h"
 
+#include "control_wire.h"
+
 #include <QJsonArray>
 #include <QJsonDocument>
-#include <QLocalSocket>
+#include <QStringList>
 
 namespace {
-
-// A single-line exchange over a local socket either completes at once or the
-// daemon is not there. The timeouts are what keeps a missing daemon from
-// stalling the interface rather than an allowance for a slow one.
-constexpr int kConnectTimeoutMs = 1000;
-constexpr int kReplyTimeoutMs = 1000;
 
 // A reading the daemon could not take is JSON null, which is not zero: zero is
 // a legal fan speed and a legal power draw.
@@ -44,44 +40,50 @@ Setpoints setpointsFrom(const QJsonObject &object)
 
 } // namespace
 
-TrayClient::TrayClient(QString socketPath, QObject *parent)
+TrayClient::TrayClient(QString busAddress, QObject *parent)
     : QObject(parent)
-    , m_socketPath(std::move(socketPath))
+    , m_bus(std::move(busAddress), this)
 {
-    connect(&m_timer, &QTimer::timeout, this, &TrayClient::poll);
+    connect(&m_bus, &BusClient::propertiesChanged, this, &TrayClient::merge);
+    // The daemon appearing or going away, without a timer looking for it. Coming back
+    // means reading everything again: what changed while it was gone was never
+    // announced.
+    connect(&m_bus, &BusClient::availabilityChanged, this, [this](bool available) {
+        if (available)
+            poll();
+        else
+            setConnected(false);
+    });
 }
 
-void TrayClient::start(int intervalMs)
+void TrayClient::start()
 {
-    m_timer.setInterval(intervalMs);
-    m_timer.start();
     poll();
 }
 
 void TrayClient::stop()
 {
-    m_timer.stop();
+    // Nothing to stop: this listens rather than asks. Kept because the console has an
+    // order to shut down in, and "stop talking to the daemon" is a step in it.
+    setConnected(false);
 }
 
 QString TrayClient::send(const QString &command)
 {
-    // One connection per exchange. The daemon may restart under a running
-    // tray, and a socket that is opened for the command and closed after it
-    // cannot be left holding a dead connection.
-    QLocalSocket socket;
-    socket.connectToServer(m_socketPath);
-    if (!socket.waitForConnected(kConnectTimeoutMs))
-        return {};
-
-    socket.write(command.toUtf8());
-    socket.write("\n");
-    socket.flush();
-
-    while (!socket.canReadLine()) {
-        if (!socket.waitForReadyRead(kReplyTimeoutMs))
-            return {};
+    const wire::Call call = wire::callFor(command.split(QLatin1Char(' '), Qt::SkipEmptyParts));
+    if (!call.valid())
+        return QStringLiteral("err ") + call.error;
+    // A reading command is not a call: what it would ask for is already published.
+    if (call.read != wire::Call::Read::None) {
+        poll();
+        return m_connected ? QStringLiteral("ok") : QString();
     }
-    return QString::fromUtf8(socket.readLine()).trimmed();
+    // Nothing there to answer, which is a state and not an error. Empty rather than a
+    // sentence about names and service files: the window has words of its own for it,
+    // and the bus's are about D-Bus rather than about this daemon.
+    if (!m_bus.available())
+        return {};
+    return m_bus.call(call.method, call.arguments);
 }
 
 QString TrayClient::sendAndRefresh(const QString &command)
@@ -93,26 +95,40 @@ QString TrayClient::sendAndRefresh(const QString &command)
 
 void TrayClient::poll()
 {
-    const QString reply = send(QStringLiteral("status"));
-    const QJsonDocument document = reply.startsWith(QLatin1String("ok "))
-            ? QJsonDocument::fromJson(reply.mid(3).toUtf8())
-            : QJsonDocument();
-    if (!document.isObject()) {
+    const QVariantMap properties = m_bus.readAll();
+    if (properties.isEmpty()) {
         setConnected(false);
         return;
     }
+    m_properties = properties;
+    m_status = parseStatus(wire::statusJsonFrom(m_properties));
+    setConnected(true);
+    emit statusChanged(m_status);
+}
 
-    m_status = parseStatus(document.object());
+void TrayClient::merge(const QVariantMap &changed)
+{
+    // What is not named has not changed, so the announcement is merged rather than
+    // taken as the whole picture.
+    for (auto entry = changed.constBegin(); entry != changed.constEnd(); ++entry)
+        m_properties.insert(entry.key(), entry.value());
+    m_status = parseStatus(wire::statusJsonFrom(m_properties));
     setConnected(true);
     emit statusChanged(m_status);
 }
 
 TrayClient::Configuration TrayClient::fetchConfiguration()
 {
-    const QString reply = send(QStringLiteral("config show"));
-    if (!reply.startsWith(QLatin1String("ok ")))
+    // Published like everything else, so this is a lookup rather than a question. It
+    // is still a call the window makes deliberately: the definitions are read when it
+    // has a reason to read them.
+    if (m_properties.isEmpty())
+        poll();
+    const QVariantMap configuration =
+            m_properties.value(QStringLiteral("Configuration")).toMap();
+    if (configuration.isEmpty())
         return {};
-    return parseConfiguration(QJsonDocument::fromJson(reply.mid(3).toUtf8()).object());
+    return parseConfiguration(QJsonObject::fromVariantMap(configuration));
 }
 
 TrayClient::Configuration TrayClient::parseConfiguration(const QJsonObject &object)

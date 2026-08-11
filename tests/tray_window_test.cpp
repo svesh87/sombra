@@ -1,8 +1,9 @@
 // Copyright (c) 2026 Sergei Sveshnikov. MIT licensed, see LICENSE.
 #include "autostart.h"
-#include "control_socket.h"
+#include "fake_bus.h"
 #include "fake_sysfs.h"
 #include "brightness_map.h"
+#include "control_wire.h"
 #include "help.h"
 #include "metrics_ring.h"
 #include "modes.h"
@@ -42,60 +43,6 @@
 #include <memory>
 
 namespace {
-
-// The daemon runs as its own process here, which is what it is on the machine
-// as well. It cannot be an object in this process: the window drives it
-// through a blocking exchange, and a daemon sharing the thread would never
-// reach its own event loop to answer.
-class TestDaemon {
-public:
-    TestDaemon(const QString &sysfsRoot, QString workDir)
-        : m_work(std::move(workDir))
-    {
-        m_process.start(binary(),
-                        { QStringLiteral("--no-dbus"), QStringLiteral("--root"), sysfsRoot,
-                          QStringLiteral("--ring"), m_work + QStringLiteral("/metrics.ring"),
-                          QStringLiteral("--socket"), socketPath(), QStringLiteral("--state"),
-                          m_work + QStringLiteral("/state"), QStringLiteral("--config"),
-                          m_work + QStringLiteral("/settings.conf"), QStringLiteral("--capacity"),
-                          QStringLiteral("64"), QStringLiteral("--interval-ms"),
-                          QStringLiteral("20") });
-    }
-
-    ~TestDaemon() { stop(); }
-
-    QString socketPath() const { return m_work + QStringLiteral("/control.sock"); }
-
-    bool waitUntilListening()
-    {
-        if (!m_process.waitForStarted(10000))
-            return false;
-        QDeadlineTimer deadline(10000);
-        while (!QFile::exists(socketPath()) && !deadline.hasExpired())
-            QTest::qWait(10);
-        return QFile::exists(socketPath());
-    }
-
-    // SIGTERM is how systemd stops it, and it restores the hardware and
-    // removes the socket on the way out.
-    void stop()
-    {
-        if (m_process.state() == QProcess::NotRunning)
-            return;
-        m_process.terminate();
-        m_process.waitForFinished(10000);
-    }
-
-    static QString binary()
-    {
-        return QDir::cleanPath(QCoreApplication::applicationDirPath()
-                               + QStringLiteral("/../sombrad"));
-    }
-
-private:
-    QString m_work;
-    QProcess m_process;
-};
 
 // The environment a spawned sombra-tray gets.
 //
@@ -185,6 +132,7 @@ class TrayWindowTest : public QObject {
     Q_OBJECT
 
 private slots:
+    void initTestCase();
     void init();
 
     void showsTheReadingsIncludingTheCorePowerSplit();
@@ -220,14 +168,26 @@ private slots:
     void theTrayBinaryWritesTheDocumentationScreenshots();
 
 private:
-    QString socketPath() const { return m_work.path() + QStringLiteral("/control.sock"); }
     QString configPath() const { return m_work.path() + QStringLiteral("/settings.conf"); }
 
     QTemporaryDir m_work;
+    // One bus and one authority for the whole file. Without something answering for
+    // polkit every command here would be refused, and the refusal itself belongs to
+    // control_bus_test rather than to the window's cases.
+    PrivateBus m_bus;
+    std::unique_ptr<FakeAuthority> m_authority;
     // Rebuilt before every test: a shared tree would carry one case's writes
     // into the next.
     std::unique_ptr<FakeSysfs> m_tree;
 };
+
+void TrayWindowTest::initTestCase()
+{
+    QString error;
+    QVERIFY2(m_bus.start(&error), qPrintable(error));
+    m_authority = std::make_unique<FakeAuthority>();
+    QVERIFY2(m_authority->start(m_bus.address(), &error), qPrintable(error));
+}
 
 void TrayWindowTest::init()
 {
@@ -242,7 +202,7 @@ void TrayWindowTest::init()
 
 void TrayWindowTest::showsTheReadingsIncludingTheCorePowerSplit()
 {
-    TrayClient client(socketPath());
+    TrayClient client(m_bus.address());
     TrayWindow window(client);
 
     window.applyStatus(statusFrom(R"({
@@ -315,7 +275,7 @@ void TrayWindowTest::showsTheReadingsIncludingTheCorePowerSplit()
 
 void TrayWindowTest::showsAbsentReadingsAsADash()
 {
-    TrayClient client(socketPath());
+    TrayClient client(m_bus.address());
     TrayWindow window(client);
 
     window.applyStatus(statusFrom(R"({
@@ -341,7 +301,7 @@ void TrayWindowTest::showsAbsentReadingsAsADash()
 
 void TrayWindowTest::showsTheGuardAndTheWriteMismatch()
 {
-    TrayClient client(socketPath());
+    TrayClient client(m_bus.address());
     TrayWindow window(client);
     auto *guard = window.findChild<QLabel *>(QStringLiteral("guard"));
     auto *mismatch = window.findChild<QLabel *>(QStringLiteral("mismatch"));
@@ -384,9 +344,9 @@ void TrayWindowTest::showsTheGuardAndTheWriteMismatch()
 
 void TrayWindowTest::movingASliderTunesTheDaemonImmediately()
 {
-    TestDaemon daemon(m_tree->root(), m_work.path());
-    QVERIFY(daemon.waitUntilListening());
-    TrayClient client(socketPath());
+    TestDaemon daemon(m_tree->root(), m_work.path(), m_bus.address());
+    QVERIFY(daemon.waitUntilAnswering());
+    TrayClient client(m_bus.address());
     TrayWindow window(client);
     client.poll();
 
@@ -418,9 +378,9 @@ void TrayWindowTest::movingASliderTunesTheDaemonImmediately()
 
 void TrayWindowTest::theOtherLiveControlsReachTheDaemon()
 {
-    TestDaemon daemon(m_tree->root(), m_work.path());
-    QVERIFY(daemon.waitUntilListening());
-    TrayClient client(socketPath());
+    TestDaemon daemon(m_tree->root(), m_work.path(), m_bus.address());
+    QVERIFY(daemon.waitUntilAnswering());
+    TrayClient client(m_bus.address());
     TrayWindow window(client);
     client.poll();
 
@@ -451,9 +411,9 @@ void TrayWindowTest::theOtherLiveControlsReachTheDaemon()
 
 void TrayWindowTest::selectingAModeSendsTheModeCommand()
 {
-    TestDaemon daemon(m_tree->root(), m_work.path());
-    QVERIFY(daemon.waitUntilListening());
-    TrayClient client(socketPath());
+    TestDaemon daemon(m_tree->root(), m_work.path(), m_bus.address());
+    QVERIFY(daemon.waitUntilAnswering());
+    TrayClient client(m_bus.address());
     TrayWindow window(client);
     QSignalSpy selected(&window, &TrayWindow::modeSelected);
     client.poll();
@@ -481,9 +441,9 @@ void TrayWindowTest::selectingAModeSendsTheModeCommand()
 
 void TrayWindowTest::theMarkButtonsStampTheCurrentSample()
 {
-    TestDaemon daemon(m_tree->root(), m_work.path());
-    QVERIFY(daemon.waitUntilListening());
-    TrayClient client(socketPath());
+    TestDaemon daemon(m_tree->root(), m_work.path(), m_bus.address());
+    QVERIFY(daemon.waitUntilAnswering());
+    TrayClient client(m_bus.address());
     TrayWindow window(client);
     // The verdict buttons are dead until something answers, so the window has
     // to have seen a status before they can be clicked.
@@ -501,9 +461,9 @@ void TrayWindowTest::theMarkButtonsStampTheCurrentSample()
 
 void TrayWindowTest::movingAControlEmptiesTheModeSelector()
 {
-    TestDaemon daemon(m_tree->root(), m_work.path());
-    QVERIFY(daemon.waitUntilListening());
-    TrayClient client(socketPath());
+    TestDaemon daemon(m_tree->root(), m_work.path(), m_bus.address());
+    QVERIFY(daemon.waitUntilAnswering());
+    TrayClient client(m_bus.address());
     TrayWindow window(client);
     client.poll();
 
@@ -531,9 +491,9 @@ void TrayWindowTest::movingAControlEmptiesTheModeSelector()
 
 void TrayWindowTest::savesTheChangedNumbersIntoTheModeThatIsNamed()
 {
-    TestDaemon daemon(m_tree->root(), m_work.path());
-    QVERIFY(daemon.waitUntilListening());
-    TrayClient client(socketPath());
+    TestDaemon daemon(m_tree->root(), m_work.path(), m_bus.address());
+    QVERIFY(daemon.waitUntilAnswering());
+    TrayClient client(m_bus.address());
     TrayWindow window(client);
     client.poll();
     QTest::qWait(20);
@@ -564,9 +524,9 @@ void TrayWindowTest::savesTheChangedNumbersIntoTheModeThatIsNamed()
 
 void TrayWindowTest::theFanIsOneControlWithFourAnswers()
 {
-    TestDaemon daemon(m_tree->root(), m_work.path());
-    QVERIFY(daemon.waitUntilListening());
-    TrayClient client(socketPath());
+    TestDaemon daemon(m_tree->root(), m_work.path(), m_bus.address());
+    QVERIFY(daemon.waitUntilAnswering());
+    TrayClient client(m_bus.address());
     TrayWindow window(client);
     client.poll();
 
@@ -597,9 +557,9 @@ void TrayWindowTest::theFanIsOneControlWithFourAnswers()
 
 void TrayWindowTest::theBacklightSwitchIsOneAction()
 {
-    TestDaemon daemon(m_tree->root(), m_work.path());
-    QVERIFY(daemon.waitUntilListening());
-    TrayClient client(socketPath());
+    TestDaemon daemon(m_tree->root(), m_work.path(), m_bus.address());
+    QVERIFY(daemon.waitUntilAnswering());
+    TrayClient client(m_bus.address());
     TrayWindow window(client);
     client.poll();
 
@@ -628,9 +588,9 @@ void TrayWindowTest::theBacklightSwitchIsOneAction()
 
 void TrayWindowTest::theBacklightIsFourControlsInPerCent()
 {
-    TestDaemon daemon(m_tree->root(), m_work.path());
-    QVERIFY(daemon.waitUntilListening());
-    TrayClient client(socketPath());
+    TestDaemon daemon(m_tree->root(), m_work.path(), m_bus.address());
+    QVERIFY(daemon.waitUntilAnswering());
+    TrayClient client(m_bus.address());
     TrayWindow window(client);
     client.poll();
 
@@ -680,7 +640,7 @@ void TrayWindowTest::theAutostartSwitchOwnsItsOwnEntry()
 
     // No daemon on purpose: the tray starting with the session has nothing to
     // do with whether the daemon is answering, so the switch must work anyway.
-    TrayClient client(socketPath());
+    TrayClient client(m_bus.address());
     TrayWindow window(client);
     auto *toggle = window.findChild<QCheckBox *>(QStringLiteral("autostart"));
     QVERIFY(toggle);
@@ -720,7 +680,7 @@ void TrayWindowTest::theConsoleAppearanceIsAChoiceOfThree()
     QStandardPaths::setTestModeEnabled(true);
     theme::setPreference(theme::Preference::System);
 
-    TrayClient client(socketPath());
+    TrayClient client(m_bus.address());
     TrayWindow window(client);
     auto *appearance = window.findChild<QComboBox *>(QStringLiteral("appearance"));
     QVERIFY(appearance);
@@ -754,9 +714,9 @@ void TrayWindowTest::theConsoleAppearanceIsAChoiceOfThree()
 
 void TrayWindowTest::oneResetCoversEverySettingThereIs()
 {
-    TestDaemon daemon(m_tree->root(), m_work.path());
-    QVERIFY(daemon.waitUntilListening());
-    TrayClient client(socketPath());
+    TestDaemon daemon(m_tree->root(), m_work.path(), m_bus.address());
+    QVERIFY(daemon.waitUntilAnswering());
+    TrayClient client(m_bus.address());
     TrayWindow window(client);
     client.poll();
 
@@ -787,9 +747,9 @@ void TrayWindowTest::oneResetCoversEverySettingThereIs()
 
 void TrayWindowTest::repaintingFromAStatusSendsNothing()
 {
-    TestDaemon daemon(m_tree->root(), m_work.path());
-    QVERIFY(daemon.waitUntilListening());
-    TrayClient client(socketPath());
+    TestDaemon daemon(m_tree->root(), m_work.path(), m_bus.address());
+    QVERIFY(daemon.waitUntilAnswering());
+    TrayClient client(m_bus.address());
     TrayWindow window(client);
     client.poll();
 
@@ -817,17 +777,18 @@ void TrayWindowTest::repaintingFromAStatusSendsNothing()
 
 void TrayWindowTest::saysSoWhenTheDaemonIsUnreachable()
 {
-    TrayClient client(m_work.path() + QStringLiteral("/absent.sock"));
+    // A bus with no daemon on it, which is what a console started too early sees.
+    TrayClient client(m_bus.address());
     TrayWindow window(client);
 
-    // Short on the line and specific behind it: the socket and the group are
+    // Short on the line and specific behind it: the name and what to do about it are
     // what a diagnosis needs, and "not answering" is what a glance needs.
     auto *banner = window.findChild<QLabel *>(QStringLiteral("status"));
     QVERIFY(!banner->isHidden());
     QVERIFY(window.statusText().contains(QStringLiteral("not answering")));
-    QVERIFY(!window.statusText().contains(client.socketPath()));
-    QVERIFY(banner->toolTip().contains(client.socketPath()));
-    QVERIFY(banner->toolTip().contains(QString::fromLatin1(kControlSocketGroup)));
+    QVERIFY(!window.statusText().contains(QString::fromLatin1(wire::kService)));
+    QVERIFY(banner->toolTip().contains(QString::fromLatin1(wire::kService)));
+    QVERIFY(banner->toolTip().contains(QStringLiteral("sombrad")));
 
     // Nothing that would send a command is usable, so a slider parked at its
     // minimum cannot be read as a setpoint the daemon is holding.
@@ -845,23 +806,23 @@ void TrayWindowTest::saysSoWhenTheDaemonIsUnreachable()
     QCOMPARE(window.statusText(),
              QStringLiteral("No modes to save into yet."));
 
-    TestDaemon daemon(m_tree->root(), m_work.path());
-    QVERIFY(daemon.waitUntilListening());
-    TrayClient live(socketPath());
+    TestDaemon daemon(m_tree->root(), m_work.path(), m_bus.address());
+    QVERIFY(daemon.waitUntilAnswering());
+    TrayClient live(m_bus.address());
     TrayWindow second(live);
     auto *connection = second.findChild<QLabel *>(QStringLiteral("status"));
     QVERIFY(second.statusText().contains(QStringLiteral("not answering")));
     live.poll();
     QVERIFY(second.statusText().contains(QStringLiteral("Connected")));
-    QVERIFY(connection->toolTip().contains(live.socketPath()));
+    QVERIFY(connection->toolTip().contains(QString::fromLatin1(wire::kService)));
     QVERIFY(second.findChild<QSlider *>(QStringLiteral("pl1_slider"))->isEnabled());
 }
 
 void TrayWindowTest::oneLineCarriesTheStateAndTheReplies()
 {
-    auto daemon = std::make_unique<TestDaemon>(m_tree->root(), m_work.path());
-    QVERIFY(daemon->waitUntilListening());
-    TrayClient client(socketPath());
+    auto daemon = std::make_unique<TestDaemon>(m_tree->root(), m_work.path(), m_bus.address());
+    QVERIFY(daemon->waitUntilAnswering());
+    TrayClient client(m_bus.address());
     TrayWindow window(client);
     client.poll();
     window.show();
@@ -912,9 +873,9 @@ void TrayWindowTest::oneLineCarriesTheStateAndTheReplies()
 
 void TrayWindowTest::everyControlThatSendsACommandExplainsItself()
 {
-    TestDaemon daemon(m_tree->root(), m_work.path());
-    QVERIFY(daemon.waitUntilListening());
-    TrayClient client(socketPath());
+    TestDaemon daemon(m_tree->root(), m_work.path(), m_bus.address());
+    QVERIFY(daemon.waitUntilAnswering());
+    TrayClient client(m_bus.address());
     TrayWindow window(client);
     client.poll();
 
@@ -952,9 +913,9 @@ void TrayWindowTest::everyControlThatSendsACommandExplainsItself()
 
 void TrayWindowTest::everyChoiceInAListExplainsItself()
 {
-    TestDaemon daemon(m_tree->root(), m_work.path());
-    QVERIFY(daemon.waitUntilListening());
-    TrayClient client(socketPath());
+    TestDaemon daemon(m_tree->root(), m_work.path(), m_bus.address());
+    QVERIFY(daemon.waitUntilAnswering());
+    TrayClient client(m_bus.address());
     TrayWindow window(client);
     client.poll();
     QTest::qWait(50);
@@ -990,9 +951,9 @@ void TrayWindowTest::everyChoiceInAListExplainsItself()
 
 void TrayWindowTest::theBaselineIsAControlOfItsOwn()
 {
-    TestDaemon daemon(m_tree->root(), m_work.path());
-    QVERIFY(daemon.waitUntilListening());
-    TrayClient client(socketPath());
+    TestDaemon daemon(m_tree->root(), m_work.path(), m_bus.address());
+    QVERIFY(daemon.waitUntilAnswering());
+    TrayClient client(m_bus.address());
     TrayWindow window(client);
     client.poll();
 
@@ -1029,14 +990,13 @@ void TrayWindowTest::theTrayBinaryRunsAgainstADaemon()
                                            + QStringLiteral("/../sombra-tray"));
     QVERIFY2(QFile::exists(binary), qPrintable(binary));
 
-    auto daemon = std::make_unique<TestDaemon>(m_tree->root(), m_work.path());
-    QVERIFY(daemon->waitUntilListening());
+    auto daemon = std::make_unique<TestDaemon>(m_tree->root(), m_work.path(), m_bus.address());
+    QVERIFY(daemon->waitUntilAnswering());
 
     QProcess tray;
     const Reaped reaped(tray);
     tray.setProcessEnvironment(isolatedEnvironment());
-    tray.start(binary, { QStringLiteral("--socket"), socketPath(),
-                         QStringLiteral("--interval-ms"), QStringLiteral("40"),
+    tray.start(binary, { QStringLiteral("--bus-address"), m_bus.address(),
                          QStringLiteral("--quit-after-ms"), QStringLiteral("2000") });
     QVERIFY(tray.waitForStarted(10000));
 
@@ -1076,15 +1036,14 @@ void TrayWindowTest::aSecondConsoleOpensTheFirstOneInstead()
                                            + QStringLiteral("/../sombra-tray"));
     QVERIFY2(QFile::exists(binary), qPrintable(binary));
 
-    TestDaemon daemon(m_tree->root(), m_work.path());
-    QVERIFY(daemon.waitUntilListening());
+    TestDaemon daemon(m_tree->root(), m_work.path(), m_bus.address());
+    QVERIFY(daemon.waitUntilAnswering());
 
     QProcess first;
     const Reaped reaped(first);
     first.setProcessEnvironment(isolatedEnvironment());
-    first.start(binary, { QStringLiteral("--socket"), socketPath(),
-                          QStringLiteral("--interval-ms"), QStringLiteral("40"),
-                          QStringLiteral("--quit-after-ms"), QStringLiteral("4000") });
+    first.start(binary, { QStringLiteral("--bus-address"), m_bus.address(),
+                           QStringLiteral("--quit-after-ms"), QStringLiteral("4000") });
     QVERIFY(first.waitForStarted(10000));
     QTest::qWait(600);
     QCOMPARE(first.state(), QProcess::Running);
@@ -1094,7 +1053,7 @@ void TrayWindowTest::aSecondConsoleOpensTheFirstOneInstead()
     QProcess second;
     second.setProcessEnvironment(isolatedEnvironment());
     second.setProcessChannelMode(QProcess::MergedChannels);
-    second.start(binary, { QStringLiteral("--socket"), socketPath() });
+    second.start(binary, { QStringLiteral("--bus-address"), m_bus.address() });
     QVERIFY(second.waitForFinished(10000));
     QCOMPARE(second.exitStatus(), QProcess::NormalExit);
     QCOMPARE(second.exitCode(), 0);
@@ -1111,8 +1070,8 @@ void TrayWindowTest::theTrayWaitsForALateTrayHost()
     const QString binary = QDir::cleanPath(QCoreApplication::applicationDirPath()
                                            + QStringLiteral("/../sombra-tray"));
     QVERIFY2(QFile::exists(binary), qPrintable(binary));
-    TestDaemon daemon(m_tree->root(), m_work.path());
-    QVERIFY(daemon.waitUntilListening());
+    TestDaemon daemon(m_tree->root(), m_work.path(), m_bus.address());
+    QVERIFY(daemon.waitUntilAnswering());
 
     // A tray host that turns up late, which is the ordinary case at login: the
     // panel registers over the session bus a second or two after an autostarted
@@ -1125,9 +1084,8 @@ void TrayWindowTest::theTrayWaitsForALateTrayHost()
     QProcess appears;
     const Reaped reapedAppears(appears);
     appears.setProcessEnvironment(late);
-    appears.start(binary, { QStringLiteral("--socket"), socketPath(),
-                            QStringLiteral("--interval-ms"), QStringLiteral("40"),
-                            QStringLiteral("--quit-after-ms"), QStringLiteral("3000") });
+    appears.start(binary, { QStringLiteral("--bus-address"), m_bus.address(),
+                               QStringLiteral("--quit-after-ms"), QStringLiteral("3000") });
     QVERIFY(appears.waitForStarted(10000));
     QVERIFY(appears.waitForFinished(20000));
     QCOMPARE(appears.exitCode(), 0);
@@ -1146,9 +1104,8 @@ void TrayWindowTest::theTrayWaitsForALateTrayHost()
     QProcess absent;
     const Reaped reapedAbsent(absent);
     absent.setProcessEnvironment(never);
-    absent.start(binary, { QStringLiteral("--socket"), socketPath(),
-                           QStringLiteral("--interval-ms"), QStringLiteral("40"),
-                           QStringLiteral("--quit-after-ms"), QStringLiteral("4000") });
+    absent.start(binary, { QStringLiteral("--bus-address"), m_bus.address(),
+                             QStringLiteral("--quit-after-ms"), QStringLiteral("4000") });
     QVERIFY(absent.waitForStarted(10000));
     QVERIFY(absent.waitForFinished(20000));
     QVERIFY(QString::fromUtf8(absent.readAllStandardError())
@@ -1179,9 +1136,9 @@ void TrayWindowTest::theHelpButtonFindsAPageForEveryLanguage()
     const QString region = help::path(QLocale(QStringLiteral("es_MX")));
     QVERIFY2(region.endsWith(QStringLiteral("sombra-help.es.html")), qPrintable(region));
 
-    TestDaemon daemon(m_tree->root(), m_work.path());
-    QVERIFY(daemon.waitUntilListening());
-    TrayClient client(socketPath());
+    TestDaemon daemon(m_tree->root(), m_work.path(), m_bus.address());
+    QVERIFY(daemon.waitUntilAnswering());
+    TrayClient client(m_bus.address());
     TrayWindow window(client);
     window.show();
 
@@ -1229,9 +1186,9 @@ void TrayWindowTest::theHelpButtonFindsAPageForEveryLanguage()
 
 void TrayWindowTest::telemetryIsTwoControlsOnTheSettingsTab()
 {
-    TestDaemon daemon(m_tree->root(), m_work.path());
-    QVERIFY(daemon.waitUntilListening());
-    TrayClient client(socketPath());
+    TestDaemon daemon(m_tree->root(), m_work.path(), m_bus.address());
+    QVERIFY(daemon.waitUntilAnswering());
+    TrayClient client(m_bus.address());
     TrayWindow window(client);
     client.poll();
 
@@ -1262,9 +1219,9 @@ void TrayWindowTest::telemetryIsTwoControlsOnTheSettingsTab()
 
 void TrayWindowTest::theDepthFieldGoesOutOnTheArrowsAndAsksOncePerValue()
 {
-    TestDaemon daemon(m_tree->root(), m_work.path());
-    QVERIFY(daemon.waitUntilListening());
-    TrayClient client(socketPath());
+    TestDaemon daemon(m_tree->root(), m_work.path(), m_bus.address());
+    QVERIFY(daemon.waitUntilAnswering());
+    TrayClient client(m_bus.address());
     TrayWindow window(client);
     client.poll();
 
@@ -1314,9 +1271,9 @@ void TrayWindowTest::theDepthFieldGoesOutOnTheArrowsAndAsksOncePerValue()
 
 void TrayWindowTest::anExternalMonitorGetsAGroupOfItsOwn()
 {
-    TestDaemon daemon(m_tree->root(), m_work.path());
-    QVERIFY(daemon.waitUntilListening());
-    TrayClient client(socketPath());
+    TestDaemon daemon(m_tree->root(), m_work.path(), m_bus.address());
+    QVERIFY(daemon.waitUntilAnswering());
+    TrayClient client(m_bus.address());
     TrayWindow window(client);
     client.poll();
 
@@ -1371,9 +1328,9 @@ void TrayWindowTest::anExternalMonitorGetsAGroupOfItsOwn()
 
 void TrayWindowTest::aStatusReplyDoesNotRepaintAControlUnderTheHand()
 {
-    TestDaemon daemon(m_tree->root(), m_work.path());
-    QVERIFY(daemon.waitUntilListening());
-    TrayClient client(socketPath());
+    TestDaemon daemon(m_tree->root(), m_work.path(), m_bus.address());
+    QVERIFY(daemon.waitUntilAnswering());
+    TrayClient client(m_bus.address());
     TrayWindow window(client);
     window.show();
     client.poll();
@@ -1414,9 +1371,9 @@ void TrayWindowTest::aStatusReplyDoesNotRepaintAControlUnderTheHand()
 
 void TrayWindowTest::theWindowKeepsOneSizeForEveryTab()
 {
-    TestDaemon daemon(m_tree->root(), m_work.path());
-    QVERIFY(daemon.waitUntilListening());
-    TrayClient client(socketPath());
+    TestDaemon daemon(m_tree->root(), m_work.path(), m_bus.address());
+    QVERIFY(daemon.waitUntilAnswering());
+    TrayClient client(m_bus.address());
     TrayWindow window(client);
     client.poll();
     window.show();
@@ -1448,14 +1405,14 @@ void TrayWindowTest::theTrayBinaryWritesTheDocumentationScreenshots()
                                            + QStringLiteral("/../sombra-tray"));
     QVERIFY2(QFile::exists(binary), qPrintable(binary));
 
-    TestDaemon daemon(m_tree->root(), m_work.path());
-    QVERIFY(daemon.waitUntilListening());
+    TestDaemon daemon(m_tree->root(), m_work.path(), m_bus.address());
+    QVERIFY(daemon.waitUntilAnswering());
 
     QTemporaryDir target;
     QProcess shot;
     const Reaped reapedShot(shot);
     shot.setProcessEnvironment(isolatedEnvironment());
-    shot.start(binary, { QStringLiteral("--socket"), socketPath(),
+    shot.start(binary, { QStringLiteral("--bus-address"), m_bus.address(),
                          QStringLiteral("--screenshot"), target.path() });
     QVERIFY(shot.waitForFinished(30000));
     QCOMPARE(shot.exitCode(), 0);
@@ -1464,7 +1421,7 @@ void TrayWindowTest::theTrayBinaryWritesTheDocumentationScreenshots()
     // command that writes an empty file is worse than one that fails.
     QStringList expected { QStringLiteral("tray-menu.png") };
     {
-        TrayClient client(socketPath());
+        TrayClient client(m_bus.address());
         const TrayWindow window(client);
         const auto *tabs = window.findChild<QTabWidget *>();
         QVERIFY(tabs);
@@ -1483,7 +1440,7 @@ void TrayWindowTest::theTrayBinaryWritesTheDocumentationScreenshots()
     QProcess nowhere;
     const Reaped reapedNowhere(nowhere);
     nowhere.setProcessEnvironment(isolatedEnvironment());
-    nowhere.start(binary, { QStringLiteral("--socket"), socketPath(),
+    nowhere.start(binary, { QStringLiteral("--bus-address"), m_bus.address(),
                             QStringLiteral("--screenshot"),
                             target.filePath(QStringLiteral("absent")) });
     QVERIFY(nowhere.waitForFinished(30000));

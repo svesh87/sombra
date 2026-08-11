@@ -1,4 +1,5 @@
 // Copyright (c) 2026 Sergei Sveshnikov. MIT licensed, see LICENSE.
+#include "control_bus.h"
 #include "daemon.h"
 #include "dbus_service.h"
 #include "signal_pipe.h"
@@ -63,9 +64,12 @@ int main(int argc, char **argv)
     const QCommandLineOption ringOption(QStringLiteral("ring"),
                                         QStringLiteral("Telemetry ring."), QStringLiteral("file"),
                                         defaults.ringPath);
-    const QCommandLineOption socketOption(QStringLiteral("socket"),
-                                          QStringLiteral("Control socket."),
-                                          QStringLiteral("path"), defaults.socketPath);
+    const QCommandLineOption busOption(
+            QStringLiteral("bus-address"),
+            QStringLiteral("Bus to answer on. Empty means the system bus, which is the only "
+                           "one a service uses; an address here points the daemon at a bus of "
+                           "its own and is meant for testing."),
+            QStringLiteral("address"));
     const QCommandLineOption capacityOption(
             QStringLiteral("capacity"),
             QStringLiteral("Ring capacity in records, overriding the retention in the "
@@ -81,9 +85,10 @@ int main(int argc, char **argv)
                                             QString::number(defaults.intervalMs));
     const QCommandLineOption noDbusOption(
             QStringLiteral("no-dbus"),
-            QStringLiteral("Do not claim the desktop power-profile names. The control socket is "
-                           "the primary interface; the D-Bus names are compatibility."));
-    parser.addOptions({ rootOption, configOption, stateOption, ringOption, socketOption,
+            QStringLiteral("Do not claim the desktop power-profile names. Those are "
+                           "compatibility for the panel applet; the daemon's own interface is "
+                           "claimed either way."));
+    parser.addOptions({ rootOption, configOption, stateOption, ringOption, busOption,
                         capacityOption, ticksOption, intervalOption, noDbusOption });
     if (!parser.parse(QCoreApplication::arguments())) {
         qWarning().noquote() << parser.errorText();
@@ -104,7 +109,6 @@ int main(int argc, char **argv)
     options.configPath = parser.value(configOption);
     options.statePath = parser.value(stateOption);
     options.ringPath = parser.value(ringOption);
-    options.socketPath = parser.value(socketOption);
     options.ringCapacity = parser.value(capacityOption).toULongLong();
     options.maxTicks = parser.value(ticksOption).toInt();
     options.intervalMs = parser.value(intervalOption).toInt();
@@ -134,6 +138,21 @@ int main(int argc, char **argv)
         qCritical().noquote() << "cannot start:" << error;
         leave(1);
     }
+
+    // The control surface. A bus that is not there yet is not a reason to stop
+    // managing the machine, so this keeps trying in the background; the one refusal
+    // is another daemon already answering on the name, because two owners of one
+    // control surface is what this architecture forbids.
+    ControlBus::Options busOptions;
+    busOptions.busAddress = parser.value(busOption);
+    ControlBus control(daemon, busOptions);
+    if (!control.start(&error)) {
+        qCritical().noquote() << "cannot start:" << error;
+        daemon.shutdown();
+        leave(1);
+    }
+    if (control.owned())
+        qInfo().noquote() << "answering on" << control.name();
 
     // Compatibility, not the primary interface: a bus that cannot be reached
     // costs the desktop panel, not thermal management.

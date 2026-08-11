@@ -95,17 +95,6 @@ bool Daemon::start(QString *error)
         return false;
     }
 
-    // A live socket means another daemon already owns the control surface.
-    // Two writers is the one thing this architecture forbids, so this is the
-    // only startup condition worth refusing over.
-    if (ControlSocket::isServerLive(m_options.socketPath)) {
-        if (error) {
-            *error = QStringLiteral("another daemon is answering on %1")
-                             .arg(m_options.socketPath);
-        }
-        return false;
-    }
-
     // The configuration first, because how deep the ring is comes out of it.
     loadConfiguration();
     loadState();
@@ -139,17 +128,11 @@ bool Daemon::start(QString *error)
             [this](const QString &id) { m_monitorLevel.insert(id, -1); });
     m_monitorWorker->requestDetect();
 
-    // Telemetry and the control channel are both secondary to keeping the
-    // machine inside its thermal envelope. Neither failing is a reason to
-    // leave the firmware's own 200 W limit standing, so both degrade to a log
-    // line.
+    // Telemetry is secondary to keeping the machine inside its thermal envelope:
+    // failing to record is no reason to leave the firmware's own 200 W limit
+    // standing, so it degrades to a log line. The same goes for the bus, which is
+    // claimed outside this function.
     openRing();
-
-    m_socket = std::make_unique<ControlSocket>(
-            [this](const QString &line) { return handleCommand(line); }, this);
-    QString socketError;
-    if (!m_socket->listen(m_options.socketPath, &socketError))
-        qWarning().noquote() << "control socket unavailable:" << socketError;
 
     // The charge threshold lives in sysfs and is lost across a reboot, and
     // holding it is an obligation inherited together with sole ownership of
@@ -268,8 +251,6 @@ void Daemon::shutdown()
     m_running = false;
     m_timer.stop();
     stopBrightnessFade();
-    if (m_socket)
-        m_socket->close();
     m_actuator.restore();
     m_ring.flush();
     m_ring.close();
@@ -831,6 +812,11 @@ QString Daemon::commitTables(const ModeTable &modes, const BrightnessSettings &b
 
 QString Daemon::configJson() const
 {
+    return QString::fromUtf8(QJsonDocument(configurationObject()).toJson(QJsonDocument::Compact));
+}
+
+QJsonObject Daemon::configurationObject() const
+{
     QJsonArray modeList;
     for (const Mode &mode : m_modes.modes()) {
         QJsonObject entry;
@@ -873,7 +859,7 @@ QString Daemon::configJson() const
     metrics[QStringLiteral("retention_days")] = m_metrics.retentionDays;
     metrics[QStringLiteral("enabled")] = m_metrics.enabled;
     root[QStringLiteral("metrics")] = metrics;
-    return QString::fromUtf8(QJsonDocument(root).toJson(QJsonDocument::Compact));
+    return root;
 }
 
 QString Daemon::configModeCommand(const QStringList &parts)
@@ -1041,6 +1027,11 @@ QString Daemon::applyConfigCommand(const QStringList &parts)
 
 QString Daemon::statusJson() const
 {
+    return QString::fromUtf8(QJsonDocument(statusObject()).toJson(QJsonDocument::Compact));
+}
+
+QJsonObject Daemon::statusObject() const
+{
     const Setpoints requested = requestedSetpoints();
     const Sample &s = m_lastSample;
 
@@ -1159,8 +1150,7 @@ QString Daemon::statusJson() const
     metrics[QStringLiteral("enabled")] = m_metrics.enabled;
     metrics[QStringLiteral("samples")] = static_cast<qint64>(m_ring.count());
     root[QStringLiteral("metrics")] = metrics;
-
-    return QString::fromUtf8(QJsonDocument(root).toJson(QJsonDocument::Compact));
+    return root;
 }
 
 QString Daemon::handleCommand(const QString &line)
@@ -1326,6 +1316,8 @@ void Daemon::tick()
         m_sinceFlush = 0;
         m_ring.flush();
     }
+
+    emit ticked();
 
     if (m_options.maxTicks > 0 && m_ticks >= static_cast<quint64>(m_options.maxTicks))
         shutdown();

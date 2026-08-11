@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE policyconfig PUBLIC "-//freedesktop//DTD PolicyKit Policy Configuration 1.0//EN"
+ "http://www.freedesktop.org/standards/PolicyKit/1.0/policyconfig.dtd">
+<!--
+  One action, for everything that changes the machine's state.
+
+  `allow_active=yes` is the answer this daemon needs: the person sitting at this
+  screen selects a mode and moves a slider without being asked for anything, and a
+  session that is not the active one does not. No password, ever — `auth_admin`
+  would put a dialog in front of selecting a quieter fan curve, and a person who is
+  already at the keyboard can reach the same controls with a text editor.
+
+  Splitting this into several actions would only matter if they were ever to be
+  answered differently, and there is no such difference: the thermal envelope, the
+  backlight and the telemetry are all this daemon doing its job.
+-->
+<policyconfig>
+  <vendor>sombra</vendor>
+  <vendor_url>https://github.com/svesh87/sombra</vendor_url>
+
+  <action id="io.github.svesh87.Sombra.manage">
+    <description>Manage the thermal envelope, the backlight and the telemetry</description>
+    <message>Authentication is required to change how this machine manages heat</message>
+    <defaults>
+      <allow_any>no</allow_any>
+      <allow_inactive>no</allow_inactive>
+      <allow_active>yes</allow_active>
+    </defaults>
+  </action>
+</policyconfig>

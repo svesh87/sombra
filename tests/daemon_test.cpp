@@ -9,7 +9,6 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
-#include <QLocalSocket>
 #include <QSignalSpy>
 #include <QTemporaryDir>
 #include <QTest>
@@ -35,7 +34,6 @@ private slots:
 
     void appliesTheDefaultModeAtStart();
     void refusesATreeItCannotManage();
-    void refusesToBecomeASecondOwner();
     void keepsManagingWithoutTelemetryStorage();
     void tickRecordsReadingsAndSetpointsTogether();
     void modeSelectionPersistsAndIsRestored();
@@ -52,7 +50,6 @@ private slots:
     void configurationIsRereadOnCommand();
     void unknownCommandsAreRejected();
     void shutdownRestoresTheHardware();
-    void runsOverTheControlSocket();
     void stopsAfterTheRequestedNumberOfTicks();
 
     void theChargeThresholdIsReappliedAtStart();
@@ -115,7 +112,6 @@ DaemonOptions DaemonTest::options() const
     o.configPath = m_work.path() + QStringLiteral("/settings.conf");
     o.statePath = m_work.path() + QStringLiteral("/state");
     o.ringPath = m_work.path() + QStringLiteral("/metrics.ring");
-    o.socketPath = m_work.path() + QStringLiteral("/control.sock");
     o.ringCapacity = 64;
     o.flushSeconds = 2;
     return o;
@@ -191,23 +187,6 @@ void DaemonTest::refusesATreeItCannotManage()
     QString error;
     QVERIFY(!daemon.start(&error));
     QVERIFY(error.contains(QStringLiteral("no thermal control nodes")));
-}
-
-void DaemonTest::refusesToBecomeASecondOwner()
-{
-    Daemon first(options());
-    QVERIFY(first.start());
-
-    // Two processes writing the same nodes produce race-dependent behaviour
-    // rather than redundancy, and they would interleave two sample streams
-    // into one ring. A live socket is the evidence, and the only startup
-    // condition worth refusing over.
-    DaemonOptions second = options();
-    second.ringPath = m_work.path() + QStringLiteral("/second.ring");
-    Daemon intruder(second);
-    QString error;
-    QVERIFY(!intruder.start(&error));
-    QVERIFY(error.contains(QStringLiteral("another daemon")));
 }
 
 void DaemonTest::keepsManagingWithoutTelemetryStorage()
@@ -541,35 +520,6 @@ void DaemonTest::shutdownRestoresTheHardware()
     // and the signal path able to share one exit.
     daemon.shutdown();
     QCOMPARE(spy.count(), 1);
-}
-
-void DaemonTest::runsOverTheControlSocket()
-{
-    DaemonOptions o = options();
-    Daemon daemon(o);
-    QVERIFY(daemon.start());
-
-    QLocalSocket client;
-    client.connectToServer(o.socketPath);
-    QVERIFY(client.waitForConnected(2000));
-    client.write("mode quiet\nstatus\n");
-    client.flush();
-
-    QStringList replies;
-    QDeadlineTimer deadline(3000);
-    while (replies.size() < 2 && !deadline.hasExpired()) {
-        QCoreApplication::processEvents(QEventLoop::AllEvents, 10);
-        while (client.canReadLine())
-            replies.append(QString::fromUtf8(client.readLine()).trimmed());
-    }
-    QCOMPARE(replies.size(), 2);
-    QCOMPARE(replies.at(0), QStringLiteral("ok quiet"));
-    QVERIFY(replies.at(1).startsWith(QStringLiteral("ok {")));
-    QCOMPARE(QJsonDocument::fromJson(replies.at(1).mid(3).toUtf8())
-                     .object()
-                     .value(QStringLiteral("mode"))
-                     .toString(),
-             QStringLiteral("quiet"));
 }
 
 void DaemonTest::stopsAfterTheRequestedNumberOfTicks()
@@ -1400,8 +1350,8 @@ void DaemonTest::theDisplayCountIsRecorded()
              2);
 
     // No DRM tree at all is "nobody asked", not "nothing plugged in". The first
-    // daemon goes first: two owners of one control surface is the one thing
-    // this architecture forbids, and its socket is the evidence.
+    // daemon goes first: two owners of one control surface is the one thing this
+    // architecture forbids, and the name on the bus is where that is refused.
     daemon.shutdown();
     m_tree->remove(FakeSysfs::connector(QStringLiteral("eDP-1")));
     m_tree->remove(FakeSysfs::connector(QStringLiteral("DP-1")));

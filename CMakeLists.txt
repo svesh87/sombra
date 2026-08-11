@@ -45,26 +45,30 @@ add_library(sombra_core STATIC
     src/ring_migrate.cpp
     src/exporter.cpp
     src/profile_bridge.cpp
+    src/control_wire.cpp
+    src/bus_client.cpp
 )
 target_include_directories(sombra_core PUBLIC ${SOMBRA_SOURCE_DIR})
-target_link_libraries(sombra_core PUBLIC Qt6::Core)
+# DBus is here because the wire is D-Bus: the daemon's two clients share the client
+# end of it, and the types on that wire are D-Bus types.
+target_link_libraries(sombra_core PUBLIC Qt6::Core Qt6::DBus)
 target_compile_options(sombra_core PRIVATE ${SOMBRA_WARNINGS})
 
-# The loop, its control channel and its signal handling.
+# The loop, its control surface and its signal handling.
 add_library(sombra_daemon STATIC
     src/daemon.cpp
-    src/control_socket.cpp
+    src/control_bus.cpp
+    src/polkit_check.cpp
     src/signal_pipe.cpp
     src/dbus_service.cpp
     src/monitor_ddc.cpp
     src/monitor_worker.cpp
 )
-target_link_libraries(sombra_daemon PUBLIC sombra_core Qt6::Network Qt6::DBus
-                      PkgConfig::DDCUTIL)
+target_link_libraries(sombra_daemon PUBLIC sombra_core Qt6::DBus PkgConfig::DDCUTIL)
 target_compile_options(sombra_daemon PRIVATE ${SOMBRA_WARNINGS})
 
-# The tray talks to the daemon over the control socket and shares nothing else
-# with it, so it links the core for the setpoint types and nothing more.
+# The console talks to the daemon over the bus and shares nothing else with it, so it
+# links the core for the setpoint types and for the wire, and nothing more.
 add_library(sombra_tray STATIC
     src/autostart.cpp
     src/help.cpp
@@ -74,8 +78,9 @@ add_library(sombra_tray STATIC
     src/translations.cpp
     src/tray_window.cpp
 )
-# DBus is here for one thing: asking the desktop portal whether it wants light
-# or dark. The tray talks to the daemon over the socket and to nothing else.
+# The bus carries two unrelated conversations: the daemon's own interface, and the
+# desktop portal being asked whether it wants light or dark. Network is for neither —
+# it is the local socket that keeps a second console from opening.
 target_link_libraries(sombra_tray PUBLIC sombra_core Qt6::DBus Qt6::Network Qt6::Widgets)
 target_compile_options(sombra_tray PRIVATE ${SOMBRA_WARNINGS})
 
@@ -83,10 +88,10 @@ add_executable(sombrad src/daemon_main.cpp)
 target_link_libraries(sombrad PRIVATE sombra_daemon)
 target_compile_options(sombrad PRIVATE ${SOMBRA_WARNINGS})
 
-# The one command that does not go through the socket is `export`, which reads
-# the ring off disk, so this links the core rather than only the socket.
+# The one command that does not go through the bus is `export`, which reads the ring
+# off disk, so this links the core rather than only the wire.
 add_executable(sombra src/ctl_main.cpp)
-target_link_libraries(sombra PRIVATE sombra_core Qt6::Network)
+target_link_libraries(sombra PRIVATE sombra_core Qt6::DBus)
 target_compile_options(sombra PRIVATE ${SOMBRA_WARNINGS})
 
 add_executable(sombra-tray src/tray_main.cpp)
@@ -125,6 +130,18 @@ install(FILES desktop/sombra.svg
 
 install(FILES desktop/sombra-tray.desktop
         DESTINATION ${CMAKE_INSTALL_DATAROOTDIR}/applications)
+
+# Who may own the daemon's name and who may talk to it, and the one action polkit
+# decides. Both are owned by root and read at boot: the bus refuses the name without
+# the first, and every method refuses the caller without the second.
+install(FILES dbus/io.github.svesh87.Sombra.conf
+        DESTINATION ${CMAKE_INSTALL_DATAROOTDIR}/dbus-1/system.d)
+install(FILES polkit/io.github.svesh87.Sombra.policy
+        DESTINATION ${CMAKE_INSTALL_DATAROOTDIR}/polkit-1/actions)
+# The definition of the interface, so that a machine with the package installed
+# carries the description of what it answers.
+install(FILES dbus/io.github.svesh87.Sombra.xml
+        DESTINATION ${CMAKE_INSTALL_DATAROOTDIR}/dbus-1/interfaces)
 
 # Shell completion, as static files rather than generated ones: three binaries
 # and a fixed list of verbs make a generator cost more than its output.

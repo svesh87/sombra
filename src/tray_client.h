@@ -5,18 +5,24 @@
 #include "metrics_ring.h"
 #include "setpoints.h"
 
+#include "bus_client.h"
+
 #include <QJsonObject>
 #include <QObject>
 #include <QString>
 #include <QStringList>
-#include <QTimer>
+#include <QVariantMap>
 
-// The tray's end of the control socket.
+// The console's end of the daemon's interface.
 //
-// One line out, one line in. The tray polls status at the daemon's own rate,
-// because live tuning is judged against numbers that move: the useful question
-// while turning a slider is "does this sound acceptable right now", and that
+// The daemon publishes what it is doing, so nothing here asks once a second: the
+// readings arrive as they are taken, which is what live tuning needs — the useful
+// question while turning a slider is "does this sound acceptable right now", and that
 // needs the current fan speed beside it.
+//
+// What leaves this class is what left it before: a `Status` the window paints itself
+// from, and the daemon's own reply line for every command. The window does not know
+// there is a bus underneath.
 class TrayClient : public QObject {
     Q_OBJECT
 
@@ -110,16 +116,19 @@ public:
         QList<ModeDefinition> modes;
     };
 
-    explicit TrayClient(QString socketPath, QObject *parent = nullptr);
+    // Empty means the system bus. An address is how the suite runs against a daemon
+    // of its own without touching the bus the desktop is on.
+    explicit TrayClient(QString busAddress = QString(), QObject *parent = nullptr);
 
-    // Starts polling. Reconnects on its own: the daemon may restart, the tray
-    // does not.
-    void start(int intervalMs = 1000);
+    // Reads everything once and listens from then on. The daemon may restart under an
+    // open console, and that is noticed by the name changing hands rather than by
+    // asking.
+    void start();
     void stop();
 
-    // Sends one command and returns the daemon's reply line, or an empty
-    // string when the daemon is unreachable. Blocking with a short timeout,
-    // which is what a single-line exchange over a local socket warrants.
+    // Sends one command in the vocabulary of the command line and returns the
+    // daemon's reply line: "ok", "ok <what happened>" or "err <why>". Empty when
+    // there is no daemon.
     QString send(const QString &command);
 
     // Sends a command and immediately refreshes, so the window never shows a
@@ -128,17 +137,19 @@ public:
 
     const Status &status() const { return m_status; }
     bool connected() const { return m_connected; }
-    const QString &socketPath() const { return m_socketPath; }
 
     // Asks the daemon what it has saved. Invalid when it did not answer.
     Configuration fetchConfiguration();
 
-    // Parses a status reply. Separate from the socket so that every field
-    // mapping is testable without a running daemon.
+    // Parses a status reply. Separate from the bus so that every field mapping is
+    // testable without a running daemon.
     static Status parseStatus(const QJsonObject &object);
     static Configuration parseConfiguration(const QJsonObject &object);
 
 public slots:
+    // Reads everything the daemon publishes, now. Used after a command, because a
+    // window that has just been told "ok" should show the result of it rather than
+    // wait to be told about it.
     void poll();
 
 signals:
@@ -150,8 +161,13 @@ private:
     // not repainted once a second while the daemon is absent.
     void setConnected(bool connected);
 
-    QString m_socketPath;
-    QTimer m_timer;
+    // Merges what the daemon announced into what is already known, and rebuilds the
+    // status from it: a change carries only the keys that moved.
+    void merge(const QVariantMap &changed);
+
+    BusClient m_bus;
+    // Everything the daemon publishes, as last read or announced.
+    QVariantMap m_properties;
     Status m_status;
     bool m_connected = false;
 };

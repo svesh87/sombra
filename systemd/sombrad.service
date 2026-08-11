@@ -23,12 +23,9 @@ RestartSec=2
 # the fan at full speed, and nothing else will pick up after it.
 ExecStopPost=/bin/sh -c 'for f in /sys/devices/platform/asus-nb-wmi/hwmon/hwmon*/pwm1_enable; do [ -w "$f" ] && echo 2 > "$f"; done; exit 0'
 
-# 0755 on the directory so a member of the sombra group can reach the
-# socket inside it. The socket's own ownership and mode are set by the daemon
-# right after it binds, not from here: an ExecStartPost races the bind, and a
-# chgrp that loses that race fails silently and leaves the tray locked out.
-RuntimeDirectory=sombra
-RuntimeDirectoryMode=0755
+# The settings file, the saved state and the telemetry ring. Nothing of this
+# daemon lives in /run: the control surface is a name on the system bus, and who
+# may use it is decided by polkit rather than by the mode of a file.
 StateDirectory=sombra
 StateDirectoryMode=0755
 

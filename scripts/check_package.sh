@@ -89,6 +89,12 @@ expect_file /usr/share/fish/vendor_completions.d/sombra.fish -rw-r--r--
 # drifting apart is invisible by eye and shows up as a launcher drawing a generic
 # cog, which is what it did before this was checked.
 expect_file /usr/share/icons/hicolor/scalable/apps/sombra.svg -rw-r--r--
+# Who may own the name, who may talk to it, and what polkit decides about a caller.
+# Owned by root and read at boot: without the first the daemon cannot claim its name,
+# and without the second every command is refused.
+expect_file /usr/share/dbus-1/system.d/io.github.svesh87.Sombra.conf -rw-r--r--
+expect_file /usr/share/polkit-1/actions/io.github.svesh87.Sombra.policy -rw-r--r--
+expect_file /usr/share/dbus-1/interfaces/io.github.svesh87.Sombra.xml -rw-r--r--
 icon_name=$(dpkg-deb --fsys-tarfile "$deb" \
     | tar -xO ./usr/share/applications/sombra-tray.desktop 2>/dev/null \
     | sed -n 's/^Icon=//p')
