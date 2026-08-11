@@ -1,5 +1,8 @@
 sombra (0.2.0) unstable; urgency=medium
 
+  Everything since 0.1.0. The controls it writes and the machine it writes them
+  on are unchanged; what changed is how it is driven and what it records.
+
   * The daemon is driven over the system bus instead of a unix socket, on
     io.github.svesh87.Sombra. Who may drive it is a bus policy file and one
     polkit action with allow_active=yes, so the person at this screen is
@@ -11,10 +14,34 @@ sombra (0.2.0) unstable; urgency=medium
     sombra-tray.
   * The console no longer polls: it reads what the daemon publishes and is told
     what changes.
+  * External monitors are driven over DDC/CI. sombra monitor list says which
+    ones answer, sombra monitor level sets one or all of them, and each
+    monitor's level goes into every telemetry sample. A write is confirmed by
+    reading it back, which is also how a hand on the monitor's own buttons is
+    noticed. The internal panel is not among them: a laptop panel does not
+    answer DDC/CI.
+  * How much telemetry is kept is a setting, retention_days, from one day to
+    thirty. The depth is the ring's own size, so changing it rebuilds the file
+    and carries the samples across. Recording can be switched off without
+    losing what is already recorded.
+  * The backlight has a ceiling as well as a floor, and both bind the
+    automation and the hand alike.
+  * A reference page behind the "?" in the console, in all three languages: it
+    describes every control of every tab and opens at the section of the tab
+    the button was pressed on.
+  * The panel icon says which mode is running, whether the emergency guard is
+    clamping and whether the daemon is answering at all. The console's window
+    and its entry in a dock now carry the application's own icon.
+  * A slider is no longer repainted from a status reply while a hand is on it,
+    and a monitor's slider follows the hand instead of jumping when it is let
+    go.
   * The depth of the telemetry ring can be changed with the arrows of its field
     again.
-  * The console's window and its entry in a dock now carry the application's
-    own icon.
+  * sombrad --version no longer segfaults. The monitor library starts a thread
+    at load time, and a process exiting immediately after loading it killed that
+    thread mid-startup.
+  * A telemetry ring written in an older layout is converted when the daemon
+    opens it; one it cannot read is kept aside rather than replaced silently.
 
  -- Sergei Sveshnikov <sergei@svesh.dev>  Wed, 12 Aug 2026 00:33:59 +0200
 
