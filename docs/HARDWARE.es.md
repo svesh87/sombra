@@ -63,7 +63,7 @@ media en torno a 0.6:
 |---|---|
 | Velocidad en reposo | 1900 RPM en 109 de 144 muestras |
 | Rango observado | 1900–2500 RPM en reposo; 3200 con carga ligera; 6100 como máximo |
-| Umbral de aceleración | sube por encima del mínimo con el paquete en torno a 62 °C |
+| Umbral de aceleración | sube por encima de su velocidad más baja con el paquete en torno a 62 °C |
 
 ### 1900 RPM no es el mínimo
 
@@ -347,8 +347,10 @@ decenas de segundos, y muestrear antes mide el transitorio en lugar del estado.
 La ejecución abortaba la combinación en curso si el paquete llegaba a 95 °C. Las
 cifras en reposo salen del mismo procedimiento con cero hilos de carga.
 
-- La temperatura del paquete se estabiliza en **60–63 °C en reposo**, con el
-  ventilador en su mínimo y la carga media por debajo de 1.
+- La temperatura del paquete se estabiliza en **60–63 °C en reposo**, con la carga
+  media por debajo de 1. Lo que hace el ventilador a esa temperatura está en la
+  tabla de arriba y no aquí: estas tomas registraron el paquete y la potencia, y el
+  ventilador solo con carga.
 - Pasar del perfil `balanced` del fabricante a `battery` (techo de frecuencia
   recortado del 100 % al 50 %, turbo desactivado, curva del EC en `quiet`)
   cambió la temperatura del paquete en un grado escaso y dejó la velocidad del

@@ -80,10 +80,11 @@ edit, in the same change as the code and the documents.
   mode rather than globally.** At identical power settings under sustained load
   the curves separate cleanly: `performance` 74 °C at 5000 RPM, `balanced` 80 °C
   at 3700 RPM, `quiet` above 84 °C at roughly 2900 RPM. At idle the choice makes
-  no difference at all, because burst suppression keeps the package below the EC
-  ramp threshold and every curve leaves the fan at its 1900 RPM floor. Select
-  the curve from each mode's noise budget; there is no globally correct answer
-  and no curve is forbidden.
+  no difference at all: burst suppression keeps the package below the EC ramp
+  threshold, and below it every curve leaves the fan at the bottom of the EC's
+  own range, which is around 1900 RPM while it spins and stopped outright below
+  roughly 45 °C. Select the curve from each mode's noise budget; there is no
+  globally correct answer and no curve is forbidden.
 
 Read `docs/DESIGN.md` before proposing anything structural. A proposal that argues
 with a decision recorded there is welcome; one that has not noticed it is not.

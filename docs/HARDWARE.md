@@ -58,7 +58,7 @@ Measured behaviour, 12-minute sample at 0.2 Hz with load average around 0.6:
 |---|---|
 | Idle speed | 1900 RPM in 109 of 144 samples |
 | Range observed | 1900–2500 RPM idle; 3200 under light load; 6100 maximum |
-| Ramp threshold | above the floor at a package temperature around 62 °C |
+| Ramp threshold | above its lowest speed at a package temperature around 62 °C |
 
 ### 1900 RPM is not a floor
 
@@ -329,8 +329,9 @@ transient rather than the state. A run aborted the current combination if the
 package reached 95 °C. The idle figures come from the same procedure with zero
 load threads.
 
-- Package temperature settles at **60–63 °C at idle** with the fan at its floor
-  and load average below 1.
+- Package temperature settles at **60–63 °C at idle** with load average below 1.
+  What the fan does at that temperature is in the table above rather than here:
+  these runs recorded the package and the power, and the fan only under load.
 - Switching from the vendor `balanced` profile to `battery` — frequency ceiling
   cut from 100 % to 50 %, turbo disabled, EC curve moved to `quiet` — changed
   package temperature by roughly one degree and left fan speed unchanged. Two
