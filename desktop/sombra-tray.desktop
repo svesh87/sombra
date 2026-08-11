@@ -9,3 +9,8 @@ Terminal=false
 Categories=System;Monitor;
 Keywords=cpu;thermal;fan;power;throttle;
 StartupNotify=false
+# The class the window reports, which on X11 is the executable's name. Without it a
+# dock cannot match the window to this entry and falls back to the window's own
+# icon. On Wayland the same match is made through the app_id, which the application
+# sets from the name of this file.
+StartupWMClass=sombra-tray

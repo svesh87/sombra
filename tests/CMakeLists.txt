@@ -43,7 +43,10 @@ sombra_test(autostart_test LIBS sombra_tray)
 # No session bus either: following the desktop asks the portal, and a test that
 # reached the real one would answer differently on every machine.
 sombra_test(theme_test LIBS sombra_tray ENV "QT_QPA_PLATFORM=offscreen;DBUS_SESSION_BUS_ADDRESS=unix:path=/nonexistent/sombra-test-has-no-session-bus")
-sombra_test(tray_icon_test LIBS sombra_tray ENV "QT_QPA_PLATFORM=offscreen")
+# The window's icon is a file, and it comes from the source tree here: the theme's
+# copy is whatever the last install put there.
+sombra_test(tray_icon_test LIBS sombra_tray
+    ENV "QT_QPA_PLATFORM=offscreen;SOMBRA_ICONS_DIR=${CMAKE_SOURCE_DIR}/desktop")
 # Pointed at the catalogues this build just compiled, not at the installed ones:
 # a suite that tested what is in /usr would be testing the last release.
 sombra_test(translations_test LIBS sombra_tray

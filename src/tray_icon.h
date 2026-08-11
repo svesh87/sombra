@@ -50,3 +50,15 @@
 // mode is. Which of them it is belongs to the tooltip and to the console's status
 // line, where there are words for it.
 QIcon trayIcon(bool connected, bool guardEngaged, int modeIndex, int modeCount);
+
+// The window's icon, which is a different question from the panel's. The panel gets
+// the picture above, drawn here and handed over; the title bar, the task switcher and
+// the dock read the icon the application declares, and a application that declares
+// none gets whatever the shell substitutes.
+//
+// This one is the installed file rather than a drawing, because a dock takes it from
+// the desktop entry and the entry names an icon in the theme. `SOMBRA_ICONS_DIR`
+// puts a directory ahead of the theme's own, which is what makes a run from a build
+// tree show that tree's picture instead of the installed copy of an older one; with
+// nothing set, the theme answers and the override changes nothing.
+QIcon applicationIcon();

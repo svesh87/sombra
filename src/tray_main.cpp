@@ -165,6 +165,16 @@ int main(int argc, char **argv)
     QApplication app(argc, argv);
     QApplication::setApplicationName(QStringLiteral("sombra-tray"));
     QApplication::setApplicationVersion(QStringLiteral("0.1.0"));
+    // The name of the desktop entry, without its extension. The shell matches a
+    // window to an entry by it, and on Wayland the window's app_id comes from the
+    // same place — which is what lets a dock show this application's icon instead
+    // of a substitute. `StartupWMClass` in the entry is the X11 half of the same
+    // question.
+    QApplication::setDesktopFileName(QStringLiteral("sombra-tray"));
+    // And the icon itself, for the title bar and for whatever shows a window in a
+    // list. The panel's icon is a different one, drawn rather than found; this is
+    // the installed file, because that is what the desktop entry names.
+    QApplication::setWindowIcon(applicationIcon());
     // Before anything is built, because a widget takes its text when it is
     // constructed and nothing here retranslates itself afterwards.
     translations::install(&app);

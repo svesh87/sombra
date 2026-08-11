@@ -89,7 +89,32 @@ private slots:
     void theColourSchemeChangesNothing();
     void nothingKnownAboutTheModeIsOnePicture();
     void aTableOfAnySizeReadsAsAPositionInIt();
+    void theWindowGetsAnIconOfItsOwn();
 };
+
+void TrayIconTest::theWindowGetsAnIconOfItsOwn()
+{
+    // The window's icon is the installed file, and the suite is pointed at the source
+    // tree for the same reason it is pointed there for the help pages: a lookup in the
+    // icon theme would answer with the last release rather than with this build.
+    const QByteArray directory = qgetenv("SOMBRA_ICONS_DIR");
+    QVERIFY2(!directory.isEmpty(), "the suite has to say where the pictures are");
+
+    const QIcon icon = applicationIcon();
+    QVERIFY(!icon.isNull());
+    // Drawn, not merely found: an icon that resolves to nothing still answers a
+    // request for a pixmap, with an empty one.
+    const QImage image = icon.pixmap(QSize(64, 64)).toImage();
+    QVERIFY(!image.isNull());
+    QVERIFY(sunlight(image) > 0);
+
+    // The override goes in front of the theme rather than behind it, and asking twice
+    // does not stack it up.
+    const QStringList paths = QIcon::fallbackSearchPaths();
+    QCOMPARE(paths.first(), QString::fromLocal8Bit(directory));
+    applicationIcon();
+    QCOMPARE(QIcon::fallbackSearchPaths(), paths);
+}
 
 void TrayIconTest::nothingIsLeftForAPanelToSubstitute()
 {

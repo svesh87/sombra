@@ -4,10 +4,18 @@
 #include <QPainter>
 #include <QPainterPath>
 #include <QPixmap>
+#include <QStringList>
 
 #include <cmath>
 
 namespace {
+
+// The name the icon is installed under, in `share/icons/hicolor/scalable/apps`, and
+// the name the desktop entry gives. A theme lookup takes the name without the
+// extension; a fallback directory is searched for the file itself.
+constexpr const char *kIconName = "sombra";
+// Puts a directory of pictures ahead of the icon theme, for a run from a build tree.
+constexpr const char *kIconsOverride = "SOMBRA_ICONS_DIR";
 
 // Drawn on the 256-unit grid of `desktop/sombra.svg`, so the panel and the
 // launcher show one picture rather than two that resemble each other.
@@ -182,4 +190,17 @@ QIcon trayIcon(bool connected, bool guardEngaged, int modeIndex, int modeCount)
         icon.addPixmap(pixmap);
     }
     return icon;
+}
+
+QIcon applicationIcon()
+{
+    // Prepended rather than appended: with the package installed the theme carries a
+    // picture under this name already, and a build tree is asking about its own.
+    if (const QByteArray override = qgetenv(kIconsOverride); !override.isEmpty()) {
+        const QString directory = QString::fromLocal8Bit(override);
+        QStringList paths = QIcon::fallbackSearchPaths();
+        if (!paths.contains(directory))
+            QIcon::setFallbackSearchPaths(QStringList { directory } + paths);
+    }
+    return QIcon::fromTheme(QString::fromLatin1(kIconName));
 }
