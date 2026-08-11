@@ -3,8 +3,7 @@
 sombra-tray \- experimentation console for the sombra daemon
 .SH SYNOPSIS
 .B sombra-tray
-.RI [ --socket " " path ]
-.RI [ --interval-ms " " ms ]
+.RI [ --bus-address " " address ]
 .RI [ --screenshot " " directory ]
 .RI [ --quit-after-ms " " ms ]
 .SH DESCRIPTION
@@ -62,14 +61,10 @@ routinely a second or two behind an autostarted process. Until an icon exists,
 closing the console ends the process.
 .SH OPTIONS
 .TP
-.BI --socket " path"
-The daemon's control socket. Default
-.IR /run/sombra/control.sock .
-Reaching it requires membership of the group
-.BR sombra .
-.TP
-.BI --interval-ms " ms"
-How often to ask the daemon for readings. Default 1000.
+.BI --bus-address " address"
+The bus the daemon answers on. Empty, the default, means the system bus. Nothing
+has to be granted to reach it: the console reads what the daemon publishes, and
+every command it sends is answered by polkit for the person at this screen.
 .TP
 .BI --screenshot " directory"
 Write the documentation pictures there and exit. Grabs of the console's own

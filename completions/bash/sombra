@@ -1,15 +1,14 @@
 # bash completion for sombra. Installed as /usr/share/bash-completion/completions/sombra.
 #
 # The verbs are listed here rather than asked of the daemon: completion runs on
-# every Tab, and a Tab that opens a socket is a Tab that hangs when the daemon
-# is not there. Mode names are the exception — they are the maintainer's own
-# words, nothing else knows them, and they are only offered where one is
-# expected.
+# every Tab, and a Tab that waits for an answer is a Tab that stalls. Mode names
+# are the exception — they are the maintainer's own words, nothing else knows
+# them, and they are only offered where one is expected. Asking is safe because a
+# daemon that is not there is an error that comes back at once: the name simply
+# has no owner.
 _sombra_names() {
     local field=$1
-    local socket=/run/sombra/control.sock
-    [ -S "$socket" ] || return 0
-    sombra --socket "$socket" config show 2>/dev/null \
+    sombra config show 2>/dev/null \
         | sed -n "s/.*\"$field\":\[\(.*\)/\1/p" \
         | grep -o '"id":"[^"]*"' | cut -d'"' -f4
 }
@@ -22,7 +21,7 @@ _sombra() {
     local i verb=""
     for ((i = 1; i < cword; i++)); do
         case ${words[i]} in
-        --socket) ((i++)) ;;
+        --bus-address) ((i++)) ;;
         -*) ;;
         *)
             verb=${words[i]}
@@ -31,12 +30,11 @@ _sombra() {
         esac
     done
 
-    if [[ $prev == --socket ]]; then
-        _filedir
+    if [[ $prev == --bus-address ]]; then
         return
     fi
     if [[ $cur == -* ]]; then
-        COMPREPLY=($(compgen -W "--socket --help --version" -- "$cur"))
+        COMPREPLY=($(compgen -W "--bus-address --help --version" -- "$cur"))
         return
     fi
     if [[ -z $verb ]]; then

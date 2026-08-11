@@ -78,6 +78,14 @@ target_link_libraries(sombra-fake-tree PRIVATE sombra_core Qt6::Test)
 target_include_directories(sombra-fake-tree PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 target_compile_options(sombra-fake-tree PRIVATE ${SOMBRA_WARNINGS})
 
+# Answers for polkit on a bus that has none, for the same harness. Not a test and
+# not installed: the pictures are taken against a throwaway daemon on a private bus,
+# and every command that daemon accepts is checked against an action first.
+add_executable(sombra-fake-authority fake_authority_main.cpp fake_bus.cpp fake_bus.h)
+target_link_libraries(sombra-fake-authority PRIVATE sombra_core Qt6::Test)
+target_include_directories(sombra-fake-authority PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+target_compile_options(sombra-fake-authority PRIVATE ${SOMBRA_WARNINGS})
+
 # The binaries themselves, so that option parsing and the exit paths are
 # covered by something other than reading them.
 sombra_test(cli_test LIBS sombra_core SOURCES fake_bus.cpp fake_bus.h)

@@ -22,9 +22,10 @@ sombra export --format csv > session.csv
 sombra export --format csv --from $(date -d '2 hours ago' +%s) > recent.csv
 ```
 
-Membership of the group `sombra` is all it takes; no root, no editing files by
-hand. If `sombra` is not on the path the daemon is not installed, and there is
-nothing to tune.
+Nothing has to be granted first: the daemon answers on the system bus and polkit
+allows the person at this screen without asking anything. No root, no group, no
+editing files by hand. If `sombra` is not on the path the daemon is not installed,
+and there is nothing to tune.
 
 Snapshots taken by `scripts/install.sh` before an upgrade live in
 `$XDG_STATE_HOME/sombra/telemetry`. The daemon converts a ring in an older

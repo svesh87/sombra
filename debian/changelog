@@ -1,3 +1,23 @@
+sombra (0.2.0) unstable; urgency=medium
+
+  * The daemon is driven over the system bus instead of a unix socket, on
+    io.github.svesh87.Sombra. Who may drive it is a bus policy file and one
+    polkit action with allow_active=yes, so the person at this screen is
+    allowed without being asked anything.
+  * The group sombra is no longer needed and no longer created. Nobody has to
+    join anything or log back in to use the console. An installation that has
+    the group can keep it; it grants nothing.
+  * The --socket option became --bus-address on sombrad, sombra and
+    sombra-tray.
+  * The console no longer polls: it reads what the daemon publishes and is told
+    what changes.
+  * The depth of the telemetry ring can be changed with the arrows of its field
+    again.
+  * The console's window and its entry in a dock now carry the application's
+    own icon.
+
+ -- Sergei Sveshnikov <sergei@svesh.dev>  Wed, 12 Aug 2026 00:33:59 +0200
+
 sombra (0.1.0) unstable; urgency=medium
 
   * Initial package.

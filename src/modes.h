@@ -16,7 +16,7 @@ struct Mode {
 // Applies one "key=value" of the settings vocabulary to a mode.
 //
 // One function for both ways in, so that a value the file would refuse cannot
-// be written through the socket either. The vocabulary is the file's: `pl1_w`,
+// be written through the bus either. The vocabulary is the file's: `pl1_w`,
 // not the `pl1` of live tuning, because what is typed at the daemon and what
 // ends up in the file are then one language.
 //

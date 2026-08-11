@@ -3,7 +3,7 @@
 # The interface
 
 All of it belongs to `sombra-tray`. The daemon itself has no interface: it answers
-on a socket and on three D-Bus names.
+on its own name on the system bus, and on three more that desktops already know.
 
 This document says what each picture shows and what to check before committing a
 new one. Why the interface is built this way is in [DESIGN.md](DESIGN.md); the
@@ -95,6 +95,10 @@ about is answered, including the saved definitions an older installed build woul
 not know. The grabs are of our own widgets rather than of the screen, so nothing
 else that happened to be on screen can end up in them.
 
+It runs on a bus of its own, with a stand-in for polkit on it, because every
+command that changes anything is checked against an action first, and a private bus
+has no polkit to ask. Neither the real bus nor the real daemon is touched.
+
 The pictures are taken in English whatever the language of the machine taking
 them, and their file names come from the tabs' internal names rather than their
 titles — a picture called `console-настройки.png` is a picture no document links
@@ -102,10 +106,11 @@ to. Each one is fitted to its own tab, where the window in use keeps the size of
 its largest: one size for all four would carry a field of nothing under the short
 tabs.
 
-Before committing new pictures, look at them. The console names the socket path,
-and from this script that is always `/tmp/sombra-screenshots/control.sock` — the
-throwaway one. No host name, no user name and no path from a developer's home
-belongs in this repository.
+Before committing new pictures, look at them. Nothing in the window carries a path
+or a machine's name — the status line says whether the daemon answers, and the name
+it answers on is the same everywhere — but that is a property of the interface as it
+stands rather than a guarantee. No host name, no user name and no path from a
+developer's home belongs in this repository.
 
 **A change to the interface is not finished until these are regenerated.** A
 screenshot goes stale silently — no test catches it, and the reader is left

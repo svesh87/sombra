@@ -27,16 +27,68 @@ archivo dice cómo es el proyecto, no cómo fue.
   enmascarar un alias deja activada la unidad real, y vuelve en el siguiente
   arranque. Montar una capa encima de él y bifurcar su código quedan ambos
   descartados.
-- **Instalar el paquete no toma posesión.** Crea el grupo que necesita la
-  bandeja, imprime las dos órdenes que ceden los controles y ahí se detiene: no
-  activa nada, no arranca nada, no enmascara nada. Ceder los controles térmicos
-  es un acto deliberado con procedimiento de vuelta atrás, no un efecto
-  secundario de `dpkg -i`, y el test de empaquetado lo comprueba.
-- El demonio responde en `net.hadess.PowerProfiles` y
-  `org.freedesktop.UPower.PowerProfiles` (la interfaz pública estándar, y la
-  principal) y en `com.system76.PowerDaemon` (propia del fabricante, para el
-  applet del panel de COSMIC). La política de D-Bus de serie ya permite que un
-  proceso de root sea propietario de los tres nombres; no hace falta tocarla.
+- **Instalar el paquete no toma posesión.** Imprime las dos órdenes que ceden los
+  controles y ahí se detiene: no activa nada, no arranca nada, no enmascara nada.
+  Ceder los controles térmicos es un acto deliberado con procedimiento de vuelta
+  atrás, no un efecto secundario de `dpkg -i`, y el test de empaquetado lo
+  comprueba. Para la consola tampoco se prepara nada: llega al demonio por el
+  bus, y quién puede manejarlo es una pregunta que responde polkit.
+- **La superficie de control es un solo nombre del bus del sistema,
+  `io.github.svesh87.Sombra`.** Un socket de Unix es la alternativa evidente y
+  queda descartada: sus permisos son un grupo más un modo de archivo, lo que
+  cuesta un paso manual, `usermod -aG` y volver a iniciar sesión, y ese paso sería
+  lo único que este proyecto le pide a una persona. Un archivo de política del bus
+  y una acción de polkit dicen lo mismo sin que nadie entre en ningún sitio. Hay
+  una sola superficie y no las dos, porque dos maneras de decir lo mismo son dos
+  juegos de reglas sobre quién puede decirlo.
+- **Todo lo que cambia el estado se comprueba contra una sola acción de polkit,
+  con la interacción desactivada.** `allow_active=yes`; `allow_inactive` y
+  `allow_any`, no: a quien está delante de esta pantalla se le responde en
+  silencio, y una sesión remota o inactiva se rechaza. Nunca se pide una
+  contraseña. Un `auth_admin` delante de elegir una curva de ventilador más
+  silenciosa sería teatro, porque quien ya está en el teclado llega a los mismos
+  controles con un editor de texto, y un demonio que saca un diálogo cada vez que
+  se mueve un deslizador es un demonio que nadie usa. Una acción y no varias,
+  porque entre estas órdenes no hay ninguna diferencia que alguien quisiera
+  responder de otra manera.
+- **Las lecturas y los ajustes son propiedades; lo que cambia el estado es un
+  método.** Un cliente lo lee todo una vez con `GetAll` y después se le avisa de
+  lo que cambia, así que la consola no sondea nada. La separación importa: lo que
+  se mueve en cada vuelta del bucle viaja en un solo diccionario, `Readings`, y
+  todo lo que cambia porque alguien lo ha cambiado es una propiedad aparte, de
+  manera que una profundidad de retención nueva no llega dentro de unas
+  revoluciones del ventilador. `Readings` es una propiedad y no una señal porque
+  una propiedad se puede pedir: `sombra status` no espera a la vuelta siguiente,
+  y `busctl get-property` muestra el estado de la máquina sin que nadie escriba
+  un cliente.
+- **El demonio funciona sin bus y toma su nombre cuando aparece uno.** Es dueño
+  del margen térmico: un bus inalcanzable cuesta una consola, no la
+  refrigeración. Lo único por lo que se niega a arrancar es que otro demonio ya
+  tenga el nombre: esta arquitectura existe para evitar que una superficie de
+  control tenga dos dueños.
+- **Un solo vocabulario, dos clientes y un demonio que lo analiza una vez.** Las
+  palabras que acepta `sombra` y las que la consola muestra en su línea de estado
+  son las mismas, y en un único sitio se convierten en una llamada con tipos; el
+  demonio convierte la llamada de vuelta en una de sus propias líneas de órdenes,
+  porque ese analizador es donde un valor se valida, se recorta o se rechaza. Una
+  vía con tipos que llegara directa al estado sería un segundo juego de reglas
+  sobre qué valores se admiten. Las dos direcciones tienen su inversa y los tests
+  las comparan: una correspondencia escrita dos veces solo es de fiar si las dos
+  mitades se contrastan entre sí.
+- **La definición del protocolo está en un solo archivo XML, y un test obliga al
+  demonio a cumplirla.** El adaptador está escrito a mano, porque un método que
+  espera a polkit tiene que responder más tarde de lo que retorna, y un adaptador
+  generado no llega al mensaje que está respondiendo. Así que un caso de prueba
+  lee la introspección de un demonio en marcha y la compara con
+  `dbus/io.github.svesh87.Sombra.xml`: «descrito en un solo sitio» pasa así a ser
+  un hecho y no una promesa.
+- Por compatibilidad, el demonio responde además en `net.hadess.PowerProfiles` y
+  `org.freedesktop.UPower.PowerProfiles` (la interfaz pública estándar) y en
+  `com.system76.PowerDaemon` (propia del fabricante, para el applet del panel de
+  COSMIC). Esa es otra superficie, con otro propósito y en una conexión propia:
+  la política de D-Bus de serie ya permite que un proceso de root sea propietario
+  de esos tres nombres, y no dicen nada de la retroiluminación, de los monitores
+  ni de la telemetría.
 - **El brillo de la pantalla nunca está ligado al modo térmico.** Cambiar la
   retroiluminación al cambiar de perfil es un comportamiento de `system76-power`
   que este proyecto considera un defecto, y recuperar la paridad con el original
@@ -183,6 +235,9 @@ cambia de modo por su cuenta.
   al demonio, con las mismas órdenes que envía la línea de órdenes. Dos
   escritores de un archivo es el mismo error que dos propietarios de una
   superficie de control.
+- **Lo que el demonio tiene guardado se publica, no se pide.** Las definiciones
+  son una propiedad como todo lo demás, así que un modo editado desde la línea de
+  órdenes llega a una consola abierta sin que ella tenga que volver a preguntar.
 - **El icono del panel se dibuja, no se pide por su nombre.** Publicar un nombre
   estándar del tema dejaría que el panel lo dibujara y le cambiase el color, y
   no funciona: un host de StatusNotifierItem prefiere el nombre a la imagen que

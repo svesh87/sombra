@@ -164,7 +164,7 @@ int main(int argc, char **argv)
 {
     QApplication app(argc, argv);
     QApplication::setApplicationName(QStringLiteral("sombra-tray"));
-    QApplication::setApplicationVersion(QStringLiteral("0.1.0"));
+    QApplication::setApplicationVersion(QString::fromLatin1(SOMBRA_VERSION));
     // The name of the desktop entry, without its extension. The shell matches a
     // window to an entry by it, and on Wayland the window's app_id comes from the
     // same place — which is what lets a dock show this application's icon instead

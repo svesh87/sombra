@@ -14,7 +14,7 @@
 // and anybody with `busctl`. Readings and settings are properties, so a client reads
 // them once and is told about every change afterwards; everything that changes state
 // is a method, and every method is checked against one polkit action first. The
-// person at this screen is answered without a dialog, a remote or idle session is
+// person at this screen is answered without a dialog, a remote or inactive session is
 // refused, and there is no group to belong to.
 //
 // This is a second surface beside the three power-profile names in `dbus_service.h`,

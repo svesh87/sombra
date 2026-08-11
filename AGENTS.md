@@ -185,8 +185,8 @@ therefore pays only when the work is large relative to its briefing** — a
 cheaper model on a short task can cost more than doing it in the main loop.
 
 - **Delegate** large, genuinely independent tracks that can be briefed from a
-  written contract: the tray once the socket protocol and ring format are
-  frozen, the D-Bus compatibility layer, document translations.
+  written contract: the console once the bus interface and the ring format are
+  frozen, and document translations.
 - **Delegate for independence, not for capability.** A reviewer with a clean
   context catches what the author is blind to. Give it only the specification
   and the code and ask it to break them. Worth doing for the metrics ring

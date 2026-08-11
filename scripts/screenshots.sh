@@ -18,9 +18,12 @@ set -eu
 root=$(cd "$(dirname "$0")/.." && pwd)
 build=${BUILD_DIR:-$root/build}
 work=/tmp/sombra-screenshots
-socket=$work/control.sock
+# Decided here rather than printed by the bus, so that it is known before the bus
+# exists and can be handed to everything that has to reach it.
+address=unix:path=$work/bus
 
-for binary in "$build/sombrad" "$build/sombra-tray" "$build/tests/sombra-fake-tree"; do
+for binary in "$build/sombrad" "$build/sombra-tray" "$build/tests/sombra-fake-tree" \
+              "$build/tests/sombra-fake-authority"; do
     if [ ! -x "$binary" ]; then
         echo "$binary is missing — run 'make' first" >&2
         exit 1
@@ -31,30 +34,56 @@ rm -rf "$work"
 mkdir -p "$work"
 "$build/tests/sombra-fake-tree" "$work/sys" >/dev/null
 
-# --no-dbus, because claiming the real names would disturb the desktop this is
-# being run on.
-"$build/sombrad" --no-dbus --root "$work/sys" --socket "$socket" \
-    --state "$work/state" --config "$work/settings.conf" \
-    --ring "$work/metrics.ring" --capacity 64 --interval-ms 200 &
-daemon=$!
-trap 'kill "$daemon" 2>/dev/null || true; rm -rf "$work"' EXIT INT TERM
+# A bus of this harness's own, and something on it to answer for polkit: the daemon
+# checks every command against an action, and on a private bus there is no polkit to
+# ask. The system bus is not an option — claiming the daemon's name there would
+# replace the service running the machine.
+dbus-daemon --session --nofork --address="$address" &
+bus=$!
+trap 'kill "$bus" "${authority:-}" "${daemon:-}" 2>/dev/null || true; rm -rf "$work"' \
+    EXIT INT TERM
 
 waited=0
-while [ ! -S "$socket" ]; do
+while [ ! -S "$work/bus" ]; do
     waited=$((waited + 1))
     if [ "$waited" -gt 100 ]; then
-        echo "the throwaway daemon never came up" >&2
+        echo "the private bus never came up" >&2
         exit 1
     fi
     sleep 0.1
 done
 
-# A socket answers before the first tick has taken any readings, and a console
+"$build/tests/sombra-fake-authority" "$address" >/dev/null &
+authority=$!
+
+# --no-dbus, because claiming the desktop's power-profile names would disturb the
+# desktop this is being run on. The daemon's own name goes on the private bus.
+"$build/sombrad" --no-dbus --root "$work/sys" --bus-address "$address" \
+    --state "$work/state" --config "$work/settings.conf" \
+    --ring "$work/metrics.ring" --capacity 64 --interval-ms 200 &
+daemon=$!
+
+# The name, not the process: a daemon that started and claimed nothing looks exactly
+# like a slow one otherwise.
+waited=0
+while ! dbus-send --bus="$address" --print-reply --dest=org.freedesktop.DBus \
+    /org/freedesktop/DBus org.freedesktop.DBus.GetNameOwner \
+    string:io.github.svesh87.Sombra >/dev/null 2>&1; do
+    waited=$((waited + 1))
+    if [ "$waited" -gt 100 ]; then
+        echo "the throwaway daemon never claimed its name" >&2
+        exit 1
+    fi
+    sleep 0.1
+done
+
+# The name is claimed before the first tick has taken any readings, and a console
 # photographed in that instant documents a machine with no temperature. The tick
 # counter is what to wait for rather than a reading: with no sample taken yet the
 # reply carries a temperature of zero, which any test on the digits accepts.
 waited=0
-while ! "$build/sombra" --socket "$socket" status 2>/dev/null | grep -q '"ticks":[1-9]'; do
+while ! "$build/sombra" --bus-address "$address" status 2>/dev/null \
+    | grep -q '"ticks":[1-9]'; do
     waited=$((waited + 1))
     if [ "$waited" -gt 100 ]; then
         echo "the throwaway daemon never took a reading" >&2
@@ -66,8 +95,8 @@ done
 # A live setting and a verdict, so the pictures show the console doing its job
 # rather than sitting at its defaults: the indicators on the first tab exist to
 # be seen.
-"$build/sombra" --socket "$socket" set pl1=17 >/dev/null
-"$build/sombra" --socket "$socket" mark good >/dev/null
+"$build/sombra" --bus-address "$address" set pl1=17 >/dev/null
+"$build/sombra" --bus-address "$address" mark good >/dev/null
 
 # English, whatever the language of the machine taking the pictures: the
 # documents around them are English, and a picture whose labels are not is a
@@ -80,4 +109,4 @@ done
 LC_ALL=C.UTF-8 LANGUAGE=en \
     QT_QPA_PLATFORM=offscreen \
     DBUS_SESSION_BUS_ADDRESS=unix:path=/nonexistent/sombra-screenshots-have-no-bus \
-    "$build/sombra-tray" --socket "$socket" --screenshot "$root/docs/screenshots"
+    "$build/sombra-tray" --bus-address "$address" --screenshot "$root/docs/screenshots"

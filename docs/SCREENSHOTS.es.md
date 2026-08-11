@@ -2,8 +2,8 @@
 
 # La interfaz
 
-Toda ella pertenece a `sombra-tray`. El demonio no tiene interfaz: responde en un
-socket y en tres nombres de D-Bus.
+Toda ella pertenece a `sombra-tray`. El demonio no tiene interfaz: responde en su
+propio nombre del bus del sistema y en tres más que los escritorios ya conocen.
 
 Aquí se dice qué muestra cada imagen y qué revisar antes de subir una nueva. Por
 qué la interfaz es así está en [DESIGN.es.md](DESIGN.es.md); el icono del panel se
@@ -99,6 +99,11 @@ incluidas las definiciones guardadas que una versión instalada más antigua no
 conocería. Se capturan nuestros propios widgets y no la pantalla, así que nada de
 lo que hubiera a la vista puede acabar aquí.
 
+Ese demonio se ejecuta en un bus propio, con un sustituto de polkit en él, porque
+toda orden que cambia algo se comprueba antes contra una acción, y en un bus
+privado no hay polkit al que preguntar. No se toca ni el bus real ni el demonio
+real.
+
 Las imágenes se toman en inglés sea cual sea el idioma de la máquina que las toma, y
 sus nombres de archivo vienen de los nombres internos de las pestañas y no de sus
 títulos: a un archivo llamado `console-ajustes.png` no lo enlaza ningún documento.
@@ -106,10 +111,12 @@ Cada imagen está ajustada a su propia pestaña, mientras que la ventana en uso
 mantiene el tamaño de la mayor: un solo tamaño para las cuatro llevaría un campo de
 nada debajo de las pestañas cortas.
 
-Antes de subir imágenes nuevas, míralas. La consola nombra la ruta del socket, y
-desde este guion siempre es `/tmp/sombra-screenshots/control.sock`, la de un solo
-uso. Ni el nombre de la máquina, ni el del usuario, ni una ruta del directorio
-personal de nadie tienen sitio en este repositorio.
+Antes de subir imágenes nuevas, míralas. En la ventana no hay ninguna ruta ni
+ningún nombre de máquina: la línea de estado dice si el demonio responde, y el
+nombre en el que responde es el mismo en todas partes. Eso es una propiedad de la
+interfaz tal como está hoy, no una garantía. Ni el nombre de la máquina, ni el
+del usuario, ni una ruta del directorio personal de nadie tienen sitio en este
+repositorio.
 
 **Un cambio en la interfaz no está terminado hasta que estas imágenes se vuelven a
 generar.** Una captura envejece en silencio: ninguna prueba lo detecta, y quien lee

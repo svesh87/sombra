@@ -101,7 +101,7 @@ void CliTest::daemonAppliesAModeAndExitsRestoring()
                            { QStringLiteral("--no-dbus"), QStringLiteral("--root"), tree.root(),
                              QStringLiteral("--ring"),
                              work.path() + QStringLiteral("/metrics.ring"),
-                                        QStringLiteral("--state"), work.path() + QStringLiteral("/state"),
+                             QStringLiteral("--state"), work.path() + QStringLiteral("/state"),
                              QStringLiteral("--config"), work.path() + QStringLiteral("/none.conf"),
                              QStringLiteral("--capacity"), QStringLiteral("0"),
                              QStringLiteral("--interval-ms"), QStringLiteral("0"),

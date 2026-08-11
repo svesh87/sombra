@@ -42,10 +42,16 @@ manera de pedir el punto intermedio. Este proyecto da ese punto.
   procesos escribiendo en los mismos nodos de sysfs no dan redundancia, sino un
   comportamiento que depende de quién llegue antes, así que `system76-power` se
   enmascara en vez de montar nada encima de él.
-- El demonio responde en los nombres estándar de D-Bus
+- Al demonio se lo maneja por un único nombre del bus del sistema,
+  `io.github.svesh87.Sombra`. Las lecturas y los ajustes son propiedades: un
+  cliente las lee una vez y luego se le avisa de lo que cambia. Todo lo que
+  cambia el estado es un método, y se comprueba contra una sola acción de polkit
+  que dice sí a quien está delante de esta pantalla sin preguntarle nada. Nadie
+  entra en ningún grupo y nadie escribe ninguna contraseña.
+- Por compatibilidad, el demonio responde además en los nombres estándar
   `net.hadess.PowerProfiles` y `org.freedesktop.UPower.PowerProfiles`, y en
-  `com.system76.PowerDaemon` por compatibilidad con el applet del panel de
-  COSMIC. Así siguen funcionando tanto el panel del escritorio como la bandeja.
+  `com.system76.PowerDaemon` para el applet del panel de COSMIC. Así sigue
+  funcionando el panel del escritorio.
 - Los márgenes se editan a través del demonio, desde la línea de órdenes o
   desde la bandeja, y el demonio las guarda en un archivo de texto propio. Se
   afinan analizando telemetría grabada, así que la herramienta que analiza tiene
@@ -121,14 +127,13 @@ Tres binarios, y el que se escribe es `sombra`.
 
 | Binario | Para qué sirve |
 |---|---|
-| `sombrad` | el demonio: aplica el modo, sigue al sensor de luz, graba telemetría, responde en los nombres de D-Bus |
+| `sombrad` | el demonio: aplica el modo, sigue al sensor de luz, graba telemetría, responde en `io.github.svesh87.Sombra` y en los nombres de perfiles de energía del escritorio |
 | `sombra` | control programable: elegir un modo, afinar en vivo, marcar un veredicto, leer el anillo de telemetría |
 | `sombra-tray` | la consola de experimentación |
 
 `sombra export` es un subcomando y no un programa aparte, y es el único que no
 pasa por el demonio: el anillo es un archivo, el demonio no guarda historial, y
-una semana de muestras no tiene nada que hacer viajando por un protocolo de
-líneas de texto.
+una semana de muestras no tiene nada que hacer viajando por un bus de mensajes.
 
 | Script | Para qué sirve |
 |---|---|
@@ -144,8 +149,8 @@ Instalada como `/usr/share/sombra/help/sombra-help.<idioma>.html`.
 El paquete instala páginas de manual, `sombra(1)`, `sombrad(8)` y
 `sombra-tray(1)`, y autocompletado para bash, zsh y fish. El autocompletado saca
 los verbos de un archivo estático y solo le pregunta al demonio los nombres de
-los modos, porque un tabulador que abre un socket es un tabulador que se cuelga
-cuando el demonio no está.
+los modos, porque un tabulador que espera una respuesta es un tabulador que se
+queda parado.
 
 Los valores que los modos traen compilados en el demonio salen de medidas hechas
 en una sola máquina y son un punto de partida, no un resultado. Están para
@@ -213,10 +218,21 @@ make gates      # lint, pruebas, el umbral de cobertura y git diff --check
 make package    # compila el .deb y comprueba lo que ha salido
 ```
 
-Un solo script hace todo el despliegue: compilar, instalar, entregar los
-controles y añadir su usuario al grupo. Compila con su usuario y eleva
-privilegios solo en las partes que necesitan root, y se niega a ejecutarse en
-una máquina que no sea el modelo en el que se verificó todo esto:
+Dos cosas sobre ejecutar esto desde el árbol de compilación en vez de desde el
+paquete. El demonio no puede quedarse con su nombre en el bus del sistema,
+porque para eso hace falta el archivo de política que instala el paquete, así que
+allí lo único que funciona es `--bus-address` y un bus propio; y en un bus así no
+hay polkit al que preguntar, de modo que se rechaza toda orden. Esa es la
+respuesta que se espera desde un árbol de compilación, no un defecto. Y la
+consola busca su icono en el tema de iconos, donde encuentra la copia instalada
+de una compilación más antigua o no encuentra nada; `SOMBRA_ICONS_DIR=desktop` la
+dirige a este árbol, igual que `SOMBRA_HELP_DIR=help` la dirige a estas páginas
+de ayuda.
+
+Un solo script hace todo el despliegue: compilar, instalar y entregar los
+controles. Compila con su usuario y eleva privilegios solo en las partes que
+necesitan root, y se niega a ejecutarse en una máquina que no sea el modelo en el
+que se verificó todo esto:
 
 ```bash
 ./scripts/install.sh
@@ -236,14 +252,14 @@ sudo dpkg -i build-package/sombra_*.deb
 sudo systemctl disable --now com.system76.PowerDaemon.service
 sudo systemctl mask com.system76.PowerDaemon.service
 sudo systemctl enable --now sombrad
-sudo usermod -aG sombra "$USER"    # cierra la sesión y vuelve a entrar, para la bandeja
 ```
 
-Que le añadan a un grupo con la sesión ya abierta no surte efecto hasta el
-siguiente inicio de sesión, y esa es la razón habitual de que la bandeja diga
-que el demonio no responde. El demonio entrega el socket a ese grupo él mismo,
-justo después de vincularlo, y no desde el archivo de unidad, donde competiría
-con su propia vinculación y fallaría en silencio.
+No hay ningún grupo al que entrar ni sesión que cerrar. El demonio responde en
+`io.github.svesh87.Sombra`, en el bus del sistema; el paquete instala un archivo
+de política del bus que dice que ese nombre es de root y que cualquiera puede
+hablar con él, y una acción de polkit que dice que quien está delante de esta
+pantalla puede manejarlo. Una sesión remota o inactiva no puede, y nunca se pide
+ninguna contraseña.
 
 `com.system76.PowerDaemon.service` es el nombre real de la unidad del
 fabricante. `system76-power.service` es solo un `Alias=` suyo, y enmascarar el
@@ -258,7 +274,7 @@ mando.
 ## Uso
 
 Las tres ranuras del panel del escritorio seleccionan los modos de este
-proyecto. Todo lo demás pasa por el socket:
+proyecto. Todo lo demás pasa por el bus:
 
 ```bash
 sombra status                   # lecturas y valores de consigna en JSON

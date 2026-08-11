@@ -128,7 +128,7 @@ struct BrightnessSettings {
 int brightnessClamp(const BrightnessSettings &settings, int level);
 
 // Applies one "key=value" of the settings vocabulary, on the same terms as
-// applyModeSetting(): one function for the file and for the socket, an unknown
+// applyModeSetting(): one function for the file and for the bus, an unknown
 // key or unusable value refused through `error`, a number outside its range
 // clamped with a line in `clamped`.
 bool applyBrightnessSetting(BrightnessSettings &settings, const QString &key,

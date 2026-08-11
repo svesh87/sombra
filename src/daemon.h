@@ -131,7 +131,7 @@ private:
     // The settings side of the protocol. Everything here writes the file, and
     // everything here validates exactly as the file's own parser does: a value
     // that could not be read back from the file must not be reachable through
-    // the socket either.
+    // the bus either.
     QString applyConfigCommand(const QStringList &parts);
     QString configModeCommand(const QStringList &parts);
     QString configBrightnessCommand(const QStringList &parts);

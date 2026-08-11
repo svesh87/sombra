@@ -2,20 +2,19 @@
 # /usr/share/fish/vendor_completions.d/sombra.fish.
 #
 # Verbs are listed here rather than asked of the daemon: completion runs on every
-# Tab, and a Tab that opens a socket is a Tab that hangs when the daemon is not
-# there. Mode names are the exception — nothing else knows them.
+# Tab, and a Tab that waits for an answer is a Tab that stalls. Mode names are the
+# exception — nothing else knows them. Asking is safe because a daemon that is not
+# there is an error that comes back at once: the name simply has no owner.
 
 function __sombra_ids --argument-names field
-    set -l socket /run/sombra/control.sock
-    test -S $socket; or return 0
-    sombra --socket $socket config show 2>/dev/null \
+    sombra config show 2>/dev/null \
         | string replace -r ".*\"$field\":\[(.*)" '$1' \
         | string match -ar '"id":"([^"]*)"' \
         | string match -v -r '^"id"'
 end
 
 complete -c sombra -f
-complete -c sombra -l socket -r -d 'Control socket'
+complete -c sombra -l bus-address -r -d 'Bus the daemon answers on'
 complete -c sombra -l help -d 'Usage'
 complete -c sombra -l version -d 'Version'
 

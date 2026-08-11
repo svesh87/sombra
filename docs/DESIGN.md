@@ -25,16 +25,64 @@ the project is, not what it used to be.
   the `system76-power.service` alias, because masking an alias leaves the real
   unit enabled and it returns at the next boot. Layering on top of it, and
   forking its source, are both rejected.
-- **Installing the package does not take ownership.** It creates the group the
-  tray needs, prints the two commands that hand the controls over, and stops
-  there — it enables nothing, starts nothing and masks nothing. Transferring
-  ownership of the thermal controls is a deliberate act with a rollback
-  procedure, not a side effect of `dpkg -i`, and the packaging test asserts it.
-- The daemon answers on `net.hadess.PowerProfiles` and
-  `org.freedesktop.UPower.PowerProfiles` (the standard public interface, and the
-  primary one) and on `com.system76.PowerDaemon` (vendor-specific, for the
-  COSMIC panel applet). The stock D-Bus policy already permits a root process to
-  own all three; it does not need editing.
+- **Installing the package does not take ownership.** It prints the two commands
+  that hand the controls over and stops there — it enables nothing, starts nothing
+  and masks nothing. Transferring ownership of the thermal controls is a
+  deliberate act with a rollback procedure, not a side effect of `dpkg -i`, and
+  the packaging test asserts it. Nothing is prepared for the console either: it
+  reaches the daemon over the bus, and who may drive it is a question polkit
+  answers.
+- **The control surface is one name on the system bus,
+  `io.github.svesh87.Sombra`.** A unix socket is the obvious alternative and it was
+  rejected: its permissions are a group plus a file mode, which costs one manual
+  step — `usermod -aG` and a fresh login — and that step would be the only thing
+  this project asks of a person. A bus policy file and a polkit action say the same
+  thing without anybody joining anything. There is one surface rather than both,
+  because two ways to say the same thing means two sets of rules about who may say
+  it.
+- **Everything that changes state is checked against one polkit action, with
+  interaction disabled.** `allow_active=yes`, `allow_inactive` and `allow_any` no:
+  the person at this screen is answered silently and a remote or inactive session is
+  refused. A password is never asked for. `auth_admin` in front of selecting a
+  quieter fan curve would be theatre — anybody already at the keyboard can reach
+  the same controls with a text editor — and a daemon that pops up a dialog when a
+  slider moves is a daemon nobody uses. One action rather than several, because
+  there is no difference between these commands that anybody would ever want to
+  answer differently.
+- **Readings and settings are properties; what changes state is a method.** A
+  client reads everything once with `GetAll` and is told what changes afterwards,
+  so the console polls nothing. The split matters: what moves every tick travels
+  as one dictionary, `Readings`, and everything that changes because somebody
+  changed it is a property of its own, so a new retention depth does not arrive as
+  part of a fan speed. `Readings` is a property rather than a signal because a
+  property can be asked for — `sombra status` does not wait for the next tick, and
+  `busctl get-property` shows the machine's state without anybody writing a
+  client.
+- **The daemon works without a bus and takes its name when one appears.** It owns
+  the thermal envelope; an unreachable bus costs a console, not the cooling. The
+  one condition it refuses to start over is another daemon already holding the
+  name: two owners of one control surface is what this architecture exists to
+  prevent.
+- **One vocabulary, two clients, and a daemon that parses it once.** The words
+  `sombra` takes and the words the console shows on its status line are the same
+  words, turned into a typed call in one place; the daemon turns a call back into
+  one of its own command lines, because that parser is where a value is validated,
+  clamped or refused. A typed path straight into the state would be a second set
+  of rules about what a value may be. Both directions have an inverse, and the
+  tests compare them — a mapping written twice is only trustworthy if the two
+  halves are checked against each other.
+- **The definition of the wire is one XML file, and a test holds the daemon to
+  it.** The adaptor is written by hand, because a method that waits for polkit has
+  to answer later than it returns and a generated adaptor cannot reach the message
+  it is answering. So a case reads the introspection off a running daemon and
+  compares it with `dbus/io.github.svesh87.Sombra.xml`: "described in one place"
+  is then a fact rather than a promise.
+- For compatibility the daemon also answers on `net.hadess.PowerProfiles` and
+  `org.freedesktop.UPower.PowerProfiles` (the standard public interface) and on
+  `com.system76.PowerDaemon` (vendor-specific, for the COSMIC panel applet). That
+  is a different surface with a different purpose, on a connection of its own: the
+  stock D-Bus policy already permits a root process to own those three, and they
+  say nothing about backlight, monitors or telemetry.
 - **Display brightness is never coupled to the thermal mode.** Altering the
   backlight on a profile switch is `system76-power` behaviour that this project
   treats as a defect, and restoring parity with the original on that point is
@@ -171,6 +219,9 @@ itself.
 - **The tray never writes the settings file itself.** It asks the daemon, on the
   same commands the command line sends. Two writers of one file is the same
   mistake as two owners of one control surface.
+- **What the daemon has saved is published, not asked for.** The definitions are a
+  property like everything else, so a mode edited from the command line reaches an
+  open console without it having to ask again.
 - **The panel icon is drawn rather than named.** Publishing a standard theme
   name would let the panel draw and recolour it, and it does not work: a
   StatusNotifierItem host prefers the name over the picture sent with it and

@@ -47,8 +47,9 @@ public:
 
     // Claims the names and exports the objects. Returns false with a reason
     // when the bus is unreachable or a name is already held; the daemon still
-    // runs, because the control socket is the primary interface and the D-Bus
-    // names are compatibility.
+    // runs, because these three are compatibility for the desktop's panel. The
+    // interface the console and the command line drive is `ControlBus`, and it
+    // is claimed separately, on a connection of its own.
     bool start(QString *error = nullptr);
 
     // Names successfully claimed, for the log line and for tests.

@@ -52,7 +52,7 @@ struct MetricsSettings {
 uint64_t retentionCapacity(int days);
 
 // The same three functions every other settings group has: one parser for the
-// file and for the socket, a reader for the section, and the writer that the
+// file and for the bus, a reader for the section, and the writer that the
 // round-trip test holds to it.
 bool applyMetricsSetting(MetricsSettings &settings, const QString &key, const QString &value,
                          QString *error, QStringList *clamped);

@@ -223,7 +223,7 @@ bool ModeTable::load(const QString &path, QStringList *problems)
 
         settings.beginGroup(group);
 
-        // Every key goes through the same function the socket uses, so the two
+        // Every key goes through the same function the bus uses, so the two
         // ways of setting a value cannot drift apart. What is not in the file
         // keeps the built-in starting value rather than being an error.
         Mode mode;

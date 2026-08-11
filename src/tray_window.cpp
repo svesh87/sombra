@@ -1056,7 +1056,7 @@ void TrayWindow::applyStatus(const TrayClient::Status &status)
 
     // Read once, when the daemon first answers: definitions change when
     // somebody changes them, so there is nothing to poll for. Queued because
-    // this is a blocking exchange on the socket whose reply is being handled.
+    // this is a blocking exchange on the bus whose reply is being handled.
     if (status.valid && !m_configuration.valid)
         QTimer::singleShot(0, this, &TrayWindow::reloadConfiguration);
 }
@@ -1450,8 +1450,8 @@ void TrayWindow::onConnectionChanged(bool connected)
 QString TrayWindow::connectionText() const
 {
     // Short, because this line is read at a glance and shares its room with the
-    // daemon's replies. The socket and the group are named in the tooltip: they
-    // are what a diagnosis needs and not what a glance does.
+    // daemon's replies. The name it answers on, and what to do when it does not, are
+    // in the tooltip: they are what a diagnosis needs and not what a glance does.
     return m_connected ? tr("Connected") : tr("The daemon is not answering");
 }
 

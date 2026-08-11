@@ -103,9 +103,10 @@ BusClient::BusClient(QString busAddress, QObject *parent)
 
     // The name having an owner is what "the daemon is running" means here. A timer
     // asking would answer the same question later and less often.
-    d->watcher = std::make_unique<QDBusServiceWatcher>(
-            service, d->connection,
-            QDBusServiceWatcher::WatchForRegistration | QDBusServiceWatcher::WatchForUnregistration);
+    d->watcher = std::make_unique<QDBusServiceWatcher>(service, d->connection,
+                                                       QDBusServiceWatcher::WatchForRegistration
+                                                               | QDBusServiceWatcher::
+                                                                       WatchForUnregistration);
     connect(d->watcher.get(), &QDBusServiceWatcher::serviceRegistered, this, [this]() {
         d->available = true;
         emit availabilityChanged(true);

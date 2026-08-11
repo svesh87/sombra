@@ -113,7 +113,8 @@ QVariantMap propertiesFrom(const QJsonObject &status, const QJsonObject &configu
     properties.insert(QString::fromLatin1(kReadings), readings);
     properties.insert(QStringLiteral("Mode"), status.value(QLatin1String("mode")).toString());
     properties.insert(QStringLiteral("Modes"),
-                      QVariant::fromValue(mapsFrom(status.value(QLatin1String("modes")).toArray())));
+                      QVariant::fromValue(
+                              mapsFrom(status.value(QLatin1String("modes")).toArray())));
     properties.insert(QStringLiteral("LiveTuning"),
                       status.value(QLatin1String("live_tuning")).toBool());
     properties.insert(QStringLiteral("Requested"),

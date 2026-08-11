@@ -549,7 +549,7 @@ bool DBusService::start(QString *error)
             qWarning().noquote() << "D-Bus name already held, leaving it alone:" << full;
     }
     // Holding some of the names is still useful: whichever panel binds to a
-    // claimed name keeps working, and the control socket is unaffected either
+    // claimed name keeps working, and the daemon's own interface is unaffected either
     // way. Holding none of them leaves nothing to answer on.
     if (d->claimed.isEmpty())
         return fail(QStringLiteral("every name is already held by another process"));

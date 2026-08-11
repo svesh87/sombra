@@ -38,7 +38,7 @@ int main(int argc, char **argv)
 {
     QCoreApplication app(argc, argv);
     QCoreApplication::setApplicationName(QStringLiteral("sombrad"));
-    QCoreApplication::setApplicationVersion(QStringLiteral("0.1.0"));
+    QCoreApplication::setApplicationVersion(QString::fromLatin1(SOMBRA_VERSION));
 
     QCommandLineParser parser;
     parser.setApplicationDescription(

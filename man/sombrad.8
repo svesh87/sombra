@@ -7,7 +7,7 @@ sombrad \- thermal, noise and backlight daemon for the ASUS Zenbook 14 UX3405MA
 .RI [ --config " " file ]
 .RI [ --state " " file ]
 .RI [ --ring " " file ]
-.RI [ --socket " " path ]
+.RI [ --bus-address " " address ]
 .RI [ --capacity " " records ]
 .RI [ --interval-ms " " ms ]
 .RI [ --max-ticks " " n ]
@@ -20,7 +20,7 @@ be tuned from data rather than from guesswork.
 It is the sole owner of the thermal controls. Two processes writing the same
 sysfs nodes produce race-dependent behaviour rather than redundancy, which is
 why the vendor daemon is masked rather than layered on top of, and why this one
-refuses to start when another is already answering on the socket.
+refuses to start when another is already answering on its bus name.
 .PP
 Setpoints are static per mode. There is no feedback controller: measurement
 showed static values handle both idle and sustained load. The emergency thermal
@@ -53,11 +53,11 @@ What survives a reboot. Default
 The telemetry ring. Default
 .IR /var/lib/sombra/metrics.ring .
 .TP
-.BI --socket " path"
-The control socket. Default
-.IR /run/sombra/control.sock ,
-handed to the group
-.BR sombra .
+.BI --bus-address " address"
+The bus to answer on. Empty, the default, means the system bus. An address points
+the daemon at a bus of its own and exists for testing; from a build tree that is
+the only thing that works, because claiming the name on the system bus needs the
+policy file this package installs.
 .TP
 .BI --capacity " records"
 Ring capacity in samples, overriding the retention in the settings file. Without
@@ -74,8 +74,8 @@ The sampling interval. Default 1000.
 Stop after this many ticks. Zero runs until signalled.
 .TP
 .B --no-dbus
-Do not claim the D-Bus names. For running a second instance beside the real one
-without disturbing the desktop.
+Do not claim the desktop power-profile names. Those are compatibility for the
+panel applet; the daemon's own interface is claimed either way.
 .SH SIGNALS
 .TP
 .B SIGTERM, SIGINT
@@ -85,7 +85,28 @@ path the daemon controls, and the unit's
 covers the one it does not: a fan left behind by a dead daemon is a defect, and
 nothing else will pick up after it.
 .SH D-BUS
-Answers on
+The daemon's own interface is
+.B io.github.svesh87.Sombra
+at
+.IR /io/github/svesh87/Sombra ,
+and it is the only way anything drives this daemon. Readings and settings are
+properties, so a client reads them once with
+.B GetAll
+and is told what changes afterwards; what moves every tick travels as one
+dictionary,
+.BR Readings ,
+and everything that changes when somebody changes it is a property of its own.
+Every method is checked against the polkit action
+.B io.github.svesh87.Sombra.manage
+with interaction disabled, so a dialog never appears:
+.B allow_active
+answers it or nothing does. The definition of the interface is installed as
+.IR /usr/share/dbus-1/interfaces/io.github.svesh87.Sombra.xml .
+.PP
+Without a bus the daemon still runs. It owns the thermal envelope, so it keeps
+managing the machine and claims the name once a bus appears.
+.PP
+For compatibility it also answers on
 .BR net.hadess.PowerProfiles " and " org.freedesktop.UPower.PowerProfiles
 — the standard interface, and the primary one — and on
 .B com.system76.PowerDaemon
@@ -109,7 +130,12 @@ off there stops the appending without touching the file.
 A ring this build cannot read, kept rather than deleted. One slot, replaced
 whenever another such ring is found.
 .TP
-.I /run/sombra/control.sock
+.I /usr/share/dbus-1/system.d/io.github.svesh87.Sombra.conf
+.TP
+.I /usr/share/polkit-1/actions/io.github.svesh87.Sombra.policy
+Who may own the name, who may talk to it, and what polkit decides about a caller.
+Without the first the daemon cannot claim its name; without the second every
+command is refused.
 .SH SEE ALSO
 .BR sombra (1),
 .BR sombra-tray (1)

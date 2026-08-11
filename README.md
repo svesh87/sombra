@@ -38,10 +38,16 @@ way to ask for the point in between. This project provides that point.
 - A single daemon owns every thermal and power control. Two processes writing
   the same sysfs nodes produce race-dependent behaviour, not redundancy, so
   `system76-power` is masked rather than layered on top.
-- The daemon answers on the standard `net.hadess.PowerProfiles` and
-  `org.freedesktop.UPower.PowerProfiles` D-Bus names, and on
-  `com.system76.PowerDaemon` for compatibility with the COSMIC panel applet.
-  Both the desktop panel and the tray therefore keep working.
+- Everything drives the daemon over one name on the system bus,
+  `io.github.svesh87.Sombra`. Readings and settings are properties, so a client
+  reads them once and is told what changes; everything that changes state is a
+  method, checked against a single polkit action that answers yes to the person at
+  this screen without asking them anything. Nobody joins a group and nobody types
+  a password.
+- For compatibility the daemon also answers on the standard
+  `net.hadess.PowerProfiles` and `org.freedesktop.UPower.PowerProfiles` names, and
+  on `com.system76.PowerDaemon` for the COSMIC panel applet. The desktop panel
+  therefore keeps working.
 - Envelopes are edited through the daemon, from the command line or the tray,
   and the daemon keeps them in a text file of its own. They are tuned by
   analysing recorded telemetry, so the tooling that does the analysing has to be
@@ -112,14 +118,14 @@ Three binaries, and the one you type is `sombra`.
 
 | Binary | Purpose |
 |---|---|
-| `sombrad` | the daemon: applies the mode, follows the light sensor, records telemetry, answers on the D-Bus names |
+| `sombrad` | the daemon: applies the mode, follows the light sensor, records telemetry, answers on `io.github.svesh87.Sombra` and on the desktop's power-profile names |
 | `sombra` | scriptable control: select a mode, tune live, stamp a verdict, read the telemetry ring |
 | `sombra-tray` | the experimentation console |
 
 `sombra export` is a subcommand rather than a program of its own, and it is the
 only one that does not go through the daemon: the ring is a file, the daemon
 keeps no history, and a week of samples has no business travelling through a
-line protocol.
+message bus.
 
 | Script | Purpose |
 |---|---|
@@ -134,8 +140,8 @@ window is built on, in the language the window is speaking. Installed as
 
 The package installs manual pages — `sombra(1)`, `sombrad(8)`, `sombra-tray(1)` —
 and shell completion for bash, zsh and fish. Completion lists the verbs from a
-static file and asks the daemon only for mode names, because a Tab that opens a
-socket is a Tab that hangs when the daemon is not there.
+static file and asks the daemon only for mode names, because a Tab that waits for
+an answer is a Tab that stalls.
 
 The mode numbers compiled into the daemon come from measurement on one machine
 and are a starting point, not a result. They are meant to be tuned from
@@ -201,10 +207,19 @@ make gates      # lint, tests, the coverage threshold and git diff --check
 make package    # builds the .deb and checks what came out of it
 ```
 
-One script does the whole rollout — build, install, hand the controls over, add
-you to the group. It builds as you and elevates only for the parts that need
-root, and it refuses to run on a machine that is not the model this was
-verified on:
+Two things about running from a build tree rather than from the package. The
+daemon cannot claim its name on the system bus, because that needs the policy
+file the package installs, so `--bus-address` and a bus of your own is the only
+thing that works there — and on such a bus polkit has nobody to answer, which
+means every command is refused. That is the expected answer out of a build tree
+rather than a defect. And the console looks for its icon in the icon theme, where
+it finds the installed copy of an older build or nothing at all;
+`SOMBRA_ICONS_DIR=desktop` points it at this tree, the same way
+`SOMBRA_HELP_DIR=help` points it at these help pages.
+
+One script does the whole rollout — build, install, hand the controls over. It
+builds as you and elevates only for the parts that need root, and it refuses to
+run on a machine that is not the model this was verified on:
 
 ```bash
 ./scripts/install.sh
@@ -224,13 +239,13 @@ sudo dpkg -i build-package/sombra_*.deb
 sudo systemctl disable --now com.system76.PowerDaemon.service
 sudo systemctl mask com.system76.PowerDaemon.service
 sudo systemctl enable --now sombrad
-sudo usermod -aG sombra "$USER"    # log out and back in, for the tray
 ```
 
-A group you were added to while logged in only takes effect after a fresh
-login, which is the usual reason the tray says the daemon is not answering. The
-daemon hands its socket to that group itself, right after binding it — not from
-the unit file, where it would race its own bind and fail silently.
+There is nothing to join and nothing to log out of. The daemon answers on
+`io.github.svesh87.Sombra` on the system bus; the package installs a bus policy
+file saying root owns that name and anybody may talk to it, and a polkit action
+saying the person at this screen may drive it. A remote or inactive session may not,
+and no password is ever asked for.
 
 `com.system76.PowerDaemon.service` is the vendor unit's real name.
 `system76-power.service` is only an `Alias=` of it, and masking the alias
@@ -244,7 +259,7 @@ same files, and the commands above are still what puts the daemon in charge.
 ## Using it
 
 The desktop panel's three slots select this project's modes. Everything else
-goes through the socket:
+goes through the bus:
 
 ```bash
 sombra status                   # readings and setpoints as JSON

@@ -23,8 +23,8 @@ namespace wire {
 inline constexpr const char *kService = "io.github.svesh87.Sombra";
 inline constexpr const char *kPath = "/io/github/svesh87/Sombra";
 inline constexpr const char *kInterface = "io.github.svesh87.Sombra";
-// One action for everything that changes state. `allow_active=yes`, so the person
-// at this screen is answered without a dialog and a remote or idle session is not.
+// One action for everything that changes state. `allow_active=yes`, so the person at
+// this screen is answered without a dialog and a remote or inactive session is not.
 inline constexpr const char *kAction = "io.github.svesh87.Sombra.manage";
 
 // The property whose value moves every tick. Everything else changes when

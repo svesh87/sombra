@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(sombra VERSION 0.1.0 LANGUAGES CXX)
+project(sombra VERSION 0.2.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -97,6 +97,13 @@ target_compile_options(sombra PRIVATE ${SOMBRA_WARNINGS})
 add_executable(sombra-tray src/tray_main.cpp)
 target_link_libraries(sombra-tray PRIVATE sombra_tray)
 target_compile_options(sombra-tray PRIVATE ${SOMBRA_WARNINGS})
+
+# What `--version` answers, taken from the project rather than written into each
+# main(): a number kept in four places is a number that eventually differs from the
+# one in debian/changelog, and nothing would catch it.
+foreach(binary sombrad sombra sombra-tray)
+    target_compile_definitions(${binary} PRIVATE SOMBRA_VERSION="${PROJECT_VERSION}")
+endforeach()
 
 include(CTest)
 if(BUILD_TESTING)

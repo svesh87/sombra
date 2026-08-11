@@ -175,7 +175,7 @@ int main(int argc, char **argv)
 {
     QCoreApplication app(argc, argv);
     QCoreApplication::setApplicationName(QStringLiteral("sombra"));
-    QCoreApplication::setApplicationVersion(QStringLiteral("0.1.0"));
+    QCoreApplication::setApplicationVersion(QString::fromLatin1(SOMBRA_VERSION));
 
     QStringList arguments = QCoreApplication::arguments();
     if (arguments.size() > 1 && arguments.at(1) == QLatin1String("export")) {
