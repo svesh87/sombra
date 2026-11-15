@@ -3,8 +3,9 @@
 # Agent rules
 
 `CLAUDE.md` is a symlink to this file — edit the real file only. This file holds
-rules that are stable over time. Work status, plans and findings belong in
-`tmp/`, never here.
+rules that are stable over time. Work status, plans and findings live on the
+task server (skills `task`, `plan`), never here; drafts, dumps and logs go to
+the task folder `~/git_repo/tasks/<id>/`.
 
 ## The project
 
@@ -19,8 +20,8 @@ anything that writes to sysfs.
 ## This repository is public
 
 - It contains conclusions and decisions, never the research process that
-  produced them. Investigation notes, drafts and audits live in `tmp/`, which
-  is not tracked.
+  produced them. Investigation notes, drafts and audits live on the task server
+  and in the task folder, outside the repository.
 - No personal data: no names beyond the copyright holder, no email addresses,
   no host names, no absolute paths from a developer's machine, no incident
   narratives.
@@ -139,8 +140,8 @@ marking tests as expected failures to satisfy the gates are all prohibited.
 ## Working with the maintainer
 
 - Non-trivial work starts with a draft plan marked "draft, awaiting approval"
-  (file naming and archival under the `tmp/` conventions below); execute only on
-  an explicit instruction.
+  (a task document, see the conventions below); execute only on an explicit
+  instruction.
 - Genuine forks in a plan — architecture, scope, external configuration — are
   raised in conversation *before* the plan is finalised, and the answers are
   written into the plan as settled decisions. Do not add a "questions" section
@@ -149,7 +150,7 @@ marking tests as expected failures to satisfy the gates are all prohibited.
   "change at review if you disagree".
 - Order of work: code -> documentation and code comments -> gates -> status
   edits (statuses and measured figures only *after* the gates confirm them) ->
-  a final consistency pass -> refresh `tmp/CONTEXT.md`.
+  a final consistency pass -> a `context` journal entry on the task.
 - Code comments are a work item like any document: give them their own plan step
   with a specific list of file plus anchor, not a line saying "update comments".
   Doc blocks, comments on constants, on controller thresholds and on sysfs paths
@@ -163,7 +164,8 @@ marking tests as expected failures to satisfy the gates are all prohibited.
 - The **last** step of any plan is a consistency pass across code, comments and
   documentation, fixing what it finds in place. Minimum scope: grep for
   terminology from superseded models; grep for edit-history residue ("used to",
-  "now", "no longer"); grep for references to `tmp/` from tracked files; check
+  "now", "no longer"); grep tracked files for references to the task folder,
+  task ids and `tmp/`; check
   every claim in the root documents against the code that implements it (sysfs
   paths, thresholds, units, partial-failure behaviour, restart behaviour);
   every `*.ru.md` copy against its English original; terminology consistency;
@@ -211,58 +213,63 @@ cheaper model on a short task can cost more than doing it in the main loop.
 ## Persisted working context
 
 Everything that is not yet a settled decision — investigation, measurements,
-reasoning, open questions — lives in files under `tmp/`, never only in a
+reasoning, open questions — lives on the task server, never only in a
 conversation. A session that ends with its findings only in chat has lost them.
+Open items of this repository live in its task "Доработки sombra" (T-6).
 
-- `tmp/CONTEXT.md` is a **snapshot of the current state**, rewritten at the end
-  of every iteration and before handing work back: what the project is doing
-  now, which decisions were taken and why, what is still open, which
+- The **state of the work** is a `context` journal entry on the task, added at
+  the end of every iteration and before handing work back: what the project is
+  doing now, which decisions were taken and why, what is still open, which
   measurements exist and where their raw data is, and the next concrete step.
-  It is a snapshot, not a log — the previous version goes to `tmp/old/`.
-- Anything in `tmp/CONTEXT.md` that has become a **stable decision must be
-  promoted** into `AGENTS.md`, `README.md` or `docs/HARDWARE.md`. Context files are
-  a staging area; if durable facts accumulate there instead, the public
-  documents stay empty and the project's real state becomes untransferable.
-- **`tmp/` is not tracked by git**, so a clone of this repository does not carry
-  it. Moving the work to another machine, or restoring it from a backup, means
-  copying `tmp/` alongside the repository as a separate step. Do not assume the
-  public remote preserves working context.
+  Longer reasoning and findings go into the task's documents.
+- Raw data, dumps, logs and scratch scripts go to the task folder
+  `~/git_repo/tasks/<id>/`. It is synced between machines but not backed up:
+  anything worth keeping moves into the repository.
+- Anything on the task that has become a **stable decision must be promoted**
+  into `AGENTS.md`, `README.md` or `docs/HARDWARE.md`. The task is a staging
+  area; if durable facts accumulate there instead, the public documents stay
+  empty and the project's real state becomes untransferable.
+- The task server and the task folder are outside the repository, so a clone
+  does not carry them. Do not assume the public remote preserves working
+  context.
 
-## Audits, fix plans and architecture notes (`tmp/` conventions)
+## Audits, fix plans and architecture notes (task documents)
 
-- An audit goes to `tmp/AUDIT_<AI_MODEL>_<date_time>.md`. Before writing a new
-  one, move previous audits *from the same model* to `tmp/old/`; leave other
-  models' audits alone.
-- A summary audit is assembled into `tmp/AUDIT_SUM_<date_time>.md` from recent
-  audits by different models, less than an hour old. Previous `AUDIT_SUM_*`
-  files move to `tmp/old/`.
+These are documents of the task on the task server. Every rewrite is a new
+revision of the same document, so nothing is moved to an archive.
+
+- An audit is a document `audit-<topic>-<ai-model>`. A repeat audit by the same
+  model is a new revision of its document; leave other models' audits alone.
+- A summary audit is assembled into `audit-sum-<topic>` from recent audits by
+  different models, less than an hour old.
 - Every audit emphasises simplicity, resistance to speculative extensibility,
   and the absence of surplus robustness. A finding of the form "add protection
   or extensibility for the future" is not a finding — it is a violation of the
   model.
-- Work plans go to `tmp/FIX_PLAN_<date_time>.md`; superseded plans move to
-  `tmp/old/`, and the current cycle's plan stays in `tmp/` until the next one
-  appears.
+- A work plan is a document `fix-plan-<date>`, written and reviewed through the
+  `plan` skill; its items are ticked on the server, not by rewriting the
+  document. The current cycle's plan is the newest one.
 - External remarks are never transferred into a plan unexamined, whatever their
   source. Verify each finding against the code for accuracy and against the
   simplicity criteria first. Findings that would require additional machinery,
   or that "align" things without a real discrepancy, become documentation-only
   items, reasoned rejections, or questions — not code.
-- On request, the full architecture description in
-  `tmp/ARCHITECTURE.md` is updated; copy the previous version to
-  `tmp/old/` first.
+- On request, the full architecture description, the document `architecture`,
+  is updated as a new revision.
 
 ## Repository rules
 
 - Do not commit or push without an explicit instruction.
-- Drafts, plans and temporary investigation belong in `tmp/` only. `tmp/old/` is
-  an archive, not a source of requirements.
-- Tracked files — code, tests, root documents — never reference `tmp/`: no
-  paths, no mentions of files that live there.
+- Drafts, plans and temporary investigation belong on the task server and in the
+  task folder, not in the repository. Earlier revisions of a document are
+  history, not a source of requirements.
+- Tracked files other than these rules — code, tests, root documents — never
+  reference the task server or the task folder: no paths, no task ids, no
+  mentions of documents that live there.
 - Clean up after yourself in the system `/tmp`: at the end of a session, remove
   files and directories created there during that session. Do not touch anything
   else in `/tmp`; other processes and people keep things there. This does not
-  apply to the repository's own `tmp/`.
+  apply to the task folder.
 - Never run local `sudo`, install packages, or perform OS-level setup
   automatically. If a dependency is missing, stop and ask.
 - Measurements on live hardware are performed by the maintainer. Never claim
